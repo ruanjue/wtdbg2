@@ -6,7 +6,7 @@ A fuzzy Bruijn graph (FBG) approach to long noisy reads assembly
 A challenge in assembling long noisy reads from third generation sequencing (TGS) is reducing its requirement of computing resource, especially for large genomes.
 To address this issue, I developed a novel sequence alignment algorithm and a new assembly graph for efficiently assembling large genomes using TGS data.
 
-* Alignment
+* Alignment <br>
 KBM: Kmer-BIN-Mapping.<br>
 KBM groups k-mers from each non-overlapped sliding 256 bp fragments in long reads into bins.
 Bins of which most k-mers are high frequency, are filtered as highly repetitive ones.
@@ -14,18 +14,18 @@ Then, KBM searches synteny of matched bin pairs in sequences in a dynamic progra
 A matched bin pair in two sequences is defined as two bins different by original but share a set of k-mers.
 The result of alignments in KBM have the same features of traditional sequence alignment, excepting the unit of KBM alignments is 256 bp bin instead of single base.
 
-* Assembly
+* Assembly <br>
 FBG: Fuzzy Bruijn Graph. <br>
 FBG is composed of vertices in length of 1024 bp from reads, and edges connecting vertices in their order on read paths.
 Comparing with DBG, the size of vertices in FBG are much bigger, thus won¡¯t be sensitive to small repeat.
 To tolerate high sequencing errors, FBG's vertices are found using gapped sequence alignments from KBM or other aligners, comparing with searching identical k-mers in DBG.
 
-* Why choose wtdbg in genome assembly
+* Why choose wtdbg in genome assembly <br>
 There are many assemblers for long noisy reads assembly, e.g. FALCON, CANU, miniasm, and SMARTdenovo (progenitor of wtdbg). If you have a genome of 10G bp or bigger in size,
 wtdbg is your first or even the only option. For small but complicated genomes (< 3 G), wtdbg was often reported to yield better assembly by my friends.
 Besides, KBM is easy to use when you are setting up a web-server for long reads mapping (see Example 2).
 
-* Limit of WTDBG
+* Limit of WTDBG <br>
 Max read length is 0x0003FFFFU (256 Kb), longer reads will be split. Max number of reads is 0x03FFFFFFU (64 M). If your data volume exceeds, please filter relative shorter reads.
 In KBM, max read length is 0xFFFFFFFFU (4 Gb), max number of reads is 0x0FFFFFFFU (256 M).
 Max number of threads is 4096. Cannot parallelly run in multiple nodes. Developed and tested in Linux-GCC only.
@@ -148,41 +148,41 @@ Decrease `--edge-min`. Try `--edge-min 2 --rescue-low-cov-edges`.
 
 ### output
 Suppose the prefix is `dbg`
-* dbg.1.dot
+* dbg.1.dot <br>
 DOT file for initialized graph
-* dbg.1.nodes
+* dbg.1.nodes <br>
 nodes and their positions in reads
-* dbg.1.reads
+* dbg.1.reads <br>
 reads and their nodes
-* dbg.2.dot
+* dbg.2.dot <br>
 DOT file after transitive reduction
-* dbg.3.dot
+* dbg.3.dot <br>
 DOT file after merging bubble and remove tips
-* dbg.alignments
+* dbg.alignments <br>
 KBMAP file, all vs all alignments
-* dbg.binkmer
+* dbg.binkmer <br>
 Distribution of number of k-mers in a BIN
-* dbg.closed_bins
+* dbg.closed_bins <br>
 Filtered BINs
 * dbg.clps
 Reads clip information. <br>
-COL1 read_name
-COL2 read_length
-COL3 keep_offset
+COL1 read_name <br>
+COL2 read_length <br>
+COL3 keep_offset <br>
 COL4 keep_length
-* dbg.ctg.dot
+* dbg.ctg.dot <br>
 DOT file for contigs
-* dbg.ctg.lay
+* dbg.ctg.lay <br>
 Contigs layout file. Will be read by `wtdbg-cns`. This file is the main result of `wtdbg`
-* dbg.events
+* dbg.events <br>
 Log file of graph simplification
-* dbg.frg.dot
+* dbg.frg.dot <br>
 DOT file for unitigs
-* dbg.frg.nodes
+* dbg.frg.nodes <br>
 unitigs and their nodes
-* dbg.kmerdep
+* dbg.kmerdep <br>
 Distribution of k-mer depth
-* STDERR stream
+* STDERR stream <br>
 wtdbg print runtime information on progrom's STDERR stream. `--quiet` to disiable it
 
 ## Consensus
@@ -200,9 +200,9 @@ http://datasets.pacb.com/2014/Human54x/fasta.html
 wtdbg-1.2.8 -t 96 -i pb.fa -fo dbg --tidy-reads 5000 --edge-min 2 --rescue-low-cov-edges
 ```
 * Contigs
-TOT 2978536704, CNT 8752, AVG 340327, MAX 11662848, N50 1925120, L50 453, N90 400128, L90 1727, Min 5120
+`TOT 2978536704, CNT 8752, AVG 340327, MAX 11662848, N50 1925120, L50 453, N90 400128, L90 1727, Min 5120`
 * Runtime
-real 6131.803 sec, user 201836.200 sec, sys 33956.790 sec, maxrss 117281672.0 kB, maxvsize 202422172.0 kB
+`real 6131.803 sec, user 201836.200 sec, sys 33956.790 sec, maxrss 117281672.0 kB, maxvsize 202422172.0 kB`
 
 ## Human (3G) CHM1 PacBio P6C4 dataset, 211.3 core.hours
 * Data Source
@@ -212,9 +212,9 @@ http://www.ebi.ac.uk/ena/data/view/PRJNA246220
 wtdbg-1.2.8 -t 96 -i wt.fa -fo dbg --tidy-reads 5000 --edge-min 4 --rescue-low-cov-edges
 ```
 * Contigs
-TOT 2964872448, CNT 1909, AVG 1553103, MAX 105310208, N50 23586816, L50 34, N90 3326976, L90 158, Min 5120
+`TOT 2964872448, CNT 1909, AVG 1553103, MAX 105310208, N50 23586816, L50 34, N90 3326976, L90 158, Min 5120`
 * Runtime
-real 16806.534 sec, user 681278.770 sec, sys 79371.630 sec, maxrss 264956752.0 kB, maxvsize 443356532.0 kB
+`real 16806.534 sec, user 681278.770 sec, sys 79371.630 sec, maxrss 264956752.0 kB, maxvsize 443356532.0 kB`
 
 ## Human (3G) NA12878 ONT dataset, 197.5 core.hours
 * Data Source
@@ -224,15 +224,15 @@ https://github.com/nanopore-wgs-consortium/NA12878
 wtdbg-1.2.8 -t 64 -i NA12878-ONT.fa.gz -fo dbg -S 2 --edge-min 2 --rescue-low-cov-edges
 ```
 * Contigs
-TOT 2827644928, CNT 19473, AVG 145209, MAX 31366400, N50 4540672, L50 162, N90 172800, L90 1111, Min 5120
+`TOT 2827644928, CNT 19473, AVG 145209, MAX 31366400, N50 4540672, L50 162, N90 172800, L90 1111, Min 5120`
 
 * Runtime
-real 14992.925 sec, user 649202.270 sec, sys 61638.300 sec, maxrss 256840096.0 kB, maxvsize 356668088.0 kB
+`real 14992.925 sec, user 649202.270 sec, sys 61638.300 sec, maxrss 256840096.0 kB, maxvsize 356668088.0 kB`
 
 # Citation
-TO be published.
+To be published. <br>
 URL **https://github.com/ruanjue/wtdbg-1.2.8/** <br>
 
 # Contact
-Jue Ruan <ruanjue@gmail.com>
+Jue Ruan <ruanjue@gmail.com> <br>
 Jue Ruan <ruanjue@caas.cn>
