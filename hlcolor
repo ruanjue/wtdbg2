@@ -1,0 +1,66 @@
+#!/bin/env perl
+#
+# Author: Jue Ruan
+#
+use strict;
+
+my $color = 35;
+
+my %fg_color_map = (black=>30, red=>31, green=>32, yellow=>33, blue=>34, magenta=>35, cyan=>36);
+
+my @pats = ();
+foreach my $pat (@ARGV){
+	if($pat=~/^(\S+)=(\S+?)$/){
+		if(exists $fg_color_map{$2}){
+			$color = $fg_color_map{$2};
+			push(@pats, [$1, $color]);
+		} else {
+			print STDERR "[hlcolor] unknown color \"$2\"\n";
+			push(@pats, [$1, $color]);
+		}
+	} else {
+		push(@pats, [$pat, $color]);
+	}
+}
+
+$| = 1;
+
+while(<STDIN>){
+	foreach my $pat (@pats){
+		s/($pat->[0])/\e[1;$pat->[1]m\1\e[0m/g;
+	}
+	print;
+}
+
+1;
+
+=pod
+function highlight() {
+	declare -A fg_color_map
+	fg_color_map[black]=30
+	fg_color_map[red]=31
+	fg_color_map[green]=32
+	fg_color_map[yellow]=33
+	fg_color_map[blue]=34
+	fg_color_map[magenta]=35
+	fg_color_map[cyan]=36
+
+	fg_c=$(echo -e "\e[1;${fg_color_map[$2]}m")
+	c_rs=$'\e[0m'
+	sed -u "s/$1/$fg_c\0$c_rs/g"
+}
+
+if [ -z $1 ]; then
+	echo "Usage: $0 <sed_regex_pattern> <color:black,red,green,yellow,blue,magenta,cyan>"
+	exit
+fi
+
+PAT=$1
+COLOR=$2
+
+if [ -z $COLOR ]; then
+	COLOR=magenta
+fi
+
+highlight $PAT $COLOR
+=cut
