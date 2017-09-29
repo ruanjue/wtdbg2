@@ -1,8 +1,8 @@
-#WTDBG
+# WTDBG
 
 A fuzzy Bruijn graph (FBG) approach to long noisy reads assembly
 
-#Introduction
+# Introductio
 A challenge in assembling long noisy reads from third generation sequencing (TGS) is reducing its requirement of computing resource, especially for large genomes.
 To address this issue, I developed a novel sequence alignment algorithm and a new assembly graph for efficiently assembling large genomes using TGS data.
 
@@ -31,14 +31,14 @@ In KBM, max read length is 0xFFFFFFFFU (4 Gb), max number of reads is 0x0FFFFFFF
 Max number of threads is 4096. Cannot parallelly run in multiple nodes. Developed and tested in Linux-GCC only.
 Only accepts fasta/fastq format for input, '.gz' suffixed files will be piped by `gzip -dc`.
 
-#Installation
+# Installation
 ```sh
 git clone https://github.com/ruanjue/wtdbg-1.2.8.git
 cd wtdbg-1.2.8
 make
 ```
 
-#Long reads mapping
+# Long reads mapping
 
 Supposes you have `hg19.fa` as reference sequences, and `reads.fq.gz` as query sequences.
 ## Example 1
@@ -46,7 +46,7 @@ Supposes you have `hg19.fa` as reference sequences, and `reads.fq.gz` as query s
 kbm-1.2.8 -t 64 -d hg19.fa -i reads.fa.gz -o reads.kbmap
 
 ```
-###output format
+### output format
 * COL1  `qry_name`
 * COL2  `qry_strand`
 * COL3  `qry_length`
