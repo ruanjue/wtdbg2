@@ -130,7 +130,7 @@ if [[ $EXEC_CMD > 0 ]]; then
 fi
 
 echo "### assembling"
-CMD="wtdbg-$PVER -t $NCPU -i $READS --tidy-reads 5000 -fo $PREFIX -k $WT_k -p $WT_P -S $WT_S --rescure-low-cov-edges"
+CMD="wtdbg-$PVER -t $NCPU -i $READS --tidy-reads 5000 -fo $PREFIX -k $WT_k -p $WT_P -S $WT_S --rescue-low-cov-edges"
 if [[ $STEP < 1 ]]; then
 echo $CMD
 if [[ $EXEC_CMD > 0 ]] ; then
