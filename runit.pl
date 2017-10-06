@@ -30,7 +30,9 @@ my $maxvsz = 0;
 
 my %exclusive = ();
 if($RUNITALL){
-	%exclusive = map {$_=>1} &get_user_all_process();
+	for my $proc (&get_user_all_process()){
+		$exclusive{$proc->[0]} = 1;
+	}
 }
 my %procs = ();
 
@@ -55,11 +57,12 @@ if(fork() == 0){
 while(1){
 	my $mrss = 0;
 	my $mvsz = 0;
-	foreach my $pid ($RUNITALL? &get_user_all_process() : &get_child_process($PID)){
+	foreach my $proc ($RUNITALL? &get_user_all_process() : &get_child_process($PID)){
+		my ($pid, $cm) = @{$proc};
 		next if($exclusive{$pid});
 		my ($fail, $ut, $st, $rss, $vsz) = &get_linux_proc_info($pid);
 		next if($fail);
-		$procs{$pid} = [$ut, $st];
+		$procs{$pid} = [$ut, $st, $cm];
 		$mrss += $rss;
 		$mvsz += $vsz;
 	}
@@ -80,9 +83,9 @@ while(1){
 my $endtime = Time::HiRes::time;
 $rtime = $endtime - $begtime;
 
-foreach my $pid (keys %procs){
+foreach my $pid (sort {$a <=> $b} keys %procs){
 	next if($exclusive{$pid});
-	print STDERR " -- STAT PID($pid): $procs{$pid}[0] $procs{$pid}[1]\n";
+	print STDERR " -- STAT PID($pid): $procs{$pid}[0]\t$procs{$pid}[1]\t$procs{$pid}[2]\n";
 	$utime += $procs{$pid}[0];
 	$stime += $procs{$pid}[1];
 }
@@ -122,25 +125,24 @@ sub get_linux_sys_info {
 }
 
 sub get_child_process {
-	my $pid = shift;
 	my @pids = ();
-	if(open(IN, "ps -o pid --no-headers --ppid $pid 2>/dev/null |")){
+	if(open(IN, "ps -o pid,cmd --no-headers --ppid $PID 2>/dev/null |")){
 		while(<IN>){
-			chomp;
-			push(@pids, $_);
+			my @ts = split;
+			push(@pids, \@ts);
 		}
 		close IN;
 	}
-	push(@pids, $pid);
+	push(@pids, [$PID, $cmd]);
 	return @pids;
 }
 
 sub get_user_all_process {
 	my @pids = ();
-	if(open(IN, "ps -o pid --no-headers --user $USER 2>/dev/null |")){
+	if(open(IN, "ps -o pid,cmd --no-headers --user $USER 2>/dev/null |")){
 		while(<IN>){
-			chomp;
-			push(@pids, $_);
+			my @ts = split;
+			push(@pids, \@ts);
 		}
 		close IN;
 	}
