@@ -30,7 +30,7 @@ my $maxvsz = 0;
 
 my %exclusive = ();
 if($RUNITALL){
-	for my $proc (&get_user_all_process()){
+	for my $proc (&get_all_process()){
 		$exclusive{$proc->[0]} = 1;
 	}
 }
@@ -57,12 +57,18 @@ if(fork() == 0){
 while(1){
 	my $mrss = 0;
 	my $mvsz = 0;
-	foreach my $proc ($RUNITALL? &get_user_all_process() : &get_child_process($PID)){
+	foreach my $proc (&get_all_process()){
 		my ($pid, $cm) = @{$proc};
 		next if($exclusive{$pid});
 		my ($fail, $ut, $st, $rss, $vsz) = &get_linux_proc_info($pid);
 		next if($fail);
-		$procs{$pid} = [$ut, $st, $cm];
+		if(exists $procs{$pid}){
+			$procs{$pid}[0] = $ut;
+			$procs{$pid}[1] = $st;
+		} else {
+			print STDERR " -- RUNIT PID($pid): $cm\n";
+			$procs{$pid} = [$ut, $st, $cm];
+		}
 		$mrss += $rss;
 		$mvsz += $vsz;
 	}
@@ -71,7 +77,7 @@ while(1){
 	$maxvsz = $mvsz if($mvsz > $maxvsz);
 	my $res = waitpid($PID, WNOHANG);
 	if($res == -1){
-		print STDERR "** Error ", ($? >> 8), "\n";
+		print STDERR " ** Error ", ($? >> 8), "\n";
 		last;
 	} elsif($res){
 		$retval = $? >> 8;
@@ -124,27 +130,33 @@ sub get_linux_sys_info {
 	close IN;
 }
 
-sub get_child_process {
+sub get_all_process {
+	my %ps = ();
 	my @pids = ();
-	if(open(IN, "ps -o pid,cmd --no-headers --ppid $PID 2>/dev/null |")){
+	if(my $psid = open(IN, "ps -o ppid,pid,cmd --no-headers --user $USER 2>/dev/null |")){
 		while(<IN>){
-			my @ts = split;
-			push(@pids, \@ts);
+			chomp;
+			my @ts = split /\s+/, $_, 3;
+			next if($ts[1] == $psid);
+			if($RUNITALL){
+				push(@pids, [$ts[1], $ts[2], []]);
+			} else {
+				$ps{$ts[1]} = [$ts[2], []];
+				push(@{$ps{$ts[0]}[1]}, $ts[1]);
+			}
 		}
 		close IN;
 	}
-	push(@pids, [$PID, $cmd]);
-	return @pids;
-}
-
-sub get_user_all_process {
-	my @pids = ();
-	if(open(IN, "ps -o pid,cmd --no-headers --user $USER 2>/dev/null |")){
-		while(<IN>){
-			my @ts = split;
-			push(@pids, \@ts);
+	if($RUNITALL){
+	} else {
+		my @stack = ($PID);
+		while(@stack){
+			my $pid = pop @stack;
+			next unless(exists $ps{$pid});
+			my $p = $ps{$pid};
+			push(@pids, [$pid, $p->[0]]);
+			push(@stack, @{$p->[1]});
 		}
-		close IN;
 	}
 	return @pids;
 }
