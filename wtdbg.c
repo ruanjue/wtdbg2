@@ -6535,6 +6535,7 @@ int main(int argc, char **argv){
 	if(ncpu <= 0 && _sig_proc_deamon) ncpu = _sig_proc_deamon->ncpu;
 	if(ncpu <= 0){
 		fprintf(stderr, " -- Invalid cpu number '%d' in %s -- %s:%d --\n", ncpu, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+		return 1;
 	}
 	if(load_kbm){
 		fprintf(KBM_LOGF, "[%s] loading kbm index from %s\n", date(), load_kbm);

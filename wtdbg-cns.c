@@ -486,6 +486,11 @@ int main(int argc, char **argv){
 	if(cns_model != MCNS_TASK_DBGCNS && cns_model != MCNS_TASK_DAGCNS){
 		return usage();
 	}
+	if(ncpu <= 0 && _sig_proc_deamon) ncpu = _sig_proc_deamon->ncpu;
+	if(ncpu <= 0){
+		fprintf(stderr, " -- Invalid cpu number '%d' in %s -- %s:%d --\n", ncpu, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+		return 1;
+	}
 	if(outf && !overwrite && file_exists(outf)){
 		fprintf(stderr, "File exists! '%s'\n\n", outf);
 		return usage();
