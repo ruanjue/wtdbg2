@@ -58,7 +58,7 @@ while(1){
 	my $mrss = 0;
 	my $mvsz = 0;
 	foreach my $proc (&get_all_process()){
-		my ($pid, $cm) = @{$proc};
+		my ($pid, $cm, $ppid) = @{$proc};
 		next if($exclusive{$pid});
 		my ($fail, $ut, $st, $rss, $vsz) = &get_linux_proc_info($pid);
 		next if($fail);
@@ -66,8 +66,8 @@ while(1){
 			$procs{$pid}[0] = $ut;
 			$procs{$pid}[1] = $st;
 		} else {
-			print STDERR " -- RUNIT PID($pid): $cm\n";
-			$procs{$pid} = [$ut, $st, $cm];
+			print STDERR " -- RUNIT PID($pid): $ppid\t$cm\n";
+			$procs{$pid} = [$ut, $st, $cm, $ppid];
 		}
 		$mrss += $rss;
 		$mvsz += $vsz;
@@ -91,7 +91,7 @@ $rtime = $endtime - $begtime;
 
 foreach my $pid (sort {$a <=> $b} keys %procs){
 	next if($exclusive{$pid});
-	print STDERR " -- STAT PID($pid): $procs{$pid}[0]\t$procs{$pid}[1]\t$procs{$pid}[2]\n";
+	print STDERR " -- STAT PID($pid): $procs{$pid}[3]\t$procs{$pid}[0]\t$procs{$pid}[1]\t$procs{$pid}[2]\n";
 	$utime += $procs{$pid}[0];
 	$stime += $procs{$pid}[1];
 }
@@ -140,10 +140,10 @@ sub get_all_process {
 			my @ts = split /\s+/, $_, 3;
 			next if($ts[1] == $psid);
 			if($RUNITALL){
-				push(@pids, [$ts[1], $ts[2], []]);
+				push(@pids, [$ts[1], $ts[2], $ts[0]]);
 			} else {
-				$ps{$ts[1]} = [$ts[2], []];
-				push(@{$ps{$ts[0]}[1]}, $ts[1]);
+				$ps{$ts[1]} = [$ts[2], $ts[0], []];
+				push(@{$ps{$ts[0]}[2]}, $ts[1]);
 			}
 		}
 		close IN;
@@ -155,8 +155,8 @@ sub get_all_process {
 			my $pid = pop @stack;
 			next unless(exists $ps{$pid});
 			my $p = $ps{$pid};
-			push(@pids, [$pid, $p->[0]]);
-			push(@stack, @{$p->[1]});
+			push(@pids, [$pid, $p->[0], $p->[1]]);
+			push(@stack, @{$p->[2]});
 		}
 	}
 	return @pids;
