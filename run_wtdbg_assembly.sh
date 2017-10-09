@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Author: Jue Ruan
+# Author: Jue Ruan <ruanjue@gmail.com>
 #
 
 
@@ -16,6 +16,7 @@ Options:
  -p <int>    See wtdbg -h, [21]
  -T          Print commands and exit
  -f          force overwrite
+ -P <string> Path of wtdbg and kbm
 EOF
 }
 
@@ -38,7 +39,7 @@ OVERWRITE=0
 STEP=0
 EXEC_CMD=1
 
-while getopts "h?fTi:o:t:S:k:p:" opt; do
+while getopts "h?fTi:o:t:S:k:p:P:" opt; do
 	case "$opt" in
 	h|\?)
 		print_usage
@@ -67,6 +68,9 @@ while getopts "h?fTi:o:t:S:k:p:" opt; do
 		;;
 	T)
 		EXEC_CMD=0
+		;;
+	P)
+		export PATH="$OPTARG:$PATH"
 		;;
 	*)
 		echo "Unknown paramemter"
