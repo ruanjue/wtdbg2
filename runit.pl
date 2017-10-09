@@ -17,7 +17,7 @@ $cmd=~s/\s+$//;
 &usage unless($cmd);
 
 my $pagesize = POSIX::sysconf(POSIX::_SC_PAGESIZE);
-my $sleep_inv = 1000; # mircoseconds
+my $sleep_inv = 1000000; # in mircoseconds
 
 my $maxram = 0; # kb
 my $maxcpu = 0;
@@ -182,6 +182,9 @@ sub get_linux_proc_info {
 		close IN;
 	} else {
 		$fail = 1;
+	}
+	if($fail){
+		print STDERR " ** FAIL STAT($pid)\n";
 	}
 	return ($fail, $ut, $st, $rss, $vsz);
 }
