@@ -106,7 +106,8 @@ printf STDERR " -- maxvsz    %16.3f kB\n", $maxvsz;
 1;
 
 sub usage {
-	print qq{$0 \$'commands'\n};
+	print qq{Lanuch program and minitor the cputime and ram usage of it and its childs\n};
+	print qq{Usage: $0 \$'commands'\n};
 	exit 1;
 }
 
