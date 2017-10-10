@@ -38,10 +38,16 @@ my %procs = ();
 
 &get_linux_sys_info();
 
-print STDERR " -- Total memory $maxram kB\n";
-print STDERR " -- $maxcpu cores\n";
-print STDERR " -- CMD: $cmd\n";
-print STDERR " --\n";
+print STDERR " --------------------------------------------------------------------------------\n";
+print STDERR " -- runit.pl is a program lanucher and minitor written by Jue Ruan <ruanjue\@gmail.com>\n";
+print STDERR " -- RAM : $maxram kB\n";
+print STDERR " -- CPU : $maxcpu cores\n";
+print STDERR " -- SYS : ", `uname -a`;
+print STDERR " -- USER: $USER\n";
+print STDERR " -- DATE: ", `date`;
+print STDERR " -- PWD : ", `pwd`;
+print STDERR " -- CMD : $cmd\n";
+print STDERR " --------------------------------------------------------------------------------\n";
 
 my $PID = open(READ, "$cmd |") or die("Cannot invoke commands: $!");
 
@@ -96,12 +102,14 @@ foreach my $pid (sort {$a <=> $b} keys %procs){
 	$stime += $procs{$pid}[1];
 }
 
+print STDERR " --------------------------------------------------------------------------------\n";
 printf STDERR " -- retval    %16d\n", $retval;
 printf STDERR " -- real      %16.3f\n", $rtime;
 printf STDERR " -- user      %16.3f\n", $utime;
 printf STDERR " -- sys       %16.3f\n", $stime;
 printf STDERR " -- maxrss    %16.3f kB\n", $maxrss;
 printf STDERR " -- maxvsz    %16.3f kB\n", $maxvsz;
+print STDERR " --------------------------------------------------------------------------------\n";
 
 1;
 
