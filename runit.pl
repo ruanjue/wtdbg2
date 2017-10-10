@@ -150,7 +150,9 @@ sub get_all_process {
 			if($RUNITALL){
 				push(@pids, [$ts[1], $ts[2], $ts[0]]);
 			} else {
-				$ps{$ts[1]} = [$ts[2], $ts[0], []];
+				$ps{$ts[1]}[0] = $ts[2];
+				$ps{$ts[1]}[1] = $ts[0];
+				$ps{$ts[1]}[2] = [] if(not defined $ps{$ts[1]}[2]);
 				push(@{$ps{$ts[0]}[2]}, $ts[1]);
 			}
 		}
