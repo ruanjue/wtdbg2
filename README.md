@@ -2,7 +2,7 @@
 
 A fuzzy Bruijn graph (FBG) approach to long noisy reads assembly
 
-# Introductio
+# Introduction
 A challenge in assembling long noisy reads from third generation sequencing (TGS) is reducing its requirement of computing resource, especially for large genomes.
 To address this issue, I developed a novel sequence alignment algorithm and a new assembly graph for efficiently assembling large genomes using TGS data.
 
@@ -25,10 +25,13 @@ There are many assemblers for long noisy reads assembly, e.g. FALCON, CANU, mini
 wtdbg is your first or even the only option. For small but complicated genomes (< 3 G), wtdbg was often reported to yield better assembly by my friends.
 Besides, KBM is easy to use when you are setting up a web-server for long reads mapping (see Example 2).
 
-* Limit of WTDBG <br>
-Max read length is 0x0003FFFFU (256 Kb), longer reads will be split. Max number of reads is 0x03FFFFFFU (64 M). If your data volume exceeds, please filter relative shorter reads.
-In KBM, max read length is 0xFFFFFFFFU (4 Gb), max number of reads is 0x0FFFFFFFU (256 M).
-Max number of threads is 4096. Cannot parallelly run in multiple nodes. Developed and tested in Linux-GCC only.
+* Limitation <br>
+Max read length is 0x0003FFFFU (256 Kb), longer reads will be split. <br>
+Max number of reads is 0x03FFFFFFU (64 M). If your data volume exceeds, please filter relative shorter reads. <br>
+In KBM, max read length is 0xFFFFFFFFU (4 Gb), max number of reads is 0x0FFFFFFFU (256 M). <br>
+Max number of threads is 4096. <br>
+Cannot parallelly run in multiple nodes. But you can implement it simplely using `kbm` and `wtdbg --load-alignments` <br>
+Developed and tested in Linux-GCC only. <br>
 Only accepts fasta/fastq format for input, '.gz' suffixed files will be piped by `gzip -dc`.
 
 # Installation
