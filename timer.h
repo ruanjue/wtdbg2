@@ -20,7 +20,7 @@
 #ifndef __TIMER_RJ_H
 #define __TIMER_RJ_H
 #include <time.h>
-#include <sys/times.h>
+//#include <sys/times.h>
 #include <sys/time.h>
 #include <sys/signal.h>
 #include <errno.h>

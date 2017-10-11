@@ -26,11 +26,11 @@
 #include <endian.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <sys/times.h>
+//#include <sys/times.h>
 #include <sys/time.h>
 #include <sys/signal.h>
-#include <sys/resource.h>
-#include <sys/sysinfo.h>
+//#include <sys/resource.h>
+//#include <sys/sysinfo.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
