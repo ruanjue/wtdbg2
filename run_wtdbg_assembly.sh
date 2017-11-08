@@ -158,7 +158,7 @@ else
 fi
 
 echo "### mapping"
-CMD="kbm-$PVER -t $NCPU -d $PREFIX.ctg.lay.fa -i $READS -k $WT_K -p $WT_P -S $WT_S -O 0 | best_kbm_hit.pl | awk '{print \$6\"\t\"\$9\"\t\"\$10\"\t\"\$1\"\t\"\$2\"\t\"\$4\"\t\"\$5}' >$PREFIX.map"
+CMD="kbm-$PVER -t $NCPU -d $PREFIX.ctg.lay.fa -i $READS -k $WT_k -p $WT_P -S $WT_S -O 0 | best_kbm_hit.pl | awk '{print \$6\"\t\"\$9\"\t\"\$10\"\t\"\$1\"\t\"\$2\"\t\"\$4\"\t\"\$5}' >$PREFIX.map"
 if [[ $STEP < 3 ]]; then
 echo $CMD
 if [ $EXEC_CMD -gt 0 ] ; then
