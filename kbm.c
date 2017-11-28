@@ -36,10 +36,10 @@ int kbm_usage(){
 	fprintf(stdout, "             then `cat 1.fq >pipe; cat 2.fq >pipe`, fastq format is better in interaction\n");
 	fprintf(stdout, " -f          Force overwrite\n");
 	fprintf(stdout, " -t <int>    Number of threads, 0: all cores, [1]\n");
-	fprintf(stdout, " -k <int>    Kmer-f size, <= 25, [0]\n");
-	fprintf(stdout, " -p <int>    Kmer-p size, <= 25, [21]\n");
+	fprintf(stdout, " -k <int>    Kmer-f size, <= %d, [0]\n", KBM_MAX_KSIZE);
+	fprintf(stdout, " -p <int>    Kmer-p size, <= %d, [21]\n", KBM_MAX_KSIZE);
 	fprintf(stdout, " -K <float>  Filter high frequency kmers, maybe repetitive, [1000]\n");
-	fprintf(stdout, "             if K >= 1, take the integer value as cutoff\n");
+	fprintf(stdout, "             if K >= 1, take the integer value as cutoff, MUST <= 65535\n");
 	fprintf(stdout, "             else, mask the top fraction part high frequency kmers\n");
 	fprintf(stdout, " -E <int>    Min kmer frequency, [1]\n");
 	fprintf(stdout, " -F          Filter low frequency kmers by a 4G-bytes array (max_occ=3 2-bits). Here, -E must greater than 1\n");
@@ -216,8 +216,8 @@ int kbm_main(int argc, char **argv){
 		dup2(devnull, KBM_LOGFNO);
 	}
 	BEG_STAT_PROC_INFO(KBM_LOGF, argc, argv);
-	if(par->ksize + par->psize > 25){
-		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > 25 in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize,  __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+	if(par->ksize + par->psize > KBM_MAX_KSIZE){
+		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > %d in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize,  KBM_MAX_KSIZE, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		return 1;
 	}
 	out = open_file_for_write(outf, NULL, overwrite);
@@ -350,30 +350,87 @@ int kbm_main(int argc, char **argv){
 	maln->interactive = interactive;
 	thread_end_init(maln);
 	if(qrys->size){
+		int run_mode;
 		fr = open_all_filereader(qrys->size, qrys->buffer, buffered_read);
+		run_mode = 0;
+		if(readline_filereader(fr) > 0){
+			if(strcasecmp(fr->line->string, "#pairwise_test") == 0){
+				run_mode = 1;
+			} else if(strcasecmp(fr->line->string, "#print_exists") == 0){
+				run_mode = 2;
+			}
+			rollback_filereader(fr);
+		}
 		seq = init_biosequence();
 		qidx = 0;
 		nhit = 0;
-		while(readseq_filereader(fr, seq)){
-			if((qidx % 100) == 0){
-				fprintf(KBM_LOGF, "\r%u\t%llu", qidx, nhit); fflush(KBM_LOGF);
-			}
-			thread_wait_one(maln);
-			if(maln->rdlen && !maln->interactive){
-				aux = maln->aux;
-				for(i=0;i<aux->hits->size;i++){
-					fprint_hit_kbm(aux, i, out);
+		if(run_mode == 0){
+			while(readseq_filereader(fr, seq)){
+				if((qidx % 100) == 0){
+					fprintf(KBM_LOGF, "\r%u\t%llu", qidx, nhit); fflush(KBM_LOGF);
 				}
-				nhit += aux->hits->size;
+				thread_wait_one(maln);
+				if(maln->rdlen && !maln->interactive){
+					aux = maln->aux;
+					for(i=0;i<aux->hits->size;i++){
+						fprint_hit_kbm(aux, i, out);
+					}
+					nhit += aux->hits->size;
+				}
+				clear_basebank(maln->rdseqs);
+				seq2basebank(maln->rdseqs, seq->seq->string, seq->seq->size);
+				clear_string(maln->rdtag);
+				append_string(maln->rdtag, seq->tag->string, seq->tag->size);
+				maln->qidx = qidx ++;
+				maln->rdoff = 0;
+				maln->rdlen = seq->seq->size;
+				thread_wake(maln);
 			}
-			clear_basebank(maln->rdseqs);
-			seq2basebank(maln->rdseqs, seq->seq->string, seq->seq->size);
-			clear_string(maln->rdtag);
-			append_string(maln->rdtag, seq->tag->string, seq->tag->size);
-			maln->qidx = qidx ++;
-			maln->rdoff = 0;
-			maln->rdlen = seq->seq->size;
-			thread_wake(maln);
+		} else if(run_mode == 1){
+			int nc;
+			u4i tidx;
+			thread_beg_operate(maln, 0);
+			aux = maln->aux;
+			free_basebank(maln->rdseqs);
+			maln->rdseqs = kbm->rdseqs;
+			while((nc = readtable_filereader(fr)) >= 0){
+				if(nc < 2) continue;
+				qidx = getval_cuhash(kbm->tag2idx, get_col_str(fr, 0));
+				tidx = getval_cuhash(kbm->tag2idx, get_col_str(fr, 1));
+				if(qidx == MAX_U4 || tidx == MAX_U4) continue;
+				if(qidx > tidx){ swap_var(qidx, tidx); }
+				maln->qidx = qidx;
+				maln->rdoff = kbm->reads->buffer[qidx].rdoff;
+				maln->rdlen = kbm->reads->buffer[qidx].rdlen;
+				aux->bmin = kbm->reads->buffer[tidx].binoff;
+				aux->bmax = kbm->reads->buffer[tidx].binoff + kbm->reads->buffer[tidx].bincnt;
+				fprintf(out, "%s <-> %s\n", kbm->reads->buffer[qidx].tag, kbm->reads->buffer[tidx].tag);
+				thread_wake(maln);
+				thread_wait(maln);
+				if(maln->rdlen && !maln->interactive){
+					for(i=0;i<aux->hits->size;i++){
+						fprint_hit_kbm(aux, i, out);
+					}
+					nhit += aux->hits->size;
+				}
+				fprintf(out, "//\n");
+				maln->rdlen = 0;
+			}
+		} else if(run_mode == 2){
+			kmeroffv *kmers[2];
+			int nc;
+			kmers[0] = init_kmeroffv(32);
+			kmers[1] = init_kmeroffv(32);
+			while((nc = readtable_filereader(fr)) >= 0){
+				//fprintf(stdout, "%s\n", fr->line->string);
+				if(nc < 1) continue;
+				qidx = getval_cuhash(kbm->tag2idx, get_col_str(fr, 0));
+				if(qidx == MAX_U4) continue;
+				print_exists_index_kbm(kbm, kbm->reads->buffer[qidx].tag, kbm->rdseqs, kbm->reads->buffer[qidx].rdoff,
+					kbm->reads->buffer[qidx].rdlen, kmers, stdout);
+			}
+			free_kmeroffv(kmers[0]);
+			free_kmeroffv(kmers[1]);
 		}
 		free_filereader(fr);
 		free_biosequence(seq);
@@ -432,7 +489,7 @@ int kbm_main(int argc, char **argv){
 	thread_beg_close(maln);
 	free_kbmaux(maln->aux);
 	free_string(maln->rdtag);
-	if(qrys->size) free_basebank(maln->rdseqs);
+	if(maln->rdseqs && maln->rdseqs != kbm->rdseqs) free_basebank(maln->rdseqs);
 	thread_end_close(maln);
 	if(solids) free_bitvec(solids);
 	fprintf(KBM_LOGF, "[%s] Done\n", date());

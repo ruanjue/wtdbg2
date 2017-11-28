@@ -6210,7 +6210,7 @@ int usage(int level){
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
 	" -K <float>  Filter high frequency kmers, maybe repetitive, [1000]\n"
-	"             if K >= 1, take the integer value as cutoff\n"
+	"             if K >= 1, take the integer value as cutoff, MUST <= 65535\n"
 	"             else, mask the top fraction part high frequency kmers\n"
 	" -E <int>    Min kmer frequency, [2]\n"
 	" -F          Filter low frequency kmers by a 4G-bytes array (max_occ=3 2-bits). Here, -E must greater than 1\n"

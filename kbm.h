@@ -41,7 +41,8 @@
 // able to index reference sequences
 #define KBM_MAX_RDLEN	0xFFFFFFFFU // 32 bits, 4 G bp
 
-#define KBM_MAX_KCNT	0x7FF // 11 bits, 2047
+#define KBM_MAX_KSIZE	23
+#define KBM_MAX_KCNT	0xFFFF // 16 bits, 65535
 
 #define KBM_N_HASH	4096
 
@@ -91,7 +92,7 @@ define_list(kbmbauxv, kbm_baux_t);
 #define kbm_kmer_smear(K) ((K) ^ ((K) >> 4) ^ ((K) >> 7))
 
 typedef struct {
-	u8i mer:50, tot:13, flt:1;
+	u8i mer:46, tot:17, flt:1;
 } kbm_kmer_t;
 define_list(kbmkmerv, kbm_kmer_t);
 #define KBM_KMERCODE(E) ((E).mer)
@@ -221,7 +222,7 @@ typedef struct {
 	u4v      *coffs; // kbm_cmer_t offset for each bin
 	BitVec   *rmask[2];
 	kbmcellv *cells[2];
-	Bit2Vec  *bts; // back tracec flag: 0: diagonal, 1: horizontal, 2: vertical
+	Bit2Vec  *bts; // back trace flag: 0: diagonal, 1: horizontal, 2: vertical
 	kbmphash *paths; // storing best unique paths by now
 	u4i      boff;
 	u4i      last_bidx;
@@ -1220,13 +1221,13 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 					if(ref->b->bidx < bmin){
 						ref->b ++;
 						continue;
-					} else if(ref->b->bidx > bmax){
-						break;
+					//} else if(ref->b->bidx >= bmax){
+						//break;
 					}
 					break;
 				}
 				while(ref->end > ref->b){
-					if((ref->end - 1)->bidx >= bmax){
+					if((ref->end - 1)->bidx > bmax){
 						ref->end --;
 					} else {
 						break;
@@ -1334,6 +1335,28 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 		}
 	}
 	aux->hptr = 0;
+}
+
+static inline void print_exists_index_kbm(KBM *kbm, char *qtag, BaseBank *rdseqs, u8i seqoff, u4i seqlen, kmeroffv *kmers[2], FILE *out){
+	KBMPar *par;
+	kbm_kmer_t *u;
+	kbm_kaux_t *x;
+	kmer_off_t *f;
+	u4i i, j;
+	par = kbm->par;
+	split_FIXP_kmers_kbm(rdseqs, seqoff, seqlen, par->ksize, par->psize, par->kmer_mod, kmers);
+	for(i=0;i<2;i++){
+		for(j=0;j<kmers[i]->size;j++){
+			f = ref_kmeroffv(kmers[i], j);
+			if(f->closed) continue;
+			u = get_kbmhash(kbm->hashs[f->kidx], f->kmer);
+			if(u == NULL){
+				continue;
+			}
+			x = ref_kbmkauxv(kbm->kauxs[f->kidx], offset_kbmhash(kbm->hashs[f->kidx], u));
+			fprintf(out, "%s\t%d\t%c\t0x%llx\t%u\t%u\t%c\n", qtag, f->off, "+-"[f->dir], f->kmer, x->cnt, u->tot, "YN"[u->flt]);
+		}
+	}
 }
 
 static inline int _update_dp_path_kbm(KBMDP *dp, u8i end, kbm_cell_t *c){
