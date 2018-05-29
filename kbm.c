@@ -24,7 +24,7 @@ int kbm_usage(){
 	fprintf(stdout, "         it maps query sequence against reference by kmer matching\n");
 	fprintf(stdout, "         matched kmer-pairs are bined (256bp) and counted in a matrix\n");
 	fprintf(stdout, "         dynamic programming is used to search the best path\n");
-	fprintf(stdout, "Version: 1.2.8 (20170830)\n");
+	fprintf(stdout, "Version: 1.2.8 r1 (20171129)\n");
 	fprintf(stdout, "Author: Jue Ruan <ruanjue@gmail.com>\n");
 	fprintf(stdout, "Usage: kbm <options> [start|list|stop]\n");
 	fprintf(stdout, "Options:\n");
@@ -60,6 +60,7 @@ int kbm_usage(){
 	fprintf(stdout, " -l <int>    Min alignment length, [2048]\n");
 	fprintf(stdout, " -m <int>    Min matched length, [200]\n");
 	fprintf(stdout, " -s <float>  Max length variation of two aligned fragments, [0.2]\n");
+	fprintf(stdout, " -c          Insist to query contained reads against all\n");
 	fprintf(stdout, " -C          Chainning alignments\n");
 	fprintf(stdout, " -n <int>    Max hits per query, [1000]\n");
 #ifdef TEST_MODE
@@ -144,7 +145,7 @@ int kbm_main(int argc, char **argv){
 	BioSequence *seq;
 	u8i opt_flags, nhit;
 	u4i qidx, i;
-	int c, ncpu, buffered_read, overwrite, quiet, chainning, interactive, server, tree_maxcnt;
+	int c, ncpu, buffered_read, overwrite, quiet, skip_ctn, chainning, interactive, server, tree_maxcnt;
 	int solid_kmer;
 	float fval;
 	thread_preprocess(maln);
@@ -153,6 +154,7 @@ int kbm_main(int argc, char **argv){
 	chainning = 0;
 	KBM_LOG = 0;
 	buffered_read = 1;
+	skip_ctn = 1;
 	interactive = 0;
 	solid_kmer = 0;
 	solids = NULL;
@@ -168,7 +170,7 @@ int kbm_main(int argc, char **argv){
 	server = 0;
 	tree_maxcnt = 10;
 	opt_flags = 0;
-	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:CT:W:R:qv")) != -1){
+	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:cCT:W:R:qv")) != -1){
 		switch(c){
 			case 'h': return kbm_usage();
 			case 'i': push_cplist(qrys, optarg); break;
@@ -199,6 +201,7 @@ int kbm_main(int argc, char **argv){
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 'n': par->max_hit = atoi(optarg); break;
 			case 's': par->aln_var = atof(optarg); break;
+			case 'c': skip_ctn = 0; break;
 			case 'C': chainning = 1; break;
 #ifdef TEST_MODE
 			case 'T': par->test_mode = atoi(optarg); break;
@@ -227,6 +230,7 @@ int kbm_main(int argc, char **argv){
 			append_cplist(refs, qrys);
 			clear_cplist(qrys);
 		} else {
+			fprintf(KBM_LOGF, " ** -h to show document\n"); fflush(KBM_LOGF);
 			push_cplist(refs, "-");
 		}
 	}
@@ -458,7 +462,7 @@ int kbm_main(int argc, char **argv){
 			if(maln->rdlen){
 				aux = maln->aux;
 				for(i=0;i<aux->hits->size;i++){
-					if(par->test_mode == 0){
+					if(par->test_mode == 0 && skip_ctn){
 						// whether reads[tidx] is contained by reads[qidx]
 						kbm_map_t *hit;
 						int margin = KBM_BSIZE;
