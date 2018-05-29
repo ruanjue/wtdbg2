@@ -1036,6 +1036,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 				}
 				continue;
 			} else rid = cu->val;
+			if(hit->qidx >= rid) continue;
 			hit->tidx = rid;
 			hit->tdir = 0; // col 6 always eq '+'
 			// skil col 7
@@ -6194,7 +6195,7 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 1.2.8(20170830)\n"
+	"Version: 1.2.8 r1(20180529)\n"
 #ifdef TIMESTAMP
 	"Compiled: %s\n"
 #endif
