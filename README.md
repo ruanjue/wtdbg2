@@ -165,18 +165,33 @@ DOT file after merging bubble and remove tips
 KBMAP file, all vs all alignments
 * dbg.binkmer <br>
 Distribution of number of k-mers in a BIN
-* dbg.closed_bins <br>
+* dbg.closed\_bins <br>
 Filtered BINs
 * dbg.clps
 Reads clip information. <br>
-COL1 read_name <br>
-COL2 read_length <br>
-COL3 keep_offset <br>
-COL4 keep_length
+COL1 read\_name <br>
+COL2 read\_length <br>
+COL3 keep\_offset <br>
+COL4 keep\_length
 * dbg.ctg.dot <br>
 DOT file for contigs
 * dbg.ctg.lay <br>
-Contigs layout file. Will be read by `wtdbg-cns`. This file is the main result of `wtdbg`
+Contigs layout file. Will be read by `wtdbg-cns`. This file is the main result of `wtdbg` <br>
+**Format**:<br>
+```
+>ctg(\d+) nodes=(\d+) len=(\d+)
+E <OFFSET> <NODE1> <STRAND1> <NODE2> <STRAND2>
+S <READ_NAME> <STRAND> <REG_OFFSET> <REG_LENGTH> <REG_SEQ>
+S <READ_NAME> <STRAND> <REG_OFFSET> <REG_LENGTH> <REG_SEQ>
+S <READ_NAME> <STRAND> <REG_OFFSET> <REG_LENGTH> <REG_SEQ>
+...
+E ...
+...
+
+```
+One contig contains many edges (starting with 'E'), each edge contains many regions inside reads. <br>
+Please note that one read often contains many REGs.
+
 * dbg.events <br>
 Log file of graph simplification
 * dbg.frg.dot <br>
