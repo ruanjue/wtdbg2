@@ -234,6 +234,16 @@ wtdbg-1.2.8 -t 96 -i wt.fa -fo dbg --tidy-reads 5000 --edge-min 4 --rescue-low-c
 * Runtime
 `real 16806.534 sec, user 681278.770 sec, sys 79371.630 sec, maxrss 264956752.0 kB, maxvsize 443356532.0 kB`
 
+## Axolotl (32G) PacBio dataset, 32 X, 3053 core.hours
+* Command
+```sh
+wtdbg-1.2.8 -t 96 -i ../rawdata/pacbio.fa.gz -p 21 -S 2 --aln-noskip --rescue-low-cov-edges --tidy-reads 5000 -fo axolotl
+```
+* Contigs
+`TOT 27375160576, CNT 115355, AVG 237313, MAX 7812608, N50 606976, L50 12527, N90 144896, L90 47295, Min 5120
+* Runtime
+`real 190237.591 sec, user 10994200.800 sec, sys 488715.030 sec, maxrss 1671005352.0 kB, maxvsize 2365400208.0 kB
+
 ## Human (3G) NA12878 ONT dataset, 197.5 core.hours
 * Data Source
 https://github.com/nanopore-wgs-consortium/NA12878
