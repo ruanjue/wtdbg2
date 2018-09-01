@@ -115,6 +115,7 @@ static inline BitVec* init_bitvec(u8i n_bit){
 	bitv->n_bit = 0;
 	bitv->n_cap = (((n_bit + 63) / 64) + 7) / 8 * 64 * 8;
 	bitv->bits  = (u8i*)calloc((bitv->n_cap / 64) + 1, 8);
+	bitv->bits[bitv->n_cap / 64] = 0x0000000000000001LLU;
 	//memset(bitv->bits, 0, bitv->n_cap / 8);
 	bitv->sums = NULL;
 	bitv->hash = NULL;
@@ -215,6 +216,14 @@ static inline void flip_bitvec(BitVec *bitv, u8i idx){ bitv->bits[idx>>6] ^= 1LL
 static inline void one_bitvec(BitVec *bitv, u8i idx){ bitv->bits[idx>>6] |= 1LLU << (idx&0x3FU); }
 
 static inline void zero_bitvec(BitVec *bitv, u8i idx){ bitv->bits[idx>>6] &= ~(1LLU << (idx&0x3FU)); }
+
+static inline void set_bitvec(BitVec *bitv, u8i idx, int v){
+	if(v){
+		one_bitvec(bitv, idx);
+	} else {
+		zero_bitvec(bitv, idx);
+	}
+}
 
 static inline u8i get_bitvec(BitVec *bitv, u8i idx){ return (bitv->bits[idx>>6] >> (idx&0x3FU)) & 0x01LLU; }
 

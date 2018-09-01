@@ -27,6 +27,7 @@
 #include "list.h"
 #include "bitvec.h"
 #include "hashset.h"
+#include "thread.h"
 
 static const u1i base_bit_table[256] = {
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
@@ -85,7 +86,7 @@ static inline u8i dna_xor2ones(u8i seq){
 	return ((seq & 0xAAAAAAAAAAAAAAAALLU) >> 1) | (seq & 0x5555555555555555LLU);
 }
 
-static inline u8i dna_rev_seq(u8i seq, u1i seq_size){
+static inline u8i dna_rev_seq32(u8i seq){
 	seq = ~seq;
 	seq = ((seq & 0x3333333333333333LLU)<< 2) | ((seq & 0xCCCCCCCCCCCCCCCCLLU)>> 2);
 	seq = ((seq & 0x0F0F0F0F0F0F0F0FLLU)<< 4) | ((seq & 0xF0F0F0F0F0F0F0F0LLU)>> 4);
@@ -96,7 +97,11 @@ static inline u8i dna_rev_seq(u8i seq, u1i seq_size){
 #else
 	seq = __builtin_bswap64(seq);
 #endif
-	return seq >> (64 - (seq_size<<1));
+	return seq;
+}
+
+static inline u8i dna_rev_seq(u8i seq, u1i seq_size){
+	return dna_rev_seq32(seq) >> (64 - (seq_size<<1));
 }
 
 // order of 2-bit in this->seqs is different with that in dna_rev_seq->seq
@@ -275,7 +280,15 @@ static inline void reverse_dna(char *seq, int len){
 
 #define reverse_dna_coord(x, y, tot_len) { x = x ^ y; y = x ^ y; x = x ^ y; x = tot_len - x; y = tot_len - y; }
 
-#define bit2bits(bits, off, bit) { if(((off) & 0x1FU) == 0) (bits)[(off) >> 5] = 0; (bits)[(off) >> 5] |= ((u8i)(bit)) << (((~(off)) & 0x1FU) << 1); }
+#define old_bit2bits(bits, off, bit) { if(((off) & 0x1FU) == 0) (bits)[(off) >> 5] = 0; (bits)[(off) >> 5] |= ((u8i)(bit)) << (((~(off)) & 0x1FU) << 1); }
+
+#define bit2bits(bits, off, bit) {	\
+	u8i __off1;	\
+	u4i __off2;	\
+	__off1 = (off) >> 5;	\
+	__off2 = (((~(off)) & 0x1FU) << 1);	\
+	(bits)[__off1] = ((bits)[__off1] & (~(0x3LLU << __off2))) | (((u8i)(bit)) << __off2);	\
+}
 
 static inline void seq2bits(u8i *bits, u8i bitoff, char *seq, u4i seqlen){
 	u8i i, c;
@@ -318,12 +331,69 @@ static inline u8i sub32seqbits(u8i *src, u8i off){
 	u8i m;
 	u4i n;
 	m = off >> 5;
-	n = off & 0x1F;
-	if(n){
-		return (src[m] << (n << 1)) | (src[m + 1] >> ((32 - n) << 1));
-	} else {
-		return src[m];
+	n = (off & 0x1F) << 1;
+	return (src[m] << n) | (((src[m + 1] >> (62 - n)) >> 2));
+	//n = off & 0x1F;
+	//if(n){
+		//return (src[m] << (n << 1)) | (src[m + 1] >> ((32 - n) << 1));
+	//} else {
+		//return src[m];
+	//}
+}
+
+static inline u8i sub8seqbits(u8i *src, u8i off){
+	u8i off1;
+	u4i off2;
+	off1 = off >> 5;
+	off2 = (off & 0x1FU) << 1;
+	return ((src[off1] << off2) | (((src[off1 + 1] >> (62 - off2)) >> 2))) >> 48;
+}
+
+static inline u8i sub4seqbits(u8i *src, u8i off){
+	u8i off1;
+	u4i off2;
+	off1 = off >> 5;
+	off2 = (off & 0x1FU) << 1;
+	return ((src[off1] << off2) | (((src[off1 + 1] >> (62 - off2)) >> 2))) >> 56;
+}
+
+static inline u8i sub2seqbits(u8i *src, u8i off){
+	u8i off1;
+	u4i off2;
+	off1 = off >> 5;
+	off2 = (off & 0x1FU) << 1;
+	return ((src[off1] << off2) | (((src[off1 + 1] >> (62 - off2)) >> 2))) >> 60;
+}
+
+static inline u8i sub_seqbits(u8i *src, u8i off, u1i len){
+	u8i off1;
+	u4i off2;
+	off1 = off >> 5;
+	off2 = (off & 0x1FU) << 1;
+	return ((src[off1] << off2) | (((src[off1 + 1] >> (62 - off2)) >> 2))) >> ((32 - len) << 1);
+}
+#define subseqbits(src, off, len) sub_seqbits(src, off, len)
+
+static inline int cmpgt_seqbits(u8i *bits, u8i off1, u8i off2, u4i _len){
+	u8i idxs[2], v[2];
+	u4i offs[2], i, len;
+	idxs[0] = off1 >> 5;
+	idxs[1] = off2 >> 5;
+	offs[0] = (off1 & 0x1FU) << 1;
+	offs[1] = (off2 & 0x1FU) << 1;
+	len = roundup_times(_len, 32);
+	for(i=0;i<len;i+=32){
+		v[0] = (bits[idxs[0]] << offs[0]) | (((bits[idxs[0] + 1] >> (62 - offs[0])) >> 2));
+		v[1] = (bits[idxs[1]] << offs[1]) | (((bits[idxs[1] + 1] >> (62 - offs[1])) >> 2));
+		if(v[0] > v[1]){
+			return 1;
+		} else if(v[0] < v[1]){
+			return 0;
+		}
+		idxs[0] ++;
+		idxs[1] ++;
 	}
+	return 0;
 }
 
 #if __BYTE_ORDER == 1234
@@ -409,31 +479,29 @@ static inline void spare_2bits(u1i bs[32], u8i v){
 	((u4i*)bs)[7] = spare_2bits_table[((v >>  0) & 0xFF)];
 }
 
-static inline u8i sub4seqbits(u8i *src, u8i off){
-	if(((off) & 0x1FU) > 28){
-		return (((src[off>>5] << 32) | (src[(off>>5) + 1] >> 32)) >> ((28 - ((off - 16) & 0x1FU)) << 1)) & 0xFFU;
-	} else {
-		return (src[off>>5] >> ((28 - (off & 0x1FU)) << 1)) & 0xFFU;
-	}
-}
-
 typedef struct {
 	u8i *bits;
 	u8i size;
 	u8i cap;
 } BaseBank;
 
-static inline size_t basebank_obj_desc_cnt(void *obj, int idx){ return (((BaseBank*)obj)->size + 31) / 32 * 8; idx = idx; }
+static inline size_t basebank_obj_desc_cnt(void *obj, int idx){ return ((((BaseBank*)obj)->size + 31) / 32 + 1) * 8; idx = idx; }
 
-static const obj_desc_t basebank_obj_desc = {"BaseBank", sizeof(BaseBank), 1, {1}, {offsetof(BaseBank, bits)}, {(obj_desc_t*)&OBJ_DESC_DATA}, basebank_obj_desc_cnt, NULL};
+static inline void basebank_obj_desc_post_load(void *obj, size_t aux_data){
+	BaseBank *bnk;
+	UNUSED(aux_data);
+	bnk = (BaseBank*)obj;
+	bnk->cap = ((bnk->size + 31) / 32) * 32;
+}
+
+static const obj_desc_t basebank_obj_desc = {"BaseBank", sizeof(BaseBank), 1, {1}, {offsetof(BaseBank, bits)}, {(obj_desc_t*)&OBJ_DESC_DATA}, basebank_obj_desc_cnt, basebank_obj_desc_post_load};
 
 static inline BaseBank* init_basebank(){
 	BaseBank *bnk;
 	bnk = malloc(sizeof(BaseBank));
 	bnk->size = 0;
 	bnk->cap  = 256;
-	bnk->bits = malloc(8 * (bnk->cap / 32));
-	memset(bnk->bits, 0, 8 * (bnk->cap / 32));
+	bnk->bits = calloc(bnk->cap / 32 + 1, 8);
 	return bnk;
 }
 
@@ -444,41 +512,56 @@ static inline void free_basebank(BaseBank *bnk){
 
 static inline void encap_basebank(BaseBank *bnk, u8i inc){
 	u8i old;
-	if(bnk->size + inc < bnk->cap) return;
+	u8i *bits;
+	if(bnk->cap - bnk->size >= inc) return;
 	old = bnk->cap;
-	while(bnk->size + inc > bnk->cap){
-		if(bnk->cap < 0x3FFFFFFLLU){
-			bnk->cap <<= 1;
-		} else {
-			bnk->cap += 0x3FFFFFFLLU;
-		}
+	if(MAX_U8 - inc <= bnk->size){
+		fprintf(stderr, " -- Overflow(64bits) %llu + %llu, in %s -- %s:%d --\n", (u8i)bnk->size, (u8i)inc, __FUNCTION__, __FILE__, __LINE__);
+		print_backtrace(stderr, 20);
+		abort();
 	}
-	bnk->bits = realloc(bnk->bits, bnk->cap);
-	memset(bnk->bits + (old / 32), 0, (bnk->cap - old) / 4);
+	if(MAX_U8 - inc < 0xFFFFFFFLLU){
+		fprintf(stderr, " -- Overflow(64bits) %llu + %llu, in %s -- %s:%d --\n", (u8i)bnk->size, (u8i)inc, __FUNCTION__, __FILE__, __LINE__);
+		print_backtrace(stderr, 20);
+		abort();
+	}
+	if(bnk->size + inc < 0xFFFFFFFLLU){
+		bnk->cap = roundup_power2(bnk->size + inc);
+	} else {
+		bnk->cap = ((bnk->size + inc + 0xFFFFFFFLLU - 1LLU) / 0xFFFFFFFLLU) * 0xFFFFFFFLLU;
+	}
+	if(bnk->cap < 32) bnk->cap = 32;
+	bits = realloc(bnk->bits, ((bnk->cap >> 5) + 1) << 3);
+	if(bits == NULL){
+		fprintf(stderr, " -- Out of memory, try to allocate %llu bytes, old size %llu, in %s -- %s:%d --\n", (u8i)bnk->cap >> 2, old >> 2, __FUNCTION__, __FILE__, __LINE__);
+		print_backtrace(stderr, 20);
+		abort();
+	}
+	bnk->bits = bits;
+	memset(bnk->bits + (old / 32), 0, (bnk->cap + 32 - old) / 4);
 }
 
 static inline void clear_basebank(BaseBank *bnk){
-	memset(bnk->bits, 0, ((bnk->size + 31) / 32) * 8);
+	//memset(bnk->bits, 0, ((bnk->size + 31) / 32) * 8);
 	bnk->size = 0;
 }
 
-static inline size_t dump_basebank(BaseBank *bnk, FILE *out){
-	size_t n;
-	fwrite(&bnk->size, sizeof(u8i), 1, out);
-	n = ((bnk->size + 31) / 32);
-	fwrite(bnk->bits, sizeof(u8i), n, out);
-	return n * 8 + 8;
+static inline void normalize_basebank(BaseBank *bnk){
+	if(bnk->size < bnk->cap){
+		if(bnk->size & 0x1FU){
+			bnk->bits[bnk->size>>5] = bnk->bits[bnk->size>>5] & (MAX_U8 << (64 - ((bnk->size & 0x1FU) << 1)));
+		}
+	}
 }
 
-static inline BaseBank* load_basebank(FILE *inp){
-	BaseBank *bnk;
-	size_t n;
-	bnk = init_basebank();
-	if(fread(&bnk->size, sizeof(u8i), 1, inp) != 1){ free_basebank(bnk); return NULL; }
-	encap_basebank(bnk, 0);
-	n = (bnk->size + 31) / 32;
-	if(fread(bnk->bits, sizeof(u8i), n, inp) != n){ free_basebank(bnk); return NULL; }
-	return bnk;
+static inline void pack_basebank(BaseBank *bnk){
+	u8i size;
+	size = (bnk->size + 31) & (~0x1FLLU);
+	if(size == 0) size = 32;
+	if(size >= bnk->cap) return;
+	bnk->cap = ((size + 31) / 32) * 32;
+	bnk->bits = realloc(bnk->bits, ((bnk->cap >> 5) + 1) << 3);
+	memset(bnk->bits + (bnk->cap >> 5), 0, 8);
 }
 
 static inline void bit2basebank(BaseBank *bnk, u1i v){
@@ -496,6 +579,45 @@ static inline void bits2basebank(BaseBank *bnk, u8i *bits, u8i off, u8i len){
 	}
 }
 
+#define fwdbits2basebank(bnk, bits, off, len) bits2basebank(bnk, bits, off, len)
+
+static inline void fast_bits2basebank(BaseBank *bnk, u8i *bits, u8i off, u8i len){
+	u8i end, dat;
+	u4i gap;
+	encap_basebank(bnk, len);
+	if(len == 0) return;
+	if(bnk->size & 0x1FU){
+		gap = 32 - (bnk->size & 0x1FU);
+		if(len <= gap){
+			dat = subseqbits(bits, off, len);
+			bnk->bits[bnk->size >> 5] |= dat << ((gap - len) << 1);
+			bnk->size += len;
+			return;
+		} else {
+			dat = subseqbits(bits, off, gap);
+			bnk->bits[bnk->size >> 5] |= dat;
+			bnk->size += gap;
+			off += gap;
+			len -= gap;
+		}
+	}
+	end = off + len;
+	for(;off+32<=end;off+=32){
+		dat = sub32seqbits(bits, off);
+		bnk->bits[bnk->size >> 5] = dat;
+		bnk->size += 32;
+	}
+	if(off < end){
+		dat = sub32seqbits(bits, off);
+		bnk->bits[bnk->size >> 5] = dat & (MAX_U8 << ((32 - (end - off)) << 1));
+		bnk->size += end - off;
+	} else {
+		bnk->bits[bnk->size >> 5] = 0;
+	}
+}
+
+#define fast_fwdbits2basebank(bnk, bits, off, len) fast_bits2basebank(bnk, bits, off, len)
+
 static inline void revbits2basebank(BaseBank *bnk, u8i *bits, u8i off, u8i len){
 	u8i i;
 	encap_basebank(bnk, len);
@@ -504,6 +626,48 @@ static inline void revbits2basebank(BaseBank *bnk, u8i *bits, u8i off, u8i len){
 		bnk->size ++;
 	}
 }
+
+static inline void fast_revbits2basebank(BaseBank *bnk, u8i *bits, u8i off, u8i len){
+	u8i end, dat;
+	u4i gap;
+	if(len == 0) return;
+	encap_basebank(bnk, len);
+	if(bnk->size & 0x1FU){
+		gap = 32 - (bnk->size & 0x1FU);
+		if(len <= gap){
+			dat = subseqbits(bits, off, len);
+			dat = dna_rev_seq(dat, len);
+			bnk->bits[bnk->size >> 5] |= dat << ((gap - len) << 1);
+			bnk->size += len;
+			return;
+		} else {
+			dat = subseqbits(bits, off + len - gap, gap);
+			dat = dna_rev_seq(dat, gap);
+			bnk->bits[bnk->size >> 5] |= dat;
+			bnk->size += gap;
+			//off += gap;
+			len -= gap;
+		}
+	}
+	end = off + len;
+	for(;off+32<=end;){
+		end -= 32;
+		dat = sub32seqbits(bits, end);
+		dat = dna_rev_seq32(dat);
+		bnk->bits[bnk->size >> 5] = dat;
+		bnk->size += 32;
+	}
+	if(off < end){
+		dat = sub32seqbits(bits, off);
+		dat = dna_rev_seq32(dat);
+		//bnk->bits[bnk->size >> 5] = dat & (MAX_U8 << ((32 - (end - off)) << 1));
+		bnk->bits[bnk->size >> 5] = dat << ((32 - (end - off)) << 1);
+		bnk->size += end - off;
+	} else {
+		bnk->bits[bnk->size >> 5] = 0;
+	}
+}
+
 
 static inline void seq2basebank(BaseBank *bnk, char *seq, u8i len){
 	u8i idx1, i, c;
@@ -523,19 +687,7 @@ static inline void seq2basebank(BaseBank *bnk, char *seq, u8i len){
 	}
 }
 
-static inline void seq2basebank2(BaseBank *bnk, char *seq, u8i len){
-	char *p;
-	u1i c;
-	p = seq;
-	seq = seq + len;
-	encap_basebank(bnk, len);
-	while(p < seq){
-		c = base_bit_table[(int)*p] & 0x03;
-		bit2bits(bnk->bits, bnk->size, c);
-		bnk->size ++;
-		p ++;
-	}
-}
+#define fwdseq2basebank(bnk, seq, len) seq2basebank(bnk, seq, len)
 
 static inline void revseq2basebank(BaseBank *bnk, char *seq, u8i len){
 	char *p;
@@ -543,11 +695,40 @@ static inline void revseq2basebank(BaseBank *bnk, char *seq, u8i len){
 	p = seq + len;
 	encap_basebank(bnk, len);
 	while(p > seq){
+		p --;
+		c = base_bit_table[(int)*p];
+		c = (~c) & 0x03;
+		bit2bits(bnk->bits, bnk->size, c);
+		bnk->size ++;
+	}
+}
+
+static inline void seq2basebank2(BaseBank *bnk, char *seq, u8i len){
+	char *p;
+	u1i c;
+	p = seq;
+	seq = seq + len;
+	encap_basebank(bnk, len);
+	while(p < seq){
+		c = base_bit_table[(int)*p];
+		if(c == 4) c = lrand48() & 0x03;
+		bit2bits(bnk->bits, bnk->size, c);
+		bnk->size ++;
+		p ++;
+	}
+}
+
+static inline void revseq2basebank2(BaseBank *bnk, char *seq, u8i len){
+	char *p;
+	u1i c;
+	p = seq + len;
+	encap_basebank(bnk, len);
+	while(p > seq){
+		p --;
 		c = base_bit_table[(int)*p];
 		if(c == 4) c = lrand48() & 0x03;
 		c = (~c) & 0x03;
 		bit2bits(bnk->bits, bnk->size, c);
-		p --;
 		bnk->size ++;
 	}
 }
@@ -561,6 +742,8 @@ static inline void seq_basebank(BaseBank *bnk, u8i off, u8i len, char *seq){
 	}
 	seq[i] = 0;
 }
+
+#define fwdseq_basebank(bnk, off, len, seq) seq_basebank(bnk, off, len, seq)
 
 static inline void bitseq_basebank(BaseBank *bnk, u8i off, u8i len, u1i *seq){
 	u8i i;
@@ -584,22 +767,39 @@ static inline void revbitseq_basebank(BaseBank *bnk, u8i off, u8i len, u1i *seq)
 	}
 }
 
+static inline void reverse_basebank(BaseBank *bnk){
+	u8i size, rsize;
+	size = bnk->size;
+	rsize = (bnk->size + 31) & (~0x1FLLU);
+	encap_basebank(bnk, rsize + 32);
+	memcpy(bnk->bits + (rsize >> 5), bnk->bits + 0, (rsize >> 5) << 3);
+	bnk->size = 0;
+	fast_revbits2basebank(bnk, bnk->bits, rsize, size);
+}
+
 static inline void print_seq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out){
-	u8i i;
-	char buf[65];
-	buf[64] = '\0';
-	for(i=0;i<len;){
-		buf[i & 0x3F] = bit_base_table[bits2bit(bnk->bits, off + i)];
-		i ++;
-		if((i & 0x3F) == 0){
-			fprintf(out, "%s", buf);
+	u8i i, b, e;
+	char buf[101];
+	for(b=off;b<off+len;){
+		e = num_min(b + 100, off + len);
+		for(i=b;i<e;i++){
+			buf[i - b] = bit_base_table[bits2bit(bnk->bits, i)];
 		}
-	}
-	if(i & 0x3F){
-		buf[i & 0x3F] = '\0';
-		fprintf(out, "%s", buf);
+		buf[e - b] = '\0';
+		fputs(buf, out);
+		//fputc('\n', out);
+		b = e;
 	}
 }
+
+#define print_fwdseq_basebank(bnk, off, len, out) print_seq_basebank(bnk, off, len, out)
+
+static inline void println_seq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out){
+	print_seq_basebank(bnk, off, len, out);
+	fputc('\n', out);
+}
+
+#define println_fwdseq_basebank(bnk, off, len, out) println_seq_basebank(bnk, off, len, out)
 
 static inline void print_revseq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out){
 	u8i i;
@@ -617,19 +817,17 @@ static inline void print_revseq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *
 		fprintf(out, "%s", buf);
 	}
 }
+
 static inline u8i sub32_basebank(BaseBank *bnk, u8i off){ return sub32seqbits(bnk->bits, off); }
 
 static inline u8i sub4_basebank(BaseBank *bnk, u8i off){ return sub4seqbits(bnk->bits, off); }
 
-// assert(len >0 && len <= 32)
-static inline u8i subbits_basebank(BaseBank *bnk, u8i off, u1i len){
-	u8i mask;
-	mask = MAX_U8 >> ((32 - len) << 1);
-	if((off & 0x1F) + len <= 32){
-		return (bnk->bits[off >> 5] >> ((32 - (off & 0x1F) - len) << 1)) & mask;
-	} else {
-		return ((bnk->bits[off >> 5] << (((off & 0x1F) + len - 32) << 1)) | (bnk->bits[(off >> 5) + 1] >> ((64 - (off & 0x1F) - len) << 1))) & mask;
-	}
+// assert(len > 0 && len <= 32)
+static inline u8i subbits_basebank(BaseBank *bnk, u8i off, u1i len){ return sub_seqbits(bnk->bits, off, len); }
+
+static inline void println_revseq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out){
+	print_revseq_basebank(bnk, off, len, out);
+	fputc('\n', out);
 }
 
 static inline u8i hzsubbits_basebank(BaseBank *bnk, u8i off, u1i len){
@@ -710,6 +908,210 @@ static inline u4i mismatch_basebank(BaseBank *bnk, u8i off1, u8i off2, u4i len){
 	return mm;
 }
 
+thread_beg_def(_mradix);
+BaseBank *bb;
+u4i *counts[2];
+u4i *offs;
+u1v *lcps;
+u4i size, klen;
+int task;
+FILE *log;
+thread_end_def(_mradix);
+
+thread_beg_func(_mradix);
+BaseBank *bb;
+u4i *offs, *counts[2];
+u4i i, j, size, klen, m, n, v, t;
+u4i ncpu, tidx;
+bb = _mradix->bb;
+counts[0] = calloc((MAX_U2 + 1), sizeof(u4i)); // used in twice
+counts[1] = calloc((MAX_U2 + 1), sizeof(u4i));
+ncpu = _mradix->n_cpu;
+tidx = _mradix->t_idx;
+thread_beg_loop(_mradix);
+if(_mradix->task == 1){
+	size = _mradix->size;
+	for(i=_mradix->t_idx;i<size;i+=_mradix->n_cpu){
+		v = sub8seqbits(bb->bits, i);
+		counts[1][v] ++;
+	}
+	_mradix->counts[0] = counts[0];
+	_mradix->counts[1] = counts[1];
+} else if(_mradix->task == 11){
+	offs = _mradix->offs;
+	size = _mradix->size;
+	for(i=0;i<size;i++){
+		v = sub8seqbits(bb->bits, i);
+		if((v % _mradix->n_cpu) == (u4i)_mradix->t_idx){
+			offs[_mradix->counts[0][v]++] = i;
+		}
+		if(_mradix->t_idx == 0 && _mradix->log && (i % 1000000) == 0){
+			fprintf(_mradix->log, "\r%u", i); fflush(_mradix->log);
+		}
+	}
+	if(_mradix->t_idx == 0 && _mradix->log){
+		fprintf(_mradix->log, "\r%u\n", size);
+	}
+} else if(_mradix->task == 2) {
+	offs = _mradix->offs;
+	size = _mradix->size;
+	klen = _mradix->klen - 8;
+	if(size <= MAX_U1){
+		sort_array(offs, size, u4i, cmpgt_seqbits(bb->bits, a + 8, b + 8, klen)); // 8 bp already sorted
+	} else {
+		memset(counts[1], 0, (MAX_U1 + 1) * sizeof(u4i));
+		for(i=0;i<size;i++){
+			v = sub4seqbits(bb->bits, offs[i] + 8);
+			counts[1][v] ++;
+		}
+		m = 0;
+		for(i=0;i<=MAX_U1;i++){
+			counts[0][i] = m;
+			m += counts[1][i];
+			counts[1][i] = m;
+		}
+		for(m=0;m<=MAX_U1;m++){
+			while(counts[0][m] < counts[1][m]){
+				v = offs[counts[0][m]];
+				n = sub4seqbits(bb->bits, v + 8);
+				while(n > m){
+					t = offs[counts[0][n]];
+					offs[counts[0][n]] = v;
+					counts[0][n] ++;
+					v = t;
+					n = sub4seqbits(bb->bits, v + 8);
+				}
+				offs[counts[0][m]++] = v;
+			}
+		}
+		n = 0;
+		klen -= 4;
+		for(m=0;m<=MAX_U1;m++){
+			if(counts[0][m] - n < 2){
+				// nothing to do
+			} else {
+				sort_array(offs + n, counts[0][m] - n, u4i, cmpgt_seqbits(bb->bits, a + 8 + 4, b + 8 + 4, klen));
+			}
+			n = counts[0][m];
+		}
+	}
+} else if(_mradix->task == 3){
+	u1v *lcps;
+	u8i mask;
+	u4i beg, end;
+	u1i lcp;
+	offs = _mradix->offs;
+	lcps = _mradix->lcps;
+	beg = ((_mradix->size + ncpu - 1) / ncpu) * tidx;
+	end = ((_mradix->size + ncpu - 1) / ncpu) * (tidx + 1);
+	if(end > _mradix->size) end = _mradix->size;
+	klen = _mradix->klen;
+	if(beg == 0){
+		lcps->buffer[0] = 0;
+		beg = 1;
+	}
+	for(i=beg;i<end;i++){
+		lcp = 0;
+		for(j=0;j<klen;j+=32){
+			mask = sub32seqbits(bb->bits, offs[i - 1] + j) ^ sub32seqbits(bb->bits, offs[i] + j);
+			if(mask == 0){
+				lcp += 32;
+			} else {
+				lcp += __builtin_clzll(mask) >> 1;
+				break;
+			}
+		}
+		lcps->buffer[i] = lcp;
+	}
+}
+thread_end_loop(_mradix);
+free(counts[0]);
+free(counts[1]);
+thread_end_func(_mradix);
+
+// bullet size = 4^8 = (MAX_U2 + 1)
+static inline void msd_radix_sort_u4_basebank(BaseBank *bb, u4v *offs, u1v *lcps, u1i _klen, u4i ncpu, FILE *log){
+	u4i *counts[3]; // off, end, off
+	u4i klen, i, j, size, m, n;
+	thread_preprocess(_mradix);
+	klen = roundup_times(_klen, 32);
+	size = num_max(bb->size, klen) - klen;
+	clear_u4v(offs);
+	encap_u4v(offs, size);
+	offs->size = size;
+	counts[0] = calloc(MAX_U2 + 1, sizeof(u4i));
+	counts[1] = calloc(MAX_U2 + 1, sizeof(u4i));
+	if(log) fprintf(log, "[%s] msd_radix_sort length=%u depth=%u\n", date(), (u4i)bb->size, klen);
+	thread_beg_init(_mradix, ncpu);
+	_mradix->bb = bb;
+	_mradix->counts[0] = NULL;
+	_mradix->counts[1] = NULL;
+	_mradix->size = size;
+	_mradix->offs = NULL;
+	_mradix->klen = klen;
+	_mradix->task = 0;
+	_mradix->log = log;
+	thread_end_init(_mradix);
+	thread_apply_all(_mradix, _mradix->task = 1);
+	thread_beg_iter(_mradix);
+	for(j=0;j<=MAX_U2;j++){
+		counts[1][j] += _mradix->counts[1][j];
+	}
+	thread_end_iter(_mradix);
+	m = 0;
+	for(i=0;i<=MAX_U2;i++){
+		counts[0][i] = m;
+		m += counts[1][i];
+		counts[1][i] = m;
+	}
+	thread_beg_iter(_mradix);
+	_mradix->offs = offs->buffer;
+	_mradix->counts[0] = counts[0];
+	_mradix->counts[1] = counts[1];
+	_mradix->task = 11;
+	thread_wake(_mradix);
+	thread_end_iter(_mradix);
+	thread_wait_all(_mradix);
+	if(log) fprintf(log, "[%s] msd_radix_sort sorted by first 8 bp\n", date());
+	n = 0;
+	for(m=0;m<=MAX_U2;m++){
+		if(log && (m % 100) == 0){
+			fprintf(log, "\r%u", counts[0][m]); fflush(log);
+		}
+		if(counts[0][m] - n < 2){
+			// nothing to do
+		} else {
+			thread_wait_one(_mradix);
+			_mradix->offs = offs->buffer + n;
+			_mradix->size = counts[0][m] - n;
+			_mradix->task = 2;
+			thread_wake(_mradix);
+		}
+		n = counts[0][m];
+	}
+	thread_wait_all(_mradix);
+	if(log) fprintf(log, "\r%u\n", n);
+	if(log) fprintf(log, "[%s] msd_radix_sort sorted %u bases\n", date(), klen - 8);
+	free(counts[0]);
+	free(counts[1]);
+	if(lcps){
+		clear_u1v(lcps);
+		encap_u1v(lcps, size);
+		lcps->size = size;
+		thread_beg_iter(_mradix);
+		_mradix->offs = offs->buffer;
+		_mradix->size = size;
+		_mradix->lcps = lcps;
+		_mradix->task = 3;
+		thread_wake(_mradix);
+		thread_end_iter(_mradix);
+		thread_wait_all(_mradix);
+		if(log) fprintf(log, "[%s] msd_radix_sort calculated LCP\n", date());
+	}
+	thread_beg_close(_mradix);
+	thread_end_close(_mradix);
+}
+
 /*
  * Sequence DB
  */
@@ -722,10 +1124,11 @@ typedef struct {
 	u4v      *rdlens;
 	cuhash   *rdhash;
 } SeqBank;
+static inline void rebuild_rdhash_seqbank(void *sb, size_t aux);
 static const obj_desc_t seqbank_obj_desc = {"SeqBank", sizeof(SeqBank), 5, {1, 1, 1, 1, 1}, 
 	{offsetof(SeqBank, rdseqs), offsetof(SeqBank, rdtags), offsetof(SeqBank, rdoffs), offsetof(SeqBank, rdlens), offsetof(SeqBank, rdhash)},
 	{&basebank_obj_desc, &cplist_deep_obj_desc, &u8v_obj_desc, &u4v_obj_desc, &cuhash_obj_desc},
-	NULL, NULL};
+	NULL, rebuild_rdhash_seqbank};
 
 static inline SeqBank* init_seqbank(){
 	SeqBank *sb;
@@ -741,7 +1144,7 @@ static inline SeqBank* init_seqbank(){
 
 static inline void free_seqbank(SeqBank *sb){
 	u4i i;
-	for(i=0;i<sb->rdtags->size;i++) free(sb->rdtags->buffer[i]);
+	for(i=0;i<sb->rdtags->size;i++) if(sb->rdtags->buffer[i]) free(sb->rdtags->buffer[i]);
 	free_basebank(sb->rdseqs);
 	free_cplist(sb->rdtags);
 	free_u8v(sb->rdoffs);
@@ -752,7 +1155,7 @@ static inline void free_seqbank(SeqBank *sb){
 
 static inline void clear_seqbank(SeqBank *sb){
 	u4i i;
-	for(i=0;i<sb->rdtags->size;i++) free(sb->rdtags->buffer[i]);
+	for(i=0;i<sb->rdtags->size;i++) if(sb->rdtags->buffer[i]) free(sb->rdtags->buffer[i]);
 	clear_basebank(sb->rdseqs);
 	clear_cplist(sb->rdtags);
 	clear_u8v(sb->rdoffs);
@@ -761,20 +1164,78 @@ static inline void clear_seqbank(SeqBank *sb){
 	sb->nseq = 0;
 }
 
+
+// SeqBank's rdhash is wrongly loaded, need to be corrected
+static inline void rebuild_rdhash_seqbank(void *_sb, size_t aux){
+	SeqBank *sb;
+	u4i i;
+	UNUSED(aux);
+	sb = (SeqBank*)_sb;
+	clear_cuhash(sb->rdhash); // hash size is not changed, thus there won't have hash re-size
+	for(i=0;i<sb->rdtags->size;i++){
+		put_cuhash(sb->rdhash, (cuhash_t){get_cplist(sb->rdtags, i), i});
+	}
+}
+
+
 static inline void push_seqbank(SeqBank *sb, char *tag, int tag_len, char *seq, int seq_len){
 	char *ptr;
-	ptr = malloc(tag_len + 1);
-	memcpy(ptr, tag, tag_len);
-	ptr[tag_len] = 0;
+	if(tag && tag_len){
+		ptr = malloc(tag_len + 1);
+		memcpy(ptr, tag, tag_len);
+		ptr[tag_len] = 0;
+	} else {
+		ptr = NULL;
+	}
 	push_cplist(sb->rdtags, ptr);
 	push_u8v(sb->rdoffs, sb->rdseqs->size);
 	seq2basebank(sb->rdseqs, seq, seq_len);
 	push_u4v(sb->rdlens, seq_len);
-	put_cuhash(sb->rdhash, (cuhash_t){ptr, sb->nseq});
+	if(ptr) put_cuhash(sb->rdhash, (cuhash_t){ptr, sb->nseq});
+	sb->nseq ++;
+}
+
+static inline void fwdbitpush_seqbank(SeqBank *sb, char *tag, int tag_len, u8i *bits, u8i off, u4i len){
+	char *ptr;
+	if(tag && tag_len){
+		ptr = malloc(tag_len + 1);
+		memcpy(ptr, tag, tag_len);
+		ptr[tag_len] = 0;
+	} else {
+		ptr = NULL;
+	}
+	push_cplist(sb->rdtags, ptr);
+	push_u8v(sb->rdoffs, sb->rdseqs->size);
+	fast_fwdbits2basebank(sb->rdseqs, bits, off, len);
+	push_u4v(sb->rdlens, len);
+	if(ptr) put_cuhash(sb->rdhash, (cuhash_t){ptr, sb->nseq});
+	sb->nseq ++;
+}
+
+static inline void revbitpush_seqbank(SeqBank *sb, char *tag, int tag_len, u8i *bits, u8i off, u4i len){
+	char *ptr;
+	if(tag && tag_len){
+		ptr = malloc(tag_len + 1);
+		memcpy(ptr, tag, tag_len);
+		ptr[tag_len] = 0;
+	} else {
+		ptr = NULL;
+	}
+	push_cplist(sb->rdtags, ptr);
+	push_u8v(sb->rdoffs, sb->rdseqs->size);
+	fast_revbits2basebank(sb->rdseqs, bits, off, len);
+	push_u4v(sb->rdlens, len);
+	if(ptr) put_cuhash(sb->rdhash, (cuhash_t){ptr, sb->nseq});
 	sb->nseq ++;
 }
 
 static inline u4i find_seqbank(SeqBank *sb, char *tag){ cuhash_t *e; if((e = get_cuhash(sb->rdhash, tag))) return e->val; else return MAX_U4; }
+
+static inline u4i off2idx_seqbank(SeqBank *sb, u8i off){
+	u4i ret;
+	bsearch_array(sb->rdoffs->buffer, sb->rdoffs->size, u8i, ret, a < off);
+	return ret? ret - 1 : 0;
+}
 
 static inline u4i num_n50(u4v *lens, FILE *out){
 	u8i tot, cum;

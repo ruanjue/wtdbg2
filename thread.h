@@ -68,16 +68,18 @@ struct tname##_struct {		\
 	volatile int running;	\
 	volatile int state;	\
 	volatile int once;	\
+	volatile int sleep_inv;	\
 	pthread_mutex_t *mutex_lock;	\
 	pthread_rwlock_t *rw_lock;
 #define thread_end_def(tname) }
 
 #define thread_beg_def(tname) thread_begin_def(tname)
 
-#define thread_begin_func(tname) static inline void* thread_##tname##_func(void *obj){\
+#define thread_begin_func_core(tname) inline void* thread_##tname##_func(void *obj){\
 	volatile struct tname##_struct * tname = (volatile struct tname##_struct *)obj;\
 	int tname##_var_i, tname##_var_j;\
 	struct tname##_struct * tname##_params
+#define thread_begin_func(tname) static thread_begin_func_core(tname)
 #define thread_beg_func(tname) thread_begin_func(tname)
 #define thread_beg_func_inline(tname) inline void* thread_##tname##_func(void *obj){\
 	volatile struct tname##_struct * tname = (volatile struct tname##_struct *)obj;\
@@ -90,7 +92,7 @@ struct tname##_struct {		\
 	tname->state = 0;	\
 	(void)(tname##_var_j);\
 	while(tname->running){\
-		if(tname->state == 0){ nano_sleep(10); continue; }\
+		if(tname->state == 0){ nano_sleep(tname->sleep_inv); continue; }\
 		for(tname##_var_i=0;tname##_var_i<1;tname##_var_i++){
 #define thread_beg_loop(tname) thread_begin_loop(tname)
 #define thread_begin_syn(tname) pthread_mutex_lock(tname->mutex_lock)
@@ -125,6 +127,7 @@ struct tname##_struct {		\
 		tname->running    = 1;\
 		tname->state      = 2;\
 		tname->once       = 1;\
+		tname->sleep_inv  = 10;\
 		tname->tname##_params = (struct tname##_struct*)tname##_params;\
 		tname->tname##_array  = (struct tname##_struct*)tname##_params
 #define thread_beg_init(tname, n_thread) thread_begin_init(tname, n_thread)
@@ -208,7 +211,12 @@ while(1){	\
 {	\
 	thread_beg_def(tname);	\
 	thread_end_def(tname);	\
-	thread_beg_func(tname);	\
+	thread_begin_func_core(tname);	\
+	int NCPU, TIDX;	\
+	NCPU = tname->n_cpu;	\
+	TIDX = tname->t_idx;	\
+	UNUSED(NCPU);	\
+	UNUSED(TIDX);	\
 	thread_beg_loop(tname);	\
 	(expr);	\
 	thread_end_loop(tname);	\

@@ -78,6 +78,12 @@ typedef long long b8i;
 typedef float f4i;
 typedef long double f8i;
 
+#define Int(x) ((int)(x))
+#define UInt(x) ((unsigned)(x))
+#define Int32(x) ((b4i)(x))
+#define Int64(x) ((b8i)(x))
+#define UInt64(x) ((u8i)(x))
+
 /**
  * Useful functions
  */
@@ -167,11 +173,37 @@ static inline size_t roundup_times(size_t v, size_t base){
 	return (v + base - 1) / base * base;
 }
 
+static inline void* malloc16(size_t size){
+	u1i *p, *q;
+	p = malloc(size + 16);
+	if(p == NULL) return NULL;
+	q = (u1i*)(((u8i)(p + 16)) & (~0xFLLU));
+	*(q - 1) = q - p;
+	return q;
+}
+
+static inline void free16(void *ptr){
+	u1i *p, *q;
+	q = (u1i*)ptr;
+	p = q - *(q - 1);
+	free(p);
+}
+
 static inline size_t encap_list(void **buffer, size_t e_size, size_t size, size_t cur_cap, size_t inc, int mem_zeros, size_t n_head){
 	void *ptr;
 	size_t cap;
-	if(size + inc <= cur_cap) return cur_cap;
-	if(size + inc < 0xFFFFFFF){
+	if(cur_cap - size >= inc) return cur_cap;
+	if(MAX_U8 - inc <= size){
+		fprintf(stderr, " -- Overflow(64bits) %llu + %llu, in %s -- %s:%d --\n", (u8i)size, (u8i)inc, __FUNCTION__, __FILE__, __LINE__);
+		print_backtrace(stderr, 20);
+		abort();
+	}
+	if(MAX_U8 - inc < 0xFFFFFFFLLU){
+		fprintf(stderr, " -- Overflow(64bits) %llu + %llu, in %s -- %s:%d --\n", (u8i)size, (u8i)inc, __FUNCTION__, __FILE__, __LINE__);
+		print_backtrace(stderr, 20);
+		abort();
+	}
+	if(size + inc < 0xFFFFFFFLLU){
 		cap = roundup_power2(size + inc);
 	} else {
 		cap = ((size + inc + 0xFFFFFFFLLU - 1LLU) / 0xFFFFFFFLLU) * 0xFFFFFFFLLU;
@@ -180,12 +212,13 @@ static inline size_t encap_list(void **buffer, size_t e_size, size_t size, size_
 	if(ptr == NULL){
 		fprintf(stderr, " -- Out of memory, try to allocate %llu bytes, old size %llu, old addr %p in %s -- %s:%d --\n", (unsigned long long)(e_size * (cap + n_head)), (unsigned long long)(e_size * (cur_cap + n_head)), *buffer, __FUNCTION__, __FILE__, __LINE__);
 		print_backtrace(stderr, 20);
-		exit(1);
+		abort();
 	}
 	*buffer = ptr + n_head * e_size;
-	if(mem_zeros) memset(*buffer + cur_cap, 0, e_size * (cap - cur_cap));
+	if(mem_zeros) memset((*buffer) + (cur_cap * e_size), 0, e_size * (cap - cur_cap));
 	return cap;
 }
+
 
 #define ZEROS(e) memset(e, 0, sizeof(*e))
 
@@ -245,18 +278,40 @@ static inline int replace_char(char *str, char src, char dst, int max){
 }
 
 static inline int file_exists(const char *filename){
+	char *realpath;
 	struct stat s;
-	if(stat(filename, &s) == -1) return 0;
+	realpath = canonicalize_file_name(filename);
+	if(realpath == NULL) return 0;
+	if(stat(realpath, &s) == -1){ free(realpath); return 0; }
+	free(realpath);
 	switch(s.st_mode & S_IFMT){
 		//case S_IFBLK:
 		//case S_IFCHR:
 		//case S_IFDIR:
 		//case S_IFIFO:
 		//case S_IFSOCK:
-		case S_IFLNK:
+		//case S_IFLNK:
 		case S_IFREG: return 1;
 		default: return 0;
+	}
+}
 
+static inline int dir_exists(const char *filename){
+	char *realpath;
+	struct stat s;
+	realpath = canonicalize_file_name(filename);
+	if(realpath == NULL) return 0;
+	if(stat(realpath, &s) == -1){ free(realpath); return 0; }
+	free(realpath);
+	switch(s.st_mode & S_IFMT){
+		//case S_IFBLK:
+		//case S_IFCHR:
+		//case S_IFREG:
+		//case S_IFIFO:
+		//case S_IFSOCK:
+		//case S_IFLNK:
+		case S_IFDIR: return 1;
+		default: return 0;
 	}
 }
 
@@ -304,6 +359,19 @@ static inline char* absolute_filename(char *filename){
 	strncpy(path + i + 1, filename + y, strlen(filename) - y);
 	path[i + 1 + strlen(filename) - y] = 0;
 	return path;
+}
+
+static inline int exists_file(char *dir, char *filename){
+	char *realpath, *fullname;
+	int ret;
+	realpath = absolute_filename(dir? dir : ".");
+	if(!dir_exists(realpath)){ free(realpath); return 0; }
+	fullname = malloc(strlen(realpath) + strlen(filename) + 3);
+	sprintf(fullname, "%s/%s", realpath, filename);
+	free(realpath);
+	ret = file_exists(fullname);
+	free(fullname);
+	return ret;
 }
 
 static inline FILE* open_file_for_read(char *name, char *suffix){
@@ -420,30 +488,38 @@ static inline int get_linux_sys_info(u8i *memtotal, u8i *memavail, int *ncpu){
 	FILE *fp;
 	char buffer[64];
 	u8i freed, buffered, cached;
-	*memtotal = *memavail = *ncpu = 0;
-	freed = buffered = cached = 0;
-	fp = open_file_for_read("/proc/meminfo", NULL);
-	while((fscanf(fp, "%s", buffer)) > 0){
-		if (strstr(buffer, "MemTotal") == buffer) {
-			fscanf(fp, "%llu", memtotal);
-			(*memtotal) *= 1024;
-		} else if (strstr(buffer, "MemFree") == buffer) {
-			fscanf(fp, "%llu", &freed);
-		} else if (strstr(buffer, "Buffers") == buffer) {
-			fscanf(fp, "%llu", &buffered);
-		} else if (strstr(buffer, "Cached") == buffer) {
-			fscanf(fp, "%llu", &cached);
+	int core;
+	if(memtotal || memavail){
+		freed = buffered = cached = 0;
+		fp = open_file_for_read("/proc/meminfo", NULL);
+		while((fscanf(fp, "%s", buffer)) > 0){
+			if (strstr(buffer, "MemTotal") == buffer) {
+				fscanf(fp, "%llu", memtotal);
+				(*memtotal) *= 1024;
+			} else if (strstr(buffer, "MemFree") == buffer) {
+				fscanf(fp, "%llu", &freed);
+			} else if (strstr(buffer, "Buffers") == buffer) {
+				fscanf(fp, "%llu", &buffered);
+			} else if (strstr(buffer, "Cached") == buffer) {
+				fscanf(fp, "%llu", &cached);
+			}
+		}
+		fclose(fp);
+		if(memavail){
+			*memavail = (freed + buffered + cached) * 1024;
 		}
 	}
-	fclose(fp);
-	*memavail = (freed + buffered + cached) * 1024;
-	fp = open_file_for_read("/proc/cpuinfo", NULL);
-	while((fscanf(fp, "%s", buffer)) > 0){
-		if (strstr(buffer, "processor") == buffer) {
-			(*ncpu) ++;
+	if(ncpu){
+		fp = open_file_for_read("/proc/cpuinfo", NULL);
+		core = 0;
+		while((fscanf(fp, "%s", buffer)) > 0){
+			if (strstr(buffer, "processor") == buffer) {
+				core ++;
+			}
 		}
+		fclose(fp);
+		*ncpu = core;
 	}
-	fclose(fp);
 	return 0;
 }
 
@@ -643,8 +719,8 @@ typedef void (*mem_load_post)(void *obj, size_t aux_data);
 
 struct obj_desc_t;
 
-#define MEM_PTR_TYPE_DUMP	1
-#define MEM_PTR_TYPE_POINTER	2
+#define MEM_PTR_TYPE_DUMP	1 // whether it take bytes
+#define MEM_PTR_TYPE_POINTER	2 // take desc->size or sizeof(void*) bytes
 
 typedef struct obj_desc_t {
 	const char *tag;
@@ -695,6 +771,50 @@ static inline size_t mem_size_obj(void *obj, uint8_t mem_type, const obj_desc_t 
 		}
 	}
 	return size;
+}
+
+static inline void mem_dup_obj(void **ret, void *obj, size_t aux_data, uint8_t mem_type, const obj_desc_t *desc, size_t cnt){
+	size_t m;
+	void *ref, *chd;
+	int i;
+	if(desc == NULL || obj == NULL){ *ret = NULL; return; }
+	if(mem_type & 0x01){
+		if(mem_type & 0x02){
+			*ret = calloc(cnt, sizeof(void*) * cnt);
+		} else if(desc->size){
+			*ret = calloc(cnt, desc->size);
+			memcpy(*ret, obj, desc->size * cnt);
+		} else {
+			// OBJ_DESC_CHAR_ARRAY
+		}
+	}
+	if(desc->n_child == 0 && desc->post == NULL){
+	//if((mem_type & 0x02) == 0 && desc->n_child == 0){
+	} else {
+		for(m=0;m<cnt;m++){
+			if(mem_type & 0x02){
+				ref = ((void**)obj)[m];
+				if(ref == NULL) continue;
+				chd = malloc(desc->size);
+				memcpy(chd, ref, desc->size);
+				ret[m] = chd;
+			} else if(desc->size){
+				ref = obj + m * desc->size;
+				chd = (*ret) + m * desc->size;
+			} else {
+				ref = obj;
+				chd = ret;
+			}
+			for(i=0;i<desc->n_child;i++){
+				if(desc->mem_type[i] & 0x01){
+					mem_dup_obj((void**)(chd + desc->addr[i]), *((void**)(ref + desc->addr[i])), aux_data, desc->mem_type[i] | (desc->size? 0 : MEM_PTR_TYPE_DUMP), desc->desc[i], desc->cnt? desc->cnt(ref, i) : 1);
+				} else {
+					mem_dup_obj((void**)(chd + desc->addr[i]), ref + desc->addr[i], aux_data, desc->mem_type[i] | (desc->size? 0 : MEM_PTR_TYPE_DUMP), desc->desc[i], desc->cnt? desc->cnt(ref, i) : 1);
+				}
+			}
+			if(desc->post) desc->post(chd, aux_data);
+		}
+	}
 }
 
 static inline size_t mem_dump_obj(void *obj, uint8_t mem_type, const obj_desc_t *desc, size_t offset, size_t cnt, FILE *out, int mem_free){
@@ -749,7 +869,7 @@ static inline size_t mem_load_obj(void *obj, size_t aux_data, uint8_t mem_type, 
 			addr += mem_size_round(cnt * desc->size);
 		}
 	}
-	if(desc->n_child == 0){
+	if(desc->n_child == 0 && desc->post == NULL){
 		switch(mem_type){
 			case 2:
 			case 3:
@@ -781,8 +901,8 @@ static inline size_t mem_load_obj(void *obj, size_t aux_data, uint8_t mem_type, 
 				addr = mem_load_obj((void*)ptr, aux_data, desc->mem_type[i] | (desc->size? 0 : MEM_PTR_TYPE_DUMP), desc->desc[i], addr, desc->cnt? desc->cnt(ref, i) : 1);
 			}
 		}
+		if(desc->post) desc->post(ref, aux_data);
 	}
-	if(desc->post) desc->post(obj, aux_data);
 	return addr;
 }
 

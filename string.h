@@ -108,28 +108,19 @@ static inline void lc_string(String *str){
 	}
 }
 
-static inline char* substr(char *string, string_size_t start, string_size_t end, char *dst){
-	string_size_t i, size;
+static inline char* substr(char *string, string_size_t len, char *dst){
 	char *str;
-	size = strlen(string);
-	if(start > size) start = size;
-	else if(start < 0) start = 0;
-	if(end > size) end = size;
-	else if(end < 0) end = 0;
-	size = end - start;
-	if(size < 0) size = 0;
+	if(len < 0) len = strlen(string);
 	if(dst != NULL) str = dst;
-	else str = (char*)malloc(sizeof(char) * (size + 1));
-	for(i=start;i<end;i++){
-		str[i-start] = string[i];
-	}
-	str[size] = '\0';
+	else str = (char*)malloc(sizeof(char) * (len + 1));
+	strncpy(str, string, len);
+	str[len] = '\0';
 	return str;
 }
 
 static inline char* catstr(string_size_t n_str, ...){
 	char *str, *s;
-	string_size_t i, len;
+	string_size_t i, len, inc;
 	va_list params;
 	
 	len = 0;
@@ -137,10 +128,11 @@ static inline char* catstr(string_size_t n_str, ...){
 	va_start(params, n_str);
 	for(i=0;i<n_str;i++){
 		s = va_arg(params, char*);
-		len += strlen(s);
-		str = realloc(str, len + 1);
-		if(i == 0) str[0] = 0;
-		strcat(str, s);
+		if(s == NULL) continue;
+		inc = strlen(s);
+		str = realloc(str, len + inc + 1);
+		memcpy(str + len, s, inc + 1);
+		len += inc;
 	}
 	va_end(params);
 	return str;

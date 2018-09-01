@@ -533,26 +533,27 @@ static inline long long name(e_type *array, long long size, e_type key, void *re
 	if(ref) return 0;	\
 }
 
-#define bsearch_array(_rs_array, _rs_size, e_type, ptr, is_a_less_than_your)	\
+#define bsearch_array(_rs_array, _rs_size, e_type, _bs_ret, is_a_less_than_your)	\
 	\
 do {	\
-	e_type *_rs, a;	\
-	_rs = (e_type*)(_rs_array);	\
-	size_t _size;	\
-	_size = _rs_size;	\
-	size_t i, j, m;	\
-	i = 0;	\
-	j = _size;	\
-	while(i < j){	\
-		m = i + (j - i) / 2;	\
-		a = _rs[m];	\
+	e_type*_bs_rs;	\
+	e_type a;	\
+	_bs_rs = (e_type*)(_rs_array);	\
+	size_t _bs_size;	\
+	_bs_size = _rs_size;	\
+	size_t _bs_i, _bs_j, _bs_m;	\
+	_bs_i = 0;	\
+	_bs_j = _bs_size;	\
+	while(_bs_i < _bs_j){	\
+		_bs_m = _bs_i + (_bs_j - _bs_i) / 2;	\
+		a = _bs_rs[_bs_m];	\
 		if(is_a_less_than_your){	\
-			i = m + 1;	\
+			_bs_i = _bs_m + 1;	\
 		} else {	\
-			j = m;	\
+			_bs_j = _bs_m;	\
 		}	\
 	}	\
-	ptr = i;	\
+	_bs_ret = _bs_i;	\
 } while(0)
 
 #endif

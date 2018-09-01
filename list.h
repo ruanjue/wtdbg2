@@ -118,19 +118,26 @@ do {	\
 
 #define define_list_core(list_type, e_type, size_type, inc_size)	\
 	\
-typedef struct { e_type* buffer; size_type size; size_type cap; u4i mem_zero:1, n_head:31; } list_type;	\
+typedef struct { e_type* buffer; union { size_type size; size_type length; }; size_type cap; size_type off; u4i mem_zero:1, n_head:31; } list_type;	\
 	\
 static inline size_t list_type##_obj_desc_cnt(void *list, int idx){	\
 	if(idx == 0) return ((list_type*)list)->size * sizeof(e_type);	\
 	else return 0;	\
 }	\
 	\
-static const obj_desc_t list_type##_obj_desc = {.tag = TOSTR(_list_##list_type), .size = sizeof(list_type), .n_child = 1, .mem_type = {1}, .addr = {offsetof(list_type, buffer)}, .desc = {(struct obj_desc_t*)&OBJ_DESC_DATA}, .cnt = list_type##_obj_desc_cnt, .post = NULL};	\
+static inline void list_type##_obj_desc_post_load(void *obj, size_t aux_data){	\
+	list_type *list;	\
+	UNUSED(aux_data);	\
+	list = (list_type*)obj;	\
+	list->cap = list->size;	\
+}	\
 	\
-static inline list_type* adv_init_##list_type(size_type init_size, int mem_zero, u4i n_head){	\
+static const obj_desc_t list_type##_obj_desc = {.tag = TOSTR(_list_##list_type), .size = sizeof(list_type), .n_child = 1, .mem_type = {1}, .addr = {offsetof(list_type, buffer)}, .desc = {(struct obj_desc_t*)&OBJ_DESC_DATA}, .cnt = list_type##_obj_desc_cnt, .post = list_type##_obj_desc_post_load};	\
+	\
+static inline void adv_##list_type##_init(list_type *list, size_type init_size, int mem_zero, u4i n_head){	\
 	if(init_size == 0) init_size = 2;	\
-	list_type *list = (list_type*)malloc(sizeof(list_type));	\
 	list->size = 0;	\
+	list->off  = 0;	\
 	list->cap  = init_size;	\
 	list->mem_zero = mem_zero;	\
 	list->n_head = n_head;	\
@@ -140,6 +147,11 @@ static inline list_type* adv_init_##list_type(size_type init_size, int mem_zero,
 	} else {	\
 		list->buffer = (e_type*)calloc(list->cap, sizeof(e_type));	\
 	}	\
+}	\
+	\
+static inline list_type* adv_init_##list_type(size_type init_size, int mem_zero, u4i n_head){	\
+	list_type *list = (list_type*)malloc(sizeof(list_type));	\
+	adv_##list_type##_init(list, init_size, mem_zero, n_head);	\
 	return list;	\
 }	\
 	\
@@ -148,17 +160,36 @@ static inline list_type* init_##list_type(size_type init_size){	\
 }	\
 	\
 static inline void list_type##_init(list_type *list, size_type init_size){	\
-	if(init_size == 0) init_size = 2;	\
-	list->size = 0;	\
-	list->cap  = init_size;	\
-	list->buffer = (e_type*)calloc(list->cap, sizeof(e_type));	\
-	list->mem_zero = 0;	\
-	list->n_head = 0;	\
+	adv_##list_type##_init(list, init_size, 0, 0);	\
+}	\
+	\
+static inline int head_sl_##list_type(list_type *list, size_type len){	\
+	if(list->n_head < len) return 0;	\
+	list->buffer -= len;	\
+	list->n_head -= len;	\
+	list->cap    += len;	\
+	if(list->size) list->size += len;	\
+	return 1;	\
+}	\
+	\
+static inline int head_sr_##list_type(list_type *list, size_type len){	\
+	if(list->cap < len) return 0;	\
+	list->buffer += len;	\
+	list->n_head += len;	\
+	list->cap    -= len;	\
+	if(list->size > len) list->size -= len;	\
+	else list->size = 0;	\
+	return 1;	\
+}	\
+	\
+static inline void renew_##list_type(list_type *list, size_type init_size){	\
+	if(list->buffer) free(list->buffer - list->n_head);	\
+	adv_##list_type##_init(list, init_size, list->mem_zero, list->n_head);	\
 }	\
 	\
 static inline size_type count_##list_type(list_type *list){ return list->size; }	\
 	\
-static inline void clear_##list_type(list_type *list){ list->size = 0; }	\
+static inline void clear_##list_type(list_type *list){ list->size = 0; list->off = 0; }	\
 	\
 static inline void zeros_##list_type(list_type *list){ memset(list->buffer, 0, list->cap * sizeof(e_type)); }	\
 	\
@@ -171,6 +202,10 @@ static inline void recap_##list_type(list_type *list, size_type n){	\
 	list->cap = n;	\
 	if(list->size > n) list->size = n;	\
 	list->buffer = realloc(list->buffer - list->n_head, (list->cap + list->n_head) * sizeof(e_type)) + list->n_head;	\
+}	\
+	\
+static inline void pack_##list_type(list_type *list){	\
+	return recap_##list_type(list, list->size);	\
 }	\
 	\
 static inline void encap_and_zeros_##list_type(list_type *list, size_type n){	\
@@ -196,6 +231,7 @@ static inline void encap_and_zeros_##list_type(list_type *list, size_type n){	\
 	\
 static inline void clear_and_encap_##list_type(list_type *list, size_type n){	\
 	list->size = 0;	\
+	list->off  = 0;	\
 	encap_##list_type(list, n);	\
 }	\
 	\
@@ -212,8 +248,8 @@ static inline void trunc_##list_type(list_type *list, size_type size){	\
 static inline void set_##list_type##_size(list_type *list, size_type size){ list->size = size; }	\
 	\
 static inline void inc_##list_type(list_type *list, size_type size){	\
-	if(size + list->size > list->cap) list->size = list->cap;	\
-	else list->size += size;	\
+	encap_##list_type(list, size);	\
+	list->size += size;	\
 }	\
 	\
 static inline void lazy_push_##list_type(list_type *list, e_type e){ list->buffer[list->size ++] = e; }	\
@@ -221,6 +257,53 @@ static inline void lazy_push_##list_type(list_type *list, e_type e){ list->buffe
 static inline void push_##list_type(list_type *list, e_type e){	\
 	encap_##list_type(list, 1);	\
 	list->buffer[list->size++] = e;	\
+}	\
+	\
+static inline e_type* ring_ref_##list_type(list_type *list, size_type idx){	\
+	idx = (list->off + idx) % list->cap;	\
+	return list->buffer + idx;	\
+}	\
+	\
+static inline void ring_push_##list_type(list_type *list, e_type e){	\
+	size_type idx;	\
+	idx = (list->off + list->size) % list->cap;	\
+	list->buffer[idx] = e;	\
+	if(list->size < list->cap){	\
+		list->size ++;	\
+	}	\
+}	\
+	\
+static inline e_type* ring_peer_##list_type(list_type *list){	\
+	if(list->size){	\
+		return list->buffer + list->size - 1;	\
+	} else return NULL;	\
+}	\
+	\
+static inline e_type* ring_pop_##list_type(list_type *list){	\
+	size_type idx;	\
+	if(list->size){	\
+		list->size --;	\
+		idx = (list->off + list->size) % list->cap;	\
+		return list->buffer + idx;	\
+	} else return NULL;	\
+}	\
+	\
+static inline void ring_shift_##list_type(list_type *list, e_type e){	\
+	list->off = (list->off + list->cap - 1) % list->cap;	\
+	list->buffer[list->off] = e;	\
+	if(list->size < list->cap){	\
+		list->size ++;	\
+	}	\
+}	\
+	\
+static inline e_type* ring_unshift_##list_type(list_type *list){	\
+	size_type idx;	\
+	if(list->size){	\
+		list->size --;	\
+		list->off = (list->off + 1) % list->cap;	\
+		idx = (list->off + list->size) % list->cap;	\
+		return list->buffer + idx;	\
+	} else return NULL;	\
 }	\
 	\
 static inline int fpush_##list_type(list_type *list, FILE *inp){	\
@@ -237,6 +320,15 @@ static inline e_type* peer_##list_type(list_type *list){	\
 	} else return NULL;	\
 }	\
 	\
+static inline e_type* head_##list_type(list_type *list){	\
+	if(list->size) return list->buffer;	\
+	else return NULL;	\
+}	\
+	\
+static inline e_type* tail_##list_type(list_type *list){	\
+	if(list->size) return list->buffer + list->size - 1;	\
+	else return NULL;	\
+}	\
 static inline int pop_##list_type(list_type *list, e_type*e){	\
 	if(count_##list_type(list)){	\
 		list->size --;	\
@@ -328,7 +420,7 @@ static inline void reverse_##list_type(list_type *list){	\
 static inline void sub_reverse_##list_type(list_type *list, size_type beg, size_type end){	\
 	size_type i, j;	\
 	e_type t;	\
-	if(end == 0) return;	\
+	if(end <= beg) return;	\
 	i = beg;	\
 	j = end - 1;	\
 	while(i < j){	\
@@ -403,7 +495,7 @@ static inline list_type* load_##list_type(FILE *inp){	\
 	return list;	\
 }	\
 	\
-static inline void free_##list_type(list_type *list){ free(list->buffer - list->n_head); free(list); }	\
+static inline void free_##list_type(list_type *list){ if(list){ free(list->buffer - list->n_head); free(list); } }	\
 	\
 static inline void list_type##_free(list_type *list){ free(list->buffer); list->buffer = NULL; }	\
 
@@ -539,4 +631,81 @@ static inline void recyc_all_##name(name *g, vplist *vs){	\
 	vs->size = 0;	\
 }
 
-#endif
+// e.g. define_recycle_list(u8r, u8i, u8i, *a = 0, NULL)
+//       u8r, when increase an element, set the to 0 (*a = 0), when free it, do nothing (NULL)
+#define define_recycle_list(list_type, e_type, size_type, e_init, e_free)	\
+typedef struct {	\
+	e_type *buffer;	\
+	size_type size, cap;	\
+	size_type *recyc;	\
+	size_type rsize, rcap;	\
+} list_type;	\
+	\
+static inline list_type* init_##list_type(size_type size){	\
+	list_type *list;	\
+	if(size < 2) size = 2;	\
+	list = malloc(sizeof(list_type));	\
+	list->size = 0;	\
+	list->cap  = size;	\
+	list->buffer = calloc(size, sizeof(e_type));	\
+	list->recyc = calloc(2, sizeof(size_type));	\
+	list->rsize = 0;	\
+	list->rcap  = 2;	\
+	return list;	\
+}	\
+	\
+static inline void free_##list_type(list_type *list){	\
+	e_type* a;	\
+	size_type i;	\
+	for(i=0;i<list->size;i++){	\
+		a = list->buffer + i;	\
+		UNUSED(e_free);	\
+	}	\
+	UNUSED(a);	\
+	free(list->buffer);	\
+	free(list->recyc);	\
+	free(list);	\
+}	\
+	\
+static inline void encap_##list_type(list_type *list, size_type inc){	\
+	if(list->rsize >= inc) return;	\
+	inc -= list->rsize;	\
+	list->cap = encap_list((void**)&list->buffer, sizeof(e_type), list->size, list->cap, inc, 0, 0);	\
+}	\
+	\
+static inline size_type fetch_##list_type(list_type *list){	\
+	e_type* a;	\
+	if(list->rsize){	\
+		return list->recyc[--list->rsize];	\
+	}	\
+	list->cap = encap_list((void**)&list->buffer, sizeof(e_type), list->size, list->cap, 1, 0, 0);	\
+	a = list->buffer + list->size;	\
+	UNUSED(e_init);	\
+	UNUSED(a);	\
+	return list->size ++;	\
+}	\
+	\
+static inline e_type* ref_##list_type(list_type *list, size_type idx){	\
+	return list->buffer + idx;	\
+}	\
+	\
+static inline size_type offset_##list_type(list_type *list, e_type *e){	\
+	return e - list->buffer;	\
+}	\
+	\
+static inline void recyc_##list_type(list_type *list, size_type idx){	\
+	list->rcap = encap_list((void**)&list->recyc, sizeof(size_type), list->rsize, list->rcap, 1, 0, 0);	\
+	list->recyc[list->rsize++] = idx;	\
+}	\
+	\
+static inline void recyc_all_##list_type(list_type *list){	\
+	size_type i;	\
+	list->rsize = 0;	\
+	list->rcap = encap_list((void**)&list->recyc, sizeof(size_type), list->rsize, list->rcap, list->size, 0, 0);	\
+	for(i=0;i<list->size;i++){	\
+		list->recyc[i] = i;	\
+	}	\
+	list->rsize = list->size;	\
+}
+
+# endif
