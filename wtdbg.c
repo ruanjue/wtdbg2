@@ -6251,7 +6251,7 @@ int usage(int level){
 	"   See -k 0\n"
 	" --kmer-psize <int>\n"
 	"   See -p 21\n"
-	" --kmer-deth-max <float>\n"
+	" --kmer-depth-max <float>\n"
 	"   See -K 1000\n"
 	" --kmer-depth-min <int>\n"
 	"   See -E\n"
