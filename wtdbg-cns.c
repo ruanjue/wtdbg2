@@ -32,6 +32,7 @@ thread_beg_def(mcns);
 uint32_t eid;
 CNS *cns;
 u1v *seq1, *seq2;
+u4i node1, node2;
 int reglen;
 int W, M, X, I, D, E;
 int candidate_mode;
@@ -206,6 +207,8 @@ uint32_t run(int reglen, int ksize, int Z, int W, int M, int X, int I, int D, in
 	mcns->cns = init_cns(ksize, Z, W, 0, X, I, D, E, H, L);
 	mcns->seq1 = init_u1v(32);
 	mcns->seq2 = init_u1v(32);
+	mcns->node1 = 0;
+	mcns->node2 = 0;
 	mcns->reglen = reglen;
 	mcns->W = 128;
 	mcns->M = M;
@@ -232,7 +235,7 @@ uint32_t run(int reglen, int ksize, int Z, int W, int M, int X, int I, int D, in
 			thread_wait_one(mcns);
 			if(mcns->task == cns_model && mcns->cns->seq->size){
 				if(cns_debug){
-					fprintf(stderr, "%s_%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", tag->string, mcns->eid, mcns->cns->qlen, mcns->cns->seq->size, mcns->cns->max_score, mcns->cns->alns[0], mcns->cns->alns[1], mcns->cns->alns[2], mcns->cns->alns[3], mcns->cns->seq->string);
+					fprintf(stderr, "%s_%d_N%u_N%u\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", tag->string, mcns->eid, mcns->node1, mcns->node2, mcns->cns->qlen, mcns->cns->seq->size, mcns->cns->max_score, mcns->cns->alns[0], mcns->cns->alns[1], mcns->cns->alns[2], mcns->cns->alns[3], mcns->cns->seq->string);
 				}
 				cxs->buffer[mcns->eid] = cseqs->size;
 				for(j=0;j<mcns->cns->seq->size;j++) push_u1v(cseqs, base_bit_table[(int)mcns->cns->seq->string[j]]);
@@ -244,13 +247,18 @@ uint32_t run(int reglen, int ksize, int Z, int W, int M, int X, int I, int D, in
 			mcns->eid = eid ++;
 			push_u4v(cxs, 0);
 			push_u4v(cys, 0);
-			if(fr->line->string[0] == 'E') continue;
+			if(fr->line->string[0] == 'E'){
+				mcns->node1 = atoll(get_col_str(fr, 2) + 1);
+				mcns->node2 = atoll(get_col_str(fr, 4) + 1);
+				continue;
+			}
 			if(tag->size){
 				thread_beg_iter(mcns);
 				thread_wait(mcns);
 				if(mcns->task == cns_model && mcns->cns->seq->size){
 					if(cns_debug){
-						fprintf(stderr, "%s_%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", tag->string, mcns->eid, mcns->cns->qlen, mcns->cns->seq->size, mcns->cns->max_score, mcns->cns->alns[0], mcns->cns->alns[1], mcns->cns->alns[2], mcns->cns->alns[3], mcns->cns->seq->string);
+						//fprintf(stderr, "%s_%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", tag->string, mcns->eid, mcns->cns->qlen, mcns->cns->seq->size, mcns->cns->max_score, mcns->cns->alns[0], mcns->cns->alns[1], mcns->cns->alns[2], mcns->cns->alns[3], mcns->cns->seq->string);
+						fprintf(stderr, "%s_%d_N%u_N%u\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", tag->string, mcns->eid, mcns->node1, mcns->node2, mcns->cns->qlen, mcns->cns->seq->size, mcns->cns->max_score, mcns->cns->alns[0], mcns->cns->alns[1], mcns->cns->alns[2], mcns->cns->alns[3], mcns->cns->seq->string);
 						if(0){
 							u4i j, x;
 							for(j=x=0;j<mcns->cns->cigars->size;j++){
@@ -275,6 +283,8 @@ uint32_t run(int reglen, int ksize, int Z, int W, int M, int X, int I, int D, in
 				clear_string(mcns->cns->seq);
 				mcns->eid = 0;
 				mcns->task = 0;
+				mcns->node1 = 0;
+				mcns->node2 = 0;
 				thread_end_iter(mcns);
 				push_u4v(qes, 0);
 				push_u4v(tes, 0);
