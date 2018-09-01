@@ -1,4 +1,4 @@
-#NEWS
+# NEWS
 * |2018-09-01| New consensus module: POACNS <br>
 ```sh
 wtpoa-cns -t 0 -i dbg.ctg.lay -fo dbg.ctg.poacns.fa
