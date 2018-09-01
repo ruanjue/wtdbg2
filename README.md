@@ -3,10 +3,10 @@
 ```sh
 wtpoa-cns -t 0 -i dbg.ctg.lay -fo dbg.ctg.poacns.fa
 ```
-1, wtpoa-cns implements POA to generate MSA from reads fragments within an edge.
-2, performs realignment on MSA.
-3, recalibrates homopolymers.
-4, joins edges into a contig.
+1, wtpoa-cns implements POA to generate MSA from reads fragments within an edge. <br>
+2, performs realignment on MSA. <br>
+3, recalibrates homopolymers, and make consensus sequence for an edge. <br>
+4, joins edges' sequences into a contig. <br>
 
 Welcome to test POACNS and feedback.
 
