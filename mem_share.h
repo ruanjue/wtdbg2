@@ -198,15 +198,15 @@ static inline size_t encap_list(void **buffer, size_t e_size, size_t size, size_
 		print_backtrace(stderr, 20);
 		abort();
 	}
-	if(MAX_U8 - inc < 0xFFFFFFFLLU){
+	if(MAX_U8 - inc < 0x3FFFFFFFLLU){
 		fprintf(stderr, " -- Overflow(64bits) %llu + %llu, in %s -- %s:%d --\n", (u8i)size, (u8i)inc, __FUNCTION__, __FILE__, __LINE__);
 		print_backtrace(stderr, 20);
 		abort();
 	}
-	if(size + inc < 0xFFFFFFFLLU){
+	if(size + inc < 0x3FFFFFFFLLU){
 		cap = roundup_power2(size + inc);
 	} else {
-		cap = ((size + inc + 0xFFFFFFFLLU - 1LLU) / 0xFFFFFFFLLU) * 0xFFFFFFFLLU;
+		cap = (size + inc + 0x3FFFFFFFLLU) & (MAX_U8 << 30);
 	}
 	ptr = realloc((*buffer) - n_head * e_size, e_size * (cap + n_head));
 	if(ptr == NULL){

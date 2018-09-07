@@ -520,15 +520,16 @@ static inline void encap_basebank(BaseBank *bnk, u8i inc){
 		print_backtrace(stderr, 20);
 		abort();
 	}
-	if(MAX_U8 - inc < 0xFFFFFFFLLU){
+	if(MAX_U8 - inc < 0x3FFFFFFFLLU){
 		fprintf(stderr, " -- Overflow(64bits) %llu + %llu, in %s -- %s:%d --\n", (u8i)bnk->size, (u8i)inc, __FUNCTION__, __FILE__, __LINE__);
 		print_backtrace(stderr, 20);
 		abort();
 	}
-	if(bnk->size + inc < 0xFFFFFFFLLU){
-		bnk->cap = roundup_power2(bnk->size + inc);
+	if(bnk->size + inc <= 0x3FFFFFFFLLU){
+		bnk->cap = roundup_times(2 * (bnk->size + inc), 32);
 	} else {
-		bnk->cap = ((bnk->size + inc + 0xFFFFFFFLLU - 1LLU) / 0xFFFFFFFLLU) * 0xFFFFFFFLLU;
+		//bnk->cap = ((bnk->size + inc + 0xFFFFFFFLLU - 1LLU) / 0xFFFFFFFLLU) * 0xFFFFFFFLLU;
+		bnk->cap = (bnk->size + inc + 0x3FFFFFFFLLU) & (MAX_U8 << 30);
 	}
 	if(bnk->cap < 32) bnk->cap = 32;
 	bits = realloc(bnk->bits, ((bnk->cap >> 5) + 1) << 3);
