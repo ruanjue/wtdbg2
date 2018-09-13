@@ -124,16 +124,77 @@ static inline void direct_run_tripog(TriPOG *tp){
 	tp->pogs[0]->W_score = 0;
 }
 
+static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u1i ksize){
+	f4v *kords;
+	u4v *kidxs;
+	uuhash_t *u;
+	u8i roff;
+	u4i ridx, i, kmer, kmask, rlen, khit;
+	int exists;
+	clear_uuhash(khash);
+	kmask = MAX_U4 >> ((16 - ksize) << 1);
+	for(ridx=0;ridx<sb->nseq;ridx++){
+		rlen = sb->rdlens->buffer[ridx];
+		kmer = 0;
+		roff = sb->rdoffs->buffer[ridx];
+		for(i=0;i<rlen;i++){
+			kmer = ((kmer << 2) | get_basebank(sb->rdseqs, roff + i)) & kmask;
+			if(i + 1 < ksize) continue;
+			u = prepare_uuhash(khash, kmer, &exists);
+			if(exists){
+				u->val ++;
+			} else {
+				u->key = kmer;
+				u->val = 1;
+			}
+		}
+	}
+	kords = init_f4v(sb->nseq);
+	kidxs = init_u4v(sb->nseq);
+	for(ridx=0;ridx<sb->nseq;ridx++){
+		rlen = sb->rdlens->buffer[ridx];
+		kmer = 0;
+		roff = sb->rdoffs->buffer[ridx];
+		khit = 0;
+		for(i=0;i<rlen;i++){
+			kmer = ((kmer << 2) | get_basebank(sb->rdseqs, roff + i)) & kmask;
+			if(i + 1 < ksize) continue;
+			u = get_uuhash(khash, kmer);
+			if(u->val > 1){
+				khit ++;
+			}
+		}
+		push_f4v(kords, ((double)khit) / rlen);
+		push_u4v(kidxs, ridx);
+	}
+	sort_array(kidxs->buffer, kidxs->size, u4i, num_cmpgt(kords->buffer[b], kords->buffer[a]));
+	if(cns_debug){
+		for(i=0;i<kidxs->size;i++){
+			fprintf(stderr, "SHUFFLE[%u] %u\t%0.4f\n", i, kidxs->buffer[i], kords->buffer[kidxs->buffer[i]]);
+		}
+	}
+	free_f4v(kords);
+	for(i=0;i<kidxs->size;i++){
+		push_u8v(sb->rdoffs, sb->rdoffs->buffer[kidxs->buffer[i]]);
+		push_u4v(sb->rdlens, sb->rdlens->buffer[kidxs->buffer[i]]);
+	}
+	remove_array_u8v(sb->rdoffs, 0, kidxs->size);
+	remove_array_u4v(sb->rdlens, 0, kidxs->size);
+	free_u4v(kidxs);
+}
+
 static inline void end_tripog(TriPOG *tp){
 	POG *g;
 	kswr_t R;
 	u4i ridx, rlen, b, e, failed;
 	if(tp->winlen == 0){
+		shuffle_reads_tripog(tp->pogs[0]->seqs, tp->khash, tp->ksize);
 		end_pog(tp->pogs[0]);
 		clear_basebank(tp->cns);
 		fast_fwdbits2basebank(tp->cns, tp->pogs[0]->cns->bits, 0, tp->pogs[0]->cns->size);
 		return;
 	}
+	shuffle_reads_tripog(tp->seqs, tp->khash, tp->ksize);
 	if(tp->seqs->nseq < 2){
 		return direct_run_tripog(tp);
 	}
@@ -147,30 +208,16 @@ static inline void end_tripog(TriPOG *tp){
 	{
 		uuhash_t *u;
 		u4i i, j, hit, nb, kmer, kcnt, kdup, keqs, ktot, kmask, roff;
-		int exists;
-		clear_uuhash(tp->khash);
 		kmask = MAX_U4 >> ((16 - tp->ksize) << 1);
-		for(ridx=0;ridx<tp->seqs->nseq;ridx++){
+		for(ridx=0;ridx<1;ridx++){
 			rlen = tp->seqs->rdlens->buffer[ridx];
 			kmer = 0;
 			roff = tp->seqs->rdoffs->buffer[ridx];
 			for(i=0;i<rlen;i++){
 				kmer = ((kmer << 2) | get_basebank(tp->seqs->rdseqs, roff + i)) & kmask;
 				if(i + 1 < tp->ksize) continue;
-				if(ridx){
-					u = get_uuhash(tp->khash, kmer);
-					if(u && u->val == 1){
-						u->val = 3;
-					}
-				} else {
-					u = prepare_uuhash(tp->khash, kmer, &exists);
-					if(exists){
-						u->val = 2;
-					} else {
-						u->key = kmer;
-						u->val = 1;
-					}
-				}
+				u = get_uuhash(tp->khash, kmer);
+				u->val += 1U << 16;
 			}
 		}
 		nb = ((rlen - tp->winlen) * 2 / 3 / tp->winlen / 2) * 2;
@@ -187,9 +234,9 @@ static inline void end_tripog(TriPOG *tp){
 				kmer = ((kmer << 2) | get_basebank(tp->seqs->rdseqs, roff + i)) & kmask;
 				if(i + 1 - b < tp->ksize) continue;
 				kcnt = getval_uuhash(tp->khash, kmer);
-				if(kcnt == 2){
+				if((kcnt >> 16) > 1){
 					kdup ++;
-				} else if(kcnt == 3){
+				} else if((kcnt & 0xFFFFU) > 1){
 					keqs ++;
 				}
 			}
@@ -255,12 +302,17 @@ static inline void end_tripog(TriPOG *tp){
 	}
 	// building cns for fast aligned regions
 	g = tp->pogs[0];
+	g->aln_mode = POG_ALNMODE_GLOBAL;
 	beg_pog(g);
 	for(ridx=0;ridx<tp->seqs->nseq;ridx++){
 		if(tp->regs[0]->buffer[ridx] == MAX_U2) continue;
 		fwdbitpush_pog(g, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[ridx] + tp->regs[0]->buffer[ridx], tp->regs[1]->buffer[ridx] - tp->regs[0]->buffer[ridx]);
 	}
+	if(0){
+		print_seqs_pog(g, "p0.fa", NULL);
+	}
 	end_pog(g);
+	g->aln_mode = POG_ALNMODE_OVERLAP;
 	// finding a best break point
 	{
 		u2v *rs;
