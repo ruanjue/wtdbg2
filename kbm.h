@@ -1213,7 +1213,7 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 			{
 				// Refine boundray
 				if(par->self_aln == 2){ // reverse complementary only
-					while(ref->b < ref->end && ref->end->bidx > bmin){
+					while(ref->b < ref->end && (ref->end - 1)->bidx > bmin){
 						ref->end --;
 					}
 				}
