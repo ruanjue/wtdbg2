@@ -35,6 +35,8 @@ static int cns_debug = 0;
 #define POG_DP_BT_M	0
 #define POG_DP_BT_I	1
 #define POG_DP_BT_D	2
+#define POG_ALNMODE_OVERLAP	0
+#define POG_ALNMODE_GLOBAL	1
 
 #define POG_VST_MAX	MAX_U2
 
@@ -61,7 +63,7 @@ typedef struct {
 	SeqBank  *seqs;
 	pognodev *nodes;
 	pogedgev *edges;
-	int sse, W_score, near_dialog;
+	int sse, W_score, near_dialog, aln_mode;
 	int M, X, I, D, T, W, rW;
 	u4i msa_min_cnt;
 	float msa_min_freq;
@@ -86,6 +88,7 @@ static inline POG* init_pog(int M, int X, int I, int D, int W, int Wscore_cutoff
 	g->sse = use_sse;
 	g->W_score = Wscore_cutoff;
 	g->near_dialog = 0;
+	g->aln_mode = POG_ALNMODE_OVERLAP; // 0: overlap, 1: global
 	g->W = W;
 	g->M = M;
 	g->X = X;
@@ -418,28 +421,33 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	row2 = ref_b2v(g->rows, coff2);
 	btds = ref_b2v(g->btds, coff2);
 	btxs = ref_u4v(g->btxs, coff2);
-	if(row1[row1[seqlex]] >= g->W_score){
-		if(g->near_dialog){
-			if(row1[seqlex + 1] > 0 || row1[seqlex + 2] < Int(seqlen)){
-				if(row1[seqlex] == (row1[seqlex + 1] + row1[seqlex + 2]) / 2){
-					center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2 + 1;
-				} else if(row1[seqlex] > (row1[seqlex + 1] + row1[seqlex + 2]) / 2){
-					center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2 + 2;
-				} else {
-					center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2;
+	if(g->W){
+		if(row1[row1[seqlex]] >= g->W_score){
+			if(g->near_dialog){
+				if(row1[seqlex + 1] > 0 || row1[seqlex + 2] < Int(seqlen)){
+					if(row1[seqlex] == (row1[seqlex + 1] + row1[seqlex + 2]) / 2){
+						center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2 + 1;
+					} else if(row1[seqlex] > (row1[seqlex + 1] + row1[seqlex + 2]) / 2){
+						center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2 + 2;
+					} else {
+						center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2;
+					}
+				} else { // first set center
+					center = row1[seqlex];
 				}
-			} else { // first set center
+			} else {
 				center = row1[seqlex];
 			}
+			beg = num_max(center - g->W, row1[seqlex + 1]);
+			end = num_min(center + 1 + g->W, row1[seqlex + 2] + 1);
+			if(end > seqlen) end = seqlen;
 		} else {
-			center = row1[seqlex];
+			beg = row1[seqlex + 1];
+			end = num_min(row1[seqlex + 2] + 1, Int(seqlen));
 		}
-		beg = num_max(center - g->W, row1[seqlex + 1]);
-		end = num_min(center + 1 + g->W, row1[seqlex + 2] + 1);
-		if(end > seqlen) end = seqlen;
 	} else {
-		beg = row1[seqlex + 1];
-		end = num_min(row1[seqlex + 2] + 1, Int(seqlen));
+		beg = 0;
+		end = seqlen;
 	}
 	if(nidx2 == POG_TAIL_NODE){
 		end = row1[seqlex + 2];
@@ -465,7 +473,11 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	}
 
 	MAX = _mm_set1_epi16(POG_SCORE_MIN);
-	lstf = lsth = beg? POG_SCORE_MIN : 0;
+	if(g->aln_mode == POG_ALNMODE_OVERLAP){
+		lstf = lsth = beg? POG_SCORE_MIN : 0;
+	} else {
+		lstf = lsth = POG_SCORE_MIN;
+	}
 	for(i=beg;i<end;i++){
 		E = _mm_load_si128(((__m128i*)(row1)) + i);
 		H = _mm_slli_si128(E, 2);
@@ -750,17 +762,6 @@ static inline int align_rd_pog(POG *g, u2i rid){
 					qp[j] = g->X;
 				}
 			}
-			/*
-			if(bb == i){
-				if(bb == bl){
-					qp[j] = 1;
-				} else {
-					qp[j] = g->M;
-				}
-			} else {
-				qp[j] = g->X;
-			}
-			*/
 			bl = bb;
 		}
 		for(;j<seqlex;j++){
@@ -813,12 +814,19 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	row = ref_b2v(g->rows, u->coff);
 	btds = ref_b2v(g->btds, u->coff);
 	btxs = ref_u4v(g->btxs, u->coff);
-	{ // overlap alignment
+	if(g->aln_mode == POG_ALNMODE_OVERLAP){ // overlap alignment
 		memset(row,  0, seqinc * sizeof(b2i));
 		row[0] = g->T;
-		memset(btds, 0, seqinc * sizeof(b2i));
-		memset(btxs, 0, seqinc * sizeof(u4i));
+	} else { // global
+		__m128i MIN;
+		MIN = _mm_set1_epi16(POG_SCORE_MIN);
+		for(j=0;j<slen;j++){
+			_mm_store_si128(((__m128i*)row) + j, MIN);
+		}
+		row[0] = g->T;
 	}
+	memset(btds, 0, seqinc * sizeof(b2i));
+	memset(btxs, 0, seqinc * sizeof(u4i));
 	if(g->near_dialog && g->W_score <= 0){
 		row[seqlex] = g->W;
 		row[seqlex + 1] = 0;
@@ -839,15 +847,12 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		if(my_print){
 			fprintf(stderr, "NODEALN[%u:R%u:%u] %d-%d:%d:%d %d\n", nidx, u->rid, u->pos, g->rows->buffer[u->coff + seqlex + 1], g->rows->buffer[u->coff + seqlex + 2], g->rows->buffer[u->coff + seqlex], g->rows->buffer[u->coff + g->rows->buffer[u->coff + seqlex]], g->btds->buffer[u->coff + g->rows->buffer[u->coff + seqlex]]);
 		}
-		if((g->rows->buffer[u->coff + seqlex + 2]) >= Int(seqlen) &&  g->rows->buffer[u->coff + x] > score){ // overlap alignment
-			score = g->rows->buffer[u->coff + x];
-			mnode = nidx;
+		if(g->aln_mode == POG_ALNMODE_OVERLAP){
+			if((g->rows->buffer[u->coff + seqlex + 2]) >= Int(seqlen) &&  g->rows->buffer[u->coff + x] > score){ // overlap alignment
+				score = g->rows->buffer[u->coff + x];
+				mnode = nidx;
+			}
 		}
-		//if(g->rows->buffer[u->coff + g->rows->buffer[u->coff + seqlex]] > score){ // local alignment
-			//x = g->rows->buffer[u->coff + seqlex];
-			//score = g->rows->buffer[u->coff + g->rows->buffer[u->coff + seqlex]];
-			//mnode = nidx;
-		//}
 		eidx = u->edge;
 		while(eidx){
 			e = ref_pogedgev(g->edges, eidx);
@@ -890,12 +895,19 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		row[seqlex + 1] = 0;
 		row[seqlex + 2] = seqlen;
 	}
-	if(g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])] + g->T > score){
-		score = g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])];
+	if(g->aln_mode == POG_ALNMODE_OVERLAP){
+		if(g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])] + g->T > score){
+			score = g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])];
+			mnode = POG_TAIL_NODE;
+			x = (g->rows->buffer[v->coff + seqlex]);
+		}
+	} else {
+		score = g->rows->buffer[v->coff + seqlen - 1];
 		mnode = POG_TAIL_NODE;
-		x = (g->rows->buffer[v->coff + seqlex]);
+		x = seqlen - 1;
 	}
 	xe = x;
+	xb = x;
 	nidx = POG_TAIL_NODE;
 	if(x + 1 < (int)seqlen){
 		v = ref_pognodev(g->nodes, nidx);
@@ -972,6 +984,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				} else {
 					trunc_pogedgev(g->edges, 1);
 				}
+				xb = x;
 				break;
 			}
 			x --;
@@ -1030,7 +1043,6 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		} else {
 		}
 		if(x < 0){
-			xb = 0;
 			nidx = 0;
 			btx = 0;
 			continue;
