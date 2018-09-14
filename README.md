@@ -3,9 +3,9 @@
 ```sh
 wtpoa-cns -t 0 -i dbg.ctg.lay -fo dbg.ctg.poacns.fa
 ```
-1, wtpoa-cns implements POA to generate MSA from reads fragments within an edge. <br>
+1, wtpoa-cns implements POA to generate MSA from reads fragments within an edge. Used SSE instructions, but seems still can be further improved in speed <br>
 2, performs realignment on MSA. <br>
-3, recalibrates homopolymers, and make consensus sequence for an edge. <br>
+3, recalibrates homopolymers, and make consensus sequence for an edge. Most reamining small errors come from homopolymer, more efforts are needed <br>
 4, joins edges' sequences into a contig. <br>
 
 Welcome to test POACNS and feedback.
@@ -220,6 +220,12 @@ wtdbg print runtime information on progrom's STDERR stream. `--quiet` to disiabl
 wtdbg-cns -t 64 -i dbg.ctg.lay -o dbg.ctg.lay.fa
 ```
 The output file `dbg.ctg.lay.fa` is ready for further polished by `PILON` or `QUIVER`.
+
+```sh
+wtpoa-cns -t 64 -i dbg.ctg.lay -o dbg.ctg.lay.fa
+```
+wtpoa-cns is slower than wtdbg-cns, but offer more accurate consensus sequences.
+I will update it in following development.
 
 # Performance
 ## Human (3G) CHM1 PacBio P5C3 dataset, 65.5 core.hours
