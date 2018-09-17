@@ -631,19 +631,19 @@ static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2)
 			}
 		}
 	}
-	for(i=end[2];i<beg[2];i++){ // in case of two independent regions
-		row2[i] = POG_SCORE_MIN;
-	}
 	if(beg[0] < beg[2]){
 		if(beg[0] > 8){
 			delta = 8;
 		} else {
 			delta = beg[0];
 		}
-		sz = beg[2] - beg[0] + delta;
+		sz = num_min(beg[2], end[0]) - beg[0] + delta;
 		memcpy(row2 + beg[0] - delta, row1 + beg[0] - delta, sz * sizeof(b2i));
 		memcpy(btd2 + beg[0] - delta, btd1 + beg[0] - delta, sz * sizeof(b2i));
 		memcpy(btx2 + beg[0] - delta, btx1 + beg[0] - delta, sz * sizeof(u4i));
+	}
+	for(i=end[2];i<beg[2];i++){ // in case of two independent regions
+		row2[i] = POG_SCORE_MIN;
 	}
 	if(end[0] > end[2]){
 		sz = num_min(end[0] + 8, seqlex) - end[2];
@@ -713,6 +713,36 @@ static void inc_edge_core_pog(POG *g, pog_node_t *v, pog_edge_t *e){
 	} else {
 		e->next = v->edge;
 		v->edge = offset_pogedgev(g->edges, e);
+	}
+}
+
+void check_dp_cell_btxs(POG *g, u4i nidx, u8i coff, u2i seqlex){
+	pog_node_t *u, *v;
+	pog_edge_t *e;
+	u4i i, btx, beg, end, eidx, pass;
+	v = ref_pognodev(g->nodes, nidx);
+	btx = MAX_U4;
+	beg = g->rows->buffer[coff + seqlex + 1];
+	end = g->rows->buffer[coff + seqlex + 2];
+	for(i=beg;i<end;i++){
+		if(g->rows->buffer[coff + i] != POG_SCORE_MIN && g->btxs->buffer[coff + i] != btx){
+			btx = g->btxs->buffer[coff + i];
+			u = ref_pognodev(g->nodes, btx);
+			eidx = u->edge;
+			pass = 0;
+			while(eidx){
+				e = ref_pogedgev(g->edges, eidx);
+				if(e->node == nidx){
+					pass = 1;
+					break;
+				}
+				eidx = e->next;
+			}
+			if(pass == 0){
+				fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				abort();
+			}
+		}
 	}
 }
 
@@ -870,6 +900,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			}
 			if(v->vst){
 				merge_row_rdaln_pog(g, seqlen, coff, v->coff);
+				//check_dp_cell_btxs(g, e->node, v->coff, seqlex);
 				trunc_b2v(g->rows, seqinc);
 				trunc_b2v(g->btds, seqinc);
 				trunc_u4v(g->btxs, seqinc);
