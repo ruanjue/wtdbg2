@@ -1,4 +1,8 @@
 # NEWS
+* |2018-09-19| GFA supports
+```sh
+wtdbg-dot2gfa.pl dbg.3.dot >dbg.3.gfa
+```
 * |2018-09-01| New consensus module: POACNS <br>
 ```sh
 wtpoa-cns -t 0 -i dbg.ctg.lay -fo dbg.ctg.poacns.fa
