@@ -22,7 +22,7 @@ EOF
 
 OPTIND=1
 
-PVER=1.2.8
+PVER=2
 WT_S=4
 WT_k=0
 WT_P=21
@@ -89,21 +89,13 @@ echo "#        First round of error correction is good enough for short reads ma
 
 echo "### checking"
 echo -n "#"
-which wtdbg-$PVER || exit
+which wtdbg$PVER || exit
 echo -n "#"
-which wtdbg-cns || exit
-echo -n "#"
-which kbm-$PVER || exit
-echo -n "#"
-which best_kbm_hit.pl || exit
-echo -n "#"
-which awk || exit
-echo -n "#"
-which tee || exit
+which wtpoa-cns || exit
 echo -n "#"
 which date || exit
-echo -n "#"
-which map2dbgcns || exit
+#echo -n "#"
+#which map2dbgcns || exit
 echo -n "#"
 ls -l $READS || exit
 
@@ -111,15 +103,6 @@ if [ -e $PREFIX.ctg.lay ]; then
 	STEP=1
 	if [ -e $PREFIX.ctg.lay.fa ]; then
 		STEP=2
-		if [ -e $PREFIX.map ]; then
-			STEP=3
-			if [ -e $PREFIX.map.lay ]; then
-				STEP=4
-				if [ -e $PREFIX.map.fa ]; then
-					STEP=5
-				fi
-			fi
-		fi
 	fi
 fi
 
@@ -134,7 +117,7 @@ if [[ $EXEC_CMD > 0 ]]; then
 fi
 
 echo "### assembling"
-CMD="wtdbg-$PVER -t $NCPU -i $READS --tidy-reads 5000 -fo $PREFIX -k $WT_k -p $WT_P -S $WT_S --rescue-low-cov-edges"
+CMD="wtdbg$PVER -t $NCPU -i $READS --tidy-reads 5000 -fo $PREFIX -k $WT_k -p $WT_P -S $WT_S --aln-noskip --rescue-low-cov-edges"
 if [[ $STEP < 1 ]]; then
 echo $CMD
 if [[ $EXEC_CMD > 0 ]] ; then
@@ -145,45 +128,9 @@ else
 	echo "# SKIP!"
 fi
 
-echo "### first round of correction"
-CMD="wtdbg-cns -t $NCPU -i $PREFIX.ctg.lay -fo $PREFIX.ctg.lay.fa -c 0"
+echo "### correction"
+CMD="wtpoa-cns -t $NCPU -i $PREFIX.ctg.lay -fo $PREFIX.ctg.lay.fa"
 if [[ $STEP < 2 ]]; then
-echo $CMD
-if [ $EXEC_CMD -gt 0 ] ; then
-	date
-	eval $CMD
-fi
-else
-	echo "# SKIP!"
-fi
-
-echo "### mapping"
-CMD="kbm-$PVER -t $NCPU -d $PREFIX.ctg.lay.fa -i $READS -k $WT_k -p $WT_P -S $WT_S -O 0 | best_kbm_hit.pl | awk '{print \$6\"\t\"\$9\"\t\"\$10\"\t\"\$1\"\t\"\$2\"\t\"\$4\"\t\"\$5}' >$PREFIX.map"
-if [[ $STEP < 3 ]]; then
-echo $CMD
-if [ $EXEC_CMD -gt 0 ] ; then
-	date
-	eval $CMD
-fi
-else
-	echo "# SKIP!"
-fi
-
-echo "### generating new layout"
-CMD="map2dbgcns $PREFIX.ctg.lay.fa $READS $PREFIX.map >$PREFIX.map.lay"
-if [[ $STEP < 4 ]]; then
-echo $CMD
-if [ $EXEC_CMD -gt 0 ] ; then
-	date
-	eval $CMD
-fi
-else
-	echo "# SKIP!"
-fi
-
-echo "### second round of correction"
-CMD="wtdbg-cns -t $NCPU -i $PREFIX.map.lay -fo $PREFIX.map.fa -k 13 -c 3"
-if [[ $STEP < 5 ]]; then
 echo $CMD
 if [ $EXEC_CMD -gt 0 ] ; then
 	date

@@ -1,4 +1,4 @@
-#VERSION=1.2.8
+#VERSION=2.8
 #MINOR_VER=20160621
 #MINOR_VER=20170330
 #MINOR_VER=20170707
@@ -19,15 +19,15 @@ INSTALLDIR=/usr/local/bin
 GLIBS=-lm -lrt -lpthread
 GENERIC_SRC=mem_share.h string.h filereader.h file_reader.h file_reader.c bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
 
-PROGS=kbm-1.2.8 wtdbg-1.2.8 wtdmo wtdbg-cns wtpoa-cns map2dbgcns ttr_finder
+PROGS=kbm wtdbg2 wtdmo wtdbg-cns wtpoa-cns map2dbgcns ttr_finder
 
 all: $(PROGS)
 
-kbm-1.2.8: $(GENERIC_SRC) kbm.c kbm.h
-	$(CC) $(CFLAGS) -o kbm-1.2.8 kbm.c $(GLIBS)
+kbm: $(GENERIC_SRC) kbm.c kbm.h
+	$(CC) $(CFLAGS) -o $@ kbm.c $(GLIBS)
 
-wtdbg-1.2.8: $(GENERIC_SRC) wtdbg.c kbm.h
-	$(CC) $(CFLAGS) -o wtdbg-1.2.8 wtdbg.c $(GLIBS)
+wtdbg2: $(GENERIC_SRC) wtdbg.c kbm.h
+	$(CC) $(CFLAGS) -o $@ wtdbg.c $(GLIBS)
 
 wtdmo: $(GENERIC_SRC) wtdmo.c dmo.h
 	$(CC) $(CFLAGS) -o wtdmo wtdmo.c file_reader.c $(GLIBS)

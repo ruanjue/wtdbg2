@@ -6218,11 +6218,11 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 1.2.8 r1(20180529)\n"
+	"Version: 2.8 r1(20180529)\n"
 #ifdef TIMESTAMP
 	"Compiled: %s\n"
 #endif
-	"Usage: wtdbg [options]\n"
+	"Usage: wtdbg2 [options]\n"
 	"Options:\n"
 	" -t <int>    Number of threads, 0: all cores, [0]\n"
 	" -i <string> Long reads sequences file, + *\n"

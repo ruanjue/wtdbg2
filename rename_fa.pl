@@ -32,7 +32,6 @@ while(<>){
 	if(/^>(\S+)/){
 		my $desc = substr($_, length($1) + 1);
 		my $ori = $opt_I? " $1" : "";
-		$idx ++;
 		if(%hash){
 			if(exists $hash{$1}){
 				my $tag = $hash{$1};
@@ -41,8 +40,9 @@ while(<>){
 				print;
 			}
 		} else {
-			printf(">$prefix%012d$suffix$ori$desc", $idx);
+			printf(">$prefix%010d$suffix$ori$desc", $idx);
 		}
+		$idx ++;
 	} else {
 		print;
 	}
