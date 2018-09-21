@@ -1,4 +1,6 @@
 # NEWS
+* |2018-0921| Rename software
+From wtdbg-1.2.8 to wtdbg2
 * |2018-09-19| GFA supports
 ```sh
 wtdbg-dot2gfa.pl dbg.3.dot >dbg.3.gfa
@@ -52,8 +54,8 @@ Only accepts fasta/fastq format for input, '.gz' suffixed files will be piped by
 
 # Installation
 ```sh
-git clone https://github.com/ruanjue/wtdbg-1.2.8.git
-cd wtdbg-1.2.8
+git clone https://github.com/ruanjue/wtdbg2.git
+cd wtdbg2
 make
 ```
 
@@ -62,7 +64,7 @@ make
 Supposes you have `hg19.fa` as reference sequences, and `reads.fq.gz` as query sequences.
 ## Example 1
 ```sh
-kbm-1.2.8 -t 64 -d hg19.fa -i reads.fa.gz -o reads.kbmap
+kbm -t 64 -d hg19.fa -i reads.fa.gz -o reads.kbmap
 
 ```
 ### output format
@@ -86,23 +88,23 @@ kbm-1.2.8 -t 64 -d hg19.fa -i reads.fa.gz -o reads.kbmap
 Suitable for online tools, or frequently used references
 ### Build KBM-INDEX
 ```sh
-kbm-1.2.8 -t 64 -d hg19.fa -i /dev/null -W hg19.kbmidx
+kbm -t 64 -d hg19.fa -i /dev/null -W hg19.kbmidx
 ```
 ### Set up KBM server
 ```sh
-kbm-1.2.8 -R hg19.kbmidx start
+kbm -R hg19.kbmidx start
 ```
 Now, hg19.kbmidx is cached in memory for further call.
 
 ### Mapping with KBM-INDEX
 ```sh
-kbm-1.2.8 -R hg19.kbmidx -t 64 -i reads.fa -o reads.kbmap
+kbm -R hg19.kbmidx -t 64 -i reads.fa -o reads.kbmap
 ```
 Please note that, hg19.kbmidx can be multilple called by any processes in the same computer. <br>
 
 ### Shutdown KBM server
 ```sh
-kbm-1.2.8 -R hg19.kbmidx stop
+kbm -R hg19.kbmidx stop
 ```
 
 # Long reads assembling
@@ -118,8 +120,8 @@ run_wtdbg_assembly.sh -t 0 -i reads.fa.gz -o dbg -T >run.sh
 
 ## Play with wtdbg
 ```sh
-wtdbg-1.2.8 -h
-wtdbg-1.2.8 --help
+wtdbg2 -h
+wtdbg2 --help
 ```
 ### options
 ```sh
@@ -237,7 +239,7 @@ I will update it in following development.
 http://datasets.pacb.com/2014/Human54x/fasta.html
 * Command
 ```sh
-wtdbg-1.2.8 -t 96 -i pb.fa -fo dbg --tidy-reads 5000 --edge-min 2 --rescue-low-cov-edges
+wtdbg2 -t 96 -i pb.fa -fo dbg --tidy-reads 5000 --edge-min 2 --rescue-low-cov-edges
 ```
 * Contigs
 `TOT 2978536704, CNT 8752, AVG 340327, MAX 11662848, N50 1925120, L50 453, N90 400128, L90 1727, Min 5120`
@@ -249,7 +251,7 @@ wtdbg-1.2.8 -t 96 -i pb.fa -fo dbg --tidy-reads 5000 --edge-min 2 --rescue-low-c
 http://www.ebi.ac.uk/ena/data/view/PRJNA246220
 * Command
 ```sh
-wtdbg-1.2.8 -t 96 -i wt.fa -fo dbg --tidy-reads 5000 --edge-min 4 --rescue-low-cov-edges
+wtdbg2 -t 96 -i wt.fa -fo dbg --tidy-reads 5000 --edge-min 4 --rescue-low-cov-edges
 ```
 * Contigs
 `TOT 2964872448, CNT 1909, AVG 1553103, MAX 105310208, N50 23586816, L50 34, N90 3326976, L90 158, Min 5120`
@@ -259,7 +261,7 @@ wtdbg-1.2.8 -t 96 -i wt.fa -fo dbg --tidy-reads 5000 --edge-min 4 --rescue-low-c
 ## Axolotl (32G) PacBio dataset, 32 X, 3053 core.hours
 * Command
 ```sh
-wtdbg-1.2.8 -t 96 -i ../rawdata/pacbio.fa.gz -p 21 -S 2 --aln-noskip --rescue-low-cov-edges --tidy-reads 5000 -fo axolotl
+wtdbg2 -t 96 -i ../rawdata/pacbio.fa.gz -p 21 -S 2 --aln-noskip --rescue-low-cov-edges --tidy-reads 5000 -fo axolotl
 ```
 * Contigs
 `TOT 27375160576, CNT 115355, AVG 237313, MAX 7812608, N50 606976, L50 12527, N90 144896, L90 47295, Min 5120`
@@ -271,7 +273,7 @@ wtdbg-1.2.8 -t 96 -i ../rawdata/pacbio.fa.gz -p 21 -S 2 --aln-noskip --rescue-lo
 https://github.com/nanopore-wgs-consortium/NA12878
 * Command
 ```sh
-wtdbg-1.2.8 -t 64 -i NA12878-ONT.fa.gz -fo dbg -S 2 --edge-min 2 --rescue-low-cov-edges
+wtdbg2 -t 64 -i NA12878-ONT.fa.gz -fo dbg -S 2 --edge-min 2 --rescue-low-cov-edges
 ```
 * Contigs
 `TOT 2827644928, CNT 19473, AVG 145209, MAX 31366400, N50 4540672, L50 162, N90 172800, L90 1111, Min 5120`
@@ -281,7 +283,7 @@ wtdbg-1.2.8 -t 64 -i NA12878-ONT.fa.gz -fo dbg -S 2 --edge-min 2 --rescue-low-co
 
 # Citation
 To be published. <br>
-URL **https://github.com/ruanjue/wtdbg-1.2.8/** <br>
+URL **https://github.com/ruanjue/wtdbg2/** <br>
 
 # Contact
 Jue Ruan <ruanjue@gmail.com> <br>
