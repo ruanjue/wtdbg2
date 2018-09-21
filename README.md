@@ -1,6 +1,5 @@
 # NEWS
-* |2018-0921| Rename software
-From wtdbg-1.2.8 to wtdbg2
+* |2018-09-21| Rename wtdbg-1.2.8 to wtdbg2
 * |2018-09-19| GFA supports
 ```sh
 wtdbg-dot2gfa.pl dbg.3.dot >dbg.3.gfa
