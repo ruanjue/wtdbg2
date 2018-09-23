@@ -6226,7 +6226,7 @@ int usage(int level){
 	"Options:\n"
 	" -i <string> Long reads sequences file (REQUIRED; can be multiple), []\n"
 	" -I <string> Error-free sequences file (can be multiple), []\n"
-	" -o <string> Prefix of output files (REQURED), []\n"
+	" -o <string> Prefix of output files (REQUIRED), []\n"
 	" -t <int>    Number of threads, 0 for all cores, [4]\n"
 	" -f          Force to overwrite output files\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
