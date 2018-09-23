@@ -64,6 +64,11 @@ datasets (not including consensus time):
 |[Human NA12878][na12878]|3Gb   |ONT x30   |-S2 -e2       |197.4    |  244.9G|
 |[Axolotl][axosra]       |32Gb  |PacBio x32|-L5000 -AS2   |3189.7   | 1593.6G|
 
+## Getting Help
+
+Please use the [GitHub's Issues page][issue] if you have questions. You may
+also directly contact Jue Ruan at ruanjue@gmail.com.
+
 [miniasm]: https://github.com/lh3/miniasm
 [canu]: https://github.com/marbl/canu
 [falcon]: https://github.com/PacificBiosciences/FALCON
@@ -74,3 +79,4 @@ datasets (not including consensus time):
 [pbcr]: http://www.cbcb.umd.edu/software/PBcR/data/selfSampleData.tar.gz
 [ce]: https://github.com/PacificBiosciences/DevNet/wiki/C.-elegans-data-set
 [axosra]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA378970
+[issue]: https://github.com/ruanjue/wtdbg2/issues
