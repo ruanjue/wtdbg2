@@ -50,11 +50,11 @@ specifies the length of HPC k-mers. By default, wtdbg2 chooses one every four
 consecutive k-mers. For data of relatively low coverage, you may increase this
 sampling rate by reducing `-S`. This will greatly increase the peak memory as a
 cost. Reducing `-e` to 2 also helps lower coverage. For PacBio data, option
-`-L5000` is usually recommended. Please run `wtdbg2 --help` for a more complete
-list of available options.
+`-L5000` is usually recommended. Please run `wtdbg2 --help` for a complete list
+of available options.
 
-The following table shows the assembly command lines we were using for various
-datasets (not including consensus time):
+The following table shows various command lines we used and their resource
+usage for the assembly step (not including the consensus step):
 
 |Dataset                 |Genome|Coverage  |Wtdbg2 options|CPU hours|Peak RAM|
 |:-----------------------|-----:|---------:|:-------------|--------:|-------:|
