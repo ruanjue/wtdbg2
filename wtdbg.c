@@ -6160,7 +6160,6 @@ static struct option prog_opts[] = {
 	{"err-free-seq",                     1, 0, 'I'},
 	{"force",                            0, 0, 'f'},
 	{"prefix",                           1, 0, 'o'},
-	{"homopolymer-compress",             0, 0, 'H'},
 	{"kmer-fsize",                       1, 0, 'k'},
 	{"kmer-psize",                       1, 0, 'p'},
 	{"kmer-depth-max",                   1, 0, 'K'},
@@ -6177,12 +6176,12 @@ static struct option prog_opts[] = {
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
 	{"help",                             0, 0, 1000}, // detailed document
-	{"tidy-reads",                       1, 0, 1001},
+	{"tidy-reads",                       1, 0, 'L'},
 	{"err-free-nodes",                   0, 0, 1002},
 	{"limit-input",                      1, 0, 1003},
 	{"node-len",                         1, 0, 1004},
 	{"node-ovl",                         1, 0, 1005},
-	{"edge-min",                         1, 0, 1006},
+	{"edge-min",                         1, 0, 'e'},
 	{"node-min",                         1, 0, 1007},
 	{"node-max",                         1, 0, 1008},
 	{"ttr-cutoff-depth",                 1, 0, 1009},
@@ -6208,9 +6207,10 @@ static struct option prog_opts[] = {
 	{"aln-bestn",                        1, 0, 1027},
 	{"aln-maxhit",                       1, 0, 1028},
 	{"aln-kmer-sampling",                1, 0, 1029},
-	{"aln-noskip",                       0, 0, 1030},
+	{"aln-noskip",                       0, 0, 'A'},
 	{"node-matched-bins",                1, 0, 1031},
 	{"rescue-low-cov-edges",             0, 0, 1032},
+	{"drop-low-cov-edges",               0, 0, 1033},
 	{0, 0, 0, 0}
 };
 
@@ -6224,12 +6224,12 @@ int usage(int level){
 #endif
 	"Usage: wtdbg2 [options]\n"
 	"Options:\n"
-	" -t <int>    Number of threads, 0: all cores, [0]\n"
-	" -i <string> Long reads sequences file, + *\n"
-	" -I <string> Error-free sequences file, +\n"
-	" -o <string> Prefix of output files, *\n"
-	" -f          Force overwrite\n"
-	//" -H          Trun on homopolymer compression\n"
+	" -i <string> Long reads sequences file (REQUIRED; can be multiple), []\n"
+	" -I <string> Error-free sequences file (can be multiple), []\n"
+	" -o <string> Prefix of output files (REQUIRED), []\n"
+	" -t <int>    Number of threads, 0 for all cores, [4]\n"
+	" -f          Force to overwrite output files\n"
+	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
@@ -6247,9 +6247,11 @@ int usage(int level){
 	" -y <int>    penalty for BIN deviation, [-21]\n"
 	" -l <float>  Min length of alignment, [2048]\n"
 	" -m <float>  Min matched, [200]\n"
+	" -A          Keep contained reads during alignment\n"
 	" -s <float>  Max length variation of two aligned fragments, [0.2]\n"
+	" -e <int>    Min read depth of a valid edge, [3]\n"
 	" -q          Quiet\n"
-	" -v          Verbose, +\n"
+	" -v          Verbose (can be multiple)\n"
 	" --help      Show more options\n"
 #ifdef TIMESTAMP
 	, TOSTR(TIMESTAMP)
@@ -6268,8 +6270,6 @@ int usage(int level){
 	"   See -f\n"
 	" --prefix <string>\n"
 	"   See -o\n"
-	//" --homopolymer-compress\n"
-	//"   See -H\n"
 	" --kmer-fsize <int>\n"
 	"   See -k 0\n"
 	" --kmer-psize <int>\n"
@@ -6309,13 +6309,13 @@ int usage(int level){
 	" --aln-bestn <int>\n"
 	"   Use best n hits for each read in build graph, 0: keep all, default: 500\n"
 	"   <prefix>.alignments always store all alignments\n"
-	" --aln-noskip\n"
+	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
 	" --verbose +\n"
 	"   See -v. -vvvv will display the most detailed information\n"
 	" --quiet\n"
 	"   See -q\n"
-	" --tidy-reads <int>\n"
+	" -L <int>, --tidy-reads=<int>\n"
 	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
 	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio reads\n"
 	" --err-free-nodes\n"
@@ -6331,11 +6331,11 @@ int usage(int level){
 	"   Min matched bins in a node, default:1\n"
 	" --node-ovl <int>\n"
 	"   Default: 256. Max overlap size between two adjacent intervals in any read. It is used in selecting best nodes representing reads in graph\n"
-	" --edge-min <int>\n"
+	" -e <int>, --edge-min=<int>\n"
 	"   Default: 3. The minimal depth of a valid edge is set to 3. In another word, Valid edges must be supported by at least 3 reads\n"
 	"   When the sequence depth is low, have a try with --edge-min 2. Or very high, try --edge-min 4\n"
-	" --rescue-low-cov-edges\n"
-	"   Try to rescue low coverage edges\n"
+	" --drop-low-cov-edges\n"
+	"   Don't attempt to rescue low coverage edges\n"
 	" --node-min <int>\n"
 	"   Min depth of a intreval to be selected as valid node. Defaultly, this value is automaticly the same with --edge-min.\n"
 	" --node-max <int>\n"
@@ -6412,7 +6412,7 @@ int main(int argc, char **argv){
 	ngs = init_cplist(4);
 	pws = init_cplist(4);
 	asyn_read = 1;
-	ncpu = 0;
+	ncpu = 4;
 	tidy_reads = 0;
 	fast_mode = 0;
 	max_bp = 0;
@@ -6436,7 +6436,7 @@ int main(int argc, char **argv){
 	load_clips = NULL;
 	load_nodes = NULL;
 	store_low_cov_edge = 1;
-	rescue_low_edges = 0;
+	rescue_low_edges = 1;
 	bub_step = 40;
 	tip_step = 10;
 	rep_step = 0;
@@ -6470,7 +6470,7 @@ int main(int argc, char **argv){
 	par->min_aln = 1024 * 2;
 	par->min_mat = 200;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:I:fo:FE:k:p:K:S:X:Y:x:y:l:m:s:vq", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:I:fo:FE:k:p:K:S:X:Y:x:y:l:m:s:vqe:L:A", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
@@ -6497,12 +6497,12 @@ int main(int argc, char **argv){
 			case 'q': quiet = 1; break;
 			case 'h': return usage(0);
 			case 1000: return usage(1);
-			case 1001: tidy_reads = atoi(optarg); break;
+			case 'L':  tidy_reads = atoi(optarg); break;
 			case 1002: only_fix = 1; break;
 			case 1003: max_bp = atol(optarg); break;
 			case 1004: reglen = atoi(optarg); break;
 			case 1005: regovl = atoi(optarg); break;
-			case 1006: edge_cov = atoi(optarg); break;
+			case 'e':  edge_cov = atoi(optarg); break;
 			case 1007: node_cov = atoi(optarg); break;
 			case 1008: max_node_cov = atoi(optarg); break;
 			case 1009: ttr_n_cov = atoi(optarg); break;
@@ -6528,14 +6528,22 @@ int main(int argc, char **argv){
 			case 1027: bestn = atoi(optarg); break;
 			case 1028: par->max_hit = atoi(optarg); break;
 			case 1029: par->ksampling = atoi(optarg); break;
-			case 1030: par->skip_contained = 0; break;
+			case 'A':  par->skip_contained = 0; break;
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
+			case 1033: rescue_low_edges = 0; break;
 			default: return usage(0);
 		}
 	}
-	if(prefix == NULL) return usage(0);
-	if(load_kbm == NULL && pbs->size + ngs->size == 0) return usage(0);
+	if (optind == 1) return usage(0);
+	if(prefix == NULL) {
+		fprintf(stderr, "ERROR: please specify the output prefix with -o\n");
+		return 1;
+	}
+	if(load_kbm == NULL && pbs->size + ngs->size == 0) {
+		fprintf(stderr, "ERROR: please specify the input with -i, -I or --load-kbm\n");
+		return 1;
+	}
 	if((reglen % KBM_BIN_SIZE)){
 		reglen = ((reglen + KBM_BIN_SIZE - 1) / KBM_BIN_SIZE) * KBM_BIN_SIZE;
 		fprintf(stderr, " ** Adjust -j to %d\n", reglen);
