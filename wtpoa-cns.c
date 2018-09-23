@@ -335,7 +335,7 @@ int usage(){
 	"Version: 1.0\n"
 	"Usage: wtpoa-cns [options]\n"
 	"Options:\n"
-	" -t <int>    Number of threads, [1]\n"
+	" -t <int>    Number of threads, [4]\n"
 	" -i <string> Input file(s) *.ctg.lay from wtdbg, +, [STDIN]\n"
 	" -o <string> Output files, [STDOUT]\n"
 	" -f          Force overwrite\n"
@@ -369,7 +369,7 @@ int main(int argc, char **argv){
 	float minfreq;
 	int c, ncpu, overwrite;
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
-	ncpu = 1;
+	ncpu = 4;
 	use_sse = 2;
 	seqmax = 20;
 	bandwidth = 96;
