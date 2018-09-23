@@ -9,6 +9,10 @@ use POSIX ":sys_wait_h";
 use Time::HiRes;
 
 my $USER = $ENV{USER};
+if(not defined $USER){
+	$USER = `whoami`;
+	chomp $USER;
+}
 my $RUNITALL = $ENV{RUNIT_ALL} || 0;
 
 my $cmd = join(" ", @ARGV);
@@ -39,7 +43,7 @@ my %procs = ();
 &get_linux_sys_info();
 
 print STDERR " --------------------------------------------------------------------------------\n";
-print STDERR " -- runit.pl is a program lanucher and minitor written by Jue Ruan <ruanjue\@gmail.com>\n";
+print STDERR " -- runit.pl is a program launcher and minitor written by Jue Ruan <ruanjue\@gmail.com>\n";
 print STDERR " -- RAM : $maxram kB\n";
 print STDERR " -- CPU : $maxcpu cores\n";
 print STDERR " -- SYS : ", `uname -a`;
@@ -114,7 +118,7 @@ print STDERR " -----------------------------------------------------------------
 1;
 
 sub usage {
-	print qq{Lanuch program and minitor the cputime and ram usage of it and its childs\n};
+	print qq{Launch program and minitor the cputime and ram usage of it and its childs\n};
 	print qq{Usage: $0 \$'commands'\n};
 	exit 1;
 }
