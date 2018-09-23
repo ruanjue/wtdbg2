@@ -22,9 +22,8 @@ CPU cores, it can assemble a mammlian genome in several wall-clock hours.
 
 ## <a name="install"></a>Installation
 
-Wtdbg2 only works on 64-bit Linux. It depends on [zlib][zlib] for direct
-access to gzip'd files. To compile, please type `make` in the source code
-directory. You can copy `wtdbg2` and `wtpoa-cns` to your `PATH`.
+Wtdbg2 only works on 64-bit Linux. To compile, please type `make` in the source
+code directory. You can copy `wtdbg2` and `wtpoa-cns` to your `PATH`.
 
 Wtdbg2 also comes with an approxmimate read mapper `kbm`, a faster but less
 accurate consesus tool `wtdbg-cns` and many auxiliary scripts in the `scripts`
@@ -53,8 +52,8 @@ cost. Reducing `-e` to 2 also helps lower coverage. For PacBio data, option
 `-L5000` is usually recommended. Please run `wtdbg2 --help` for a complete list
 of available options.
 
-The following table shows various command lines we used and their resource
-usage for the assembly step (not including the consensus step):
+The following table shows various command lines and their resource usage for
+the assembly step (not including the consensus step):
 
 |Dataset                 |Genome|Coverage  |Wtdbg2 options|CPU hours|Peak RAM|
 |:-----------------------|-----:|---------:|:-------------|--------:|-------:|
@@ -63,6 +62,14 @@ usage for the assembly step (not including the consensus step):
 |[Human CHM1][chm1]      |3Gb   |PacBio x60|-L5000 -e4    |378.5    |  252.7G|
 |[Human NA12878][na12878]|3Gb   |ONT x30   |-S2 -e2       |197.4    |  244.9G|
 |[Axolotl][axosra]       |32Gb  |PacBio x32|-L5000 -AS2   |3189.7   | 1593.6G|
+
+## Limitations
+
+* Wtdbg2 doesn't work with reads longer than 0x3FFFF (~256kb). Longer reads
+  will be split into shorter ones.
+
+* Wtdbg2 only works with up to 0x3FFFFFF (~64 million) reads. If you have more
+  reads, please filter short or low-quality reads first.
 
 ## Getting Help
 
