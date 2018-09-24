@@ -5,9 +5,9 @@ cd wtdbg2 && make
 # assemble PacBio reads
 ./wtdbg2 -t 16 -i pacbio.fa.gz -fo prefix -L 5000
 # assemble Nanopore reads
-./wtdbg2 -t 16 -i ont.fa.gz -fo prefix
+./wtdbg2 -t 16 -i ont.fa.gz -fo prefix -L 5000
 # derive consensus
-./wtpoa-cns -t 16 -i prefix.ctg.lay > prefix.ctg.lay.fa
+./wtpoa-cns -t 16 -i prefix.ctg.lay -fo prefix.ctg.lay.fa
 ```
 
 ## <a name="intro"></a>Introduction
@@ -41,7 +41,7 @@ produces the final consensus in FASTA. A typical workflow looks like this:
 ./wtpoa-cns -t 16 -i prefix.ctg.lay -fo prefix.ctg.lay.fa
 ```
 where `-t` specifies the number of CPU cores (`-t 0` to use all processors). When the default doesn't work
-well, you may need to apply more options.
+well, you may need to apply more options. See [README-ori.md][readme-ori] for more help.
 
 Wtdbg2 combines normal k-mers and homopolymer-compressed (HPC) k-mers to find
 read overlaps. Option `-k` specifies the length of normal k-mers, while `-p`
@@ -58,7 +58,7 @@ the assembly step (not including the consensus step):
 |Dataset                 |Genome|Coverage  |Wtdbg2 options|CPU hours|Peak RAM|
 |:-----------------------|-----:|---------:|:-------------|--------:|-------:|
 |[E. coli][pbcr]         |4.6Mb |PacBio x20|              |         |        |
-|[C. elegans][ce]        |100Mb |PacBio x80|              |         |        |
+|[C. elegans][ce]        |100Mb |PacBio x80|-L5000 -e4    |3.3      |    9.7G|
 |[Human CHM1][chm1]      |3Gb   |PacBio x60|-L5000 -e4    |378.5    |  252.7G|
 |[Human NA12878][na12878]|3Gb   |ONT x30   |-S2 -e2       |197.4    |  244.9G|
 |[Axolotl][axosra]       |32Gb  |PacBio x32|-L5000 -AS2   |3189.7   | 1593.6G|
@@ -76,6 +76,7 @@ the assembly step (not including the consensus step):
 Please use the [GitHub's Issues page][issue] if you have questions. You may
 also directly contact Jue Ruan at ruanjue@gmail.com.
 
+[readme-ori]: https://github.com/ruanjue/wtdbg2/README-ori.md
 [miniasm]: https://github.com/lh3/miniasm
 [canu]: https://github.com/marbl/canu
 [falcon]: https://github.com/PacificBiosciences/FALCON
