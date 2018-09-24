@@ -38,15 +38,15 @@ layout of contigs and sequences on the edges/nodes in a file
 produces the final consensus in FASTA. A typical workflow looks like this:
 ```sh
 ./wtdbg2 -t 16 -i reads.fa.gz -fo prefix
-./wtpoa-cns -t 16 -i prefix.ctg.lay > prefix.ctg.lay.fa
+./wtpoa-cns -t 16 -i prefix.ctg.lay -fo prefix.ctg.lay.fa
 ```
-where `-t` specifies the number of CPU cores. When the default doesn't work
+where `-t` specifies the number of CPU cores (`-t 0` to use all processors). When the default doesn't work
 well, you may need to apply more options.
 
 Wtdbg2 combines normal k-mers and homopolymer-compressed (HPC) k-mers to find
 read overlaps. Option `-k` specifies the length of normal k-mers, while `-p`
 specifies the length of HPC k-mers. By default, wtdbg2 chooses one every four
-consecutive k-mers. For data of relatively low coverage, you may increase this
+k-mers by their hashcode. For data of relatively low coverage, you may increase this
 sampling rate by reducing `-S`. This will greatly increase the peak memory as a
 cost. Reducing `-e` to 2 also helps lower coverage. For PacBio data, option
 `-L5000` is usually recommended. Please run `wtdbg2 --help` for a complete list
@@ -66,7 +66,7 @@ the assembly step (not including the consensus step):
 ## Limitations
 
 * Wtdbg2 doesn't work with reads longer than 0x3FFFF (~256kb). Longer reads
-  will be split into shorter ones.
+  will be split into multiple parts.
 
 * Wtdbg2 only works with up to 0x3FFFFFF (~64 million) reads. If you have more
   reads, please filter short or low-quality reads first.
