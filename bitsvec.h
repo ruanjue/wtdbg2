@@ -83,19 +83,18 @@ static inline BitsVec* init_bitsvec(uint64_t size, uint32_t n_bit){
 	vec->mask  = (1U << n_bit) - 1U;
 	vec->size  = 0;
 	vec->cap   = size;
-	vec->bits  = calloc(1, (size * vec->n_bit + 7) / 8);
+	vec->bits  = calloc((size * vec->n_bit + 15) / 8, 1);
 	return vec;
 }
 
 static inline size_t bitsvec_obj_desc_cnt(void *obj, int idx){
-	return (((BitsVec*)obj)->cap * ((BitsVec*)obj)->n_bit + 7) / 8;
+	return (((BitsVec*)obj)->cap * ((BitsVec*)obj)->n_bit + 15) / 8;
 	idx = idx;
 }
 
 static const obj_desc_t bitsvec_obj_desc = {"bitsvec_obj_desc", sizeof(BitsVec), 1, {1}, {offsetof(BitsVec, bits)}, {(obj_desc_t*)&OBJ_DESC_DATA}, bitsvec_obj_desc_cnt, NULL};
 
 static inline void clear_bitsvec(BitsVec *vec){
-	memset(vec->bits, 0, (vec->cap * vec->n_bit + 7) / 8);
 	vec->size = 0;
 }
 
@@ -104,74 +103,92 @@ static inline void free_bitsvec(BitsVec *vec){
 	free(vec);
 }
 
-static inline uint64_t dump_bitsvec(BitsVec *vec, FILE *out){
-	fwrite(&vec->size, sizeof(uint64_t), 1, out);
-	fwrite(&vec->n_bit, sizeof(uint8_t), 1, out);
-	fwrite(vec->bits, 1, (vec->size * vec->n_bit + 7) / 8, out);
-	return sizeof(uint64_t) + sizeof(uint32_t) + (vec->size * vec->n_bit + 7) / 8;
-}
-
-static inline BitsVec* load_bitsvec(FILE *in){
-	BitsVec *vec;
-	uint8_t n_bit;
-	uint64_t size;
-	if(fread(&size, sizeof(uint64_t), 1, in) != 1){
-		fprintf(stderr, " -- in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr); exit(1);
-	}
-	if(fread(&n_bit, sizeof(uint8_t), 1, in) != 1){
-		fprintf(stderr, " -- in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr); exit(1);
-	}
-	vec = init_bitsvec(size, n_bit);
-	vec->size = size;
-	size = (size + 7) /8;
-	if(fread(vec->bits, 1, size, in) != size){
-		fprintf(stderr, " -- in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr); exit(1);
-	}
-	return vec;
-}
-
-static inline int encap_bitsvec(BitsVec *vec, uint32_t n){
-	uint64_t cap;
+static inline int encap_bitsvec(BitsVec *vec, u8i n){
 	if(vec->size + n <= vec->cap) return 0;
-	cap = vec->cap;
-	while(vec->size + n > vec->cap){
-		if(vec->cap < 1024 * 1024){
-			vec->cap <<= 1;
-		} else {
-			vec->cap += 1024 * 1024;
-		}
+	if(vec->size + n < 0x3FFFFFFFLLU){
+		vec->cap = roundup_power2(vec->size + n);
+	} else {
+		vec->cap = (vec->size + n + 0x3FFFFFFFLLU) & (MAX_U8 << 30);
 	}
-	vec->bits = realloc(vec->bits, (vec->cap * vec->n_bit + 7) / 8);
-	memset(vec->bits + (cap * vec->n_bit + 7) / 8, 0, (vec->cap * vec->n_bit + 7) / 8 - (cap * vec->n_bit + 7) / 8);
+	vec->bits = realloc(vec->bits, (vec->cap * vec->n_bit + 15) / 8);
 	return 1;
 }
 
-static inline void set_bitsvec(BitsVec *vec, uint64_t idx, uint8_t dat){
-	uint64_t off;
+static inline void set_bitsvec(BitsVec *vec, u8i idx, u1i dat){
+	register u8i off;
+	register u2i x, d;
 	off = (idx * vec->n_bit);
-	dat &= vec->mask;
-	vec->bits[off >> 3] = (vec->bits[off >> 3] & (~(vec->mask << (off & 0x07U)))) | (dat << (off & 0x07U));
-	if((off & 0x07U) + vec->n_bit > 8){
-		vec->bits[(off >> 3) + 1] = (vec->bits[(off >> 3) + 1] & (~(vec->mask >> (8 - (off & 0x07U))))) | (dat >> (8 - (off & 0x07U)));
-		//vec->bits[(off >> 3) + 1] |= dat >> (8 - (off & 0x07U));
-	}
+	d = off & 0x07;
+	off >>= 3;
+	x = (((u2i)vec->bits[off + 1]) << 8) | vec->bits[off + 0];
+	x = (x & (~(vec->mask << d))) | ((UInt(dat) & vec->mask) << d);
+	vec->bits[off] = x;
+	vec->bits[off + 1] = x >> 8;
 }
 
-static inline void push_bitsvec(BitsVec *vec, uint8_t dat){
+static inline void push_bitsvec(BitsVec *vec, u1i dat){
 	encap_bitsvec(vec, 1);
 	set_bitsvec(vec, vec->size, dat);
 	vec->size ++;
 }
 
-static inline uint8_t get_bitsvec(BitsVec *vec, uint64_t idx){
-	uint64_t off;
-	uint8_t dat;
-	off = (idx * vec->n_bit);
-	dat = (vec->bits[off >> 3] >> (off & 0x07U));
-	if((off & 0x07U) + vec->n_bit > 8){
-		dat |= vec->bits[(off >> 3) + 1] << (8 - (off & 0x07U));
+// TODO: need to be optimized
+static inline void pushs_bitsvec(BitsVec *vec, u1i dat, u8i len){
+	u8i i;
+	encap_bitsvec(vec, len);
+	for(i=0;i<len;i++){
+		set_bitsvec(vec, vec->size + i, dat);
 	}
-	return dat & vec->mask;
+	vec->size += len;
+}
+
+static inline u2i gets_bitsvec(BitsVec *vec, u8i idx){
+	u8i off;
+	off = (idx * vec->n_bit);
+	return ((((u2i)vec->bits[(off >> 3) + 1]) << 8) | vec->bits[(off >> 3) + 0]) >> (off & 0x07);
+}
+
+static inline uint8_t get_bitsvec(BitsVec *vec, u8i idx){
+	return gets_bitsvec(vec, idx) & vec->mask;
+}
+
+static inline void append_bitsvec(BitsVec *dst, BitsVec *src, u8i off, u8i len){
+	u8i i, di, si, se;
+	u2i x;
+	u1i p, n, sd;
+	if(0){ // Assume dst->n_bit == src->n_bit
+		if(dst->n_bit != src->n_bit){
+			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+			abort();
+		}
+	}
+	encap_bitsvec(dst, len);
+	p = (dst->n_bit & 0x01)? 8 : (8 / dst->n_bit);
+	n = dst->size % p;
+	if(n) n = p - n;
+	if(len <= n){
+		for(i=0;i<len;i++){
+			set_bitsvec(dst, dst->size + i, get_bitsvec(src, off + i));
+		}
+		dst->size += len;
+		return;
+	} else {
+		for(i=0;i<n;i++){
+			set_bitsvec(dst, dst->size + i, get_bitsvec(src, off + i));
+		}
+		dst->size += n;
+	}
+	di = (dst->size * dst->n_bit) >> 3;
+	si = ((off + i) * src->n_bit);
+	sd = si & 0x07;
+	si >>= 3;
+	se = ((off + len) * src->n_bit + 7) >> 3;
+	while(si < se){
+		x = ((src->bits[si + 1] << 8) | src->bits[si]) >> sd;
+		dst->bits[di++] = x;
+		si ++;
+	}
+	dst->size += len - i;
 }
 
 static inline int pop_bitsvec(BitsVec *vec){
