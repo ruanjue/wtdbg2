@@ -17,7 +17,7 @@ endif
 
 INSTALLDIR=/usr/local/bin
 GLIBS=-lm -lrt -lpthread
-GENERIC_SRC=mem_share.h string.h filereader.h file_reader.h file_reader.c bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
+GENERIC_SRC=mem_share.h string.h filereader.h bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
 
 PROGS=kbm wtdbg2 wtdbg-cns wtpoa-cns
 
