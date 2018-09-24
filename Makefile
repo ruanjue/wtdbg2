@@ -19,7 +19,7 @@ INSTALLDIR=/usr/local/bin
 GLIBS=-lm -lrt -lpthread
 GENERIC_SRC=mem_share.h string.h filereader.h file_reader.h file_reader.c bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
 
-PROGS=kbm wtdbg2 wtdmo wtdbg-cns wtpoa-cns map2dbgcns ttr_finder
+PROGS=kbm wtdbg2 wtdbg-cns wtpoa-cns
 
 all: $(PROGS)
 
@@ -29,20 +29,11 @@ kbm: $(GENERIC_SRC) kbm.c kbm.h
 wtdbg2: $(GENERIC_SRC) wtdbg.c kbm.h
 	$(CC) $(CFLAGS) -o $@ wtdbg.c $(GLIBS)
 
-wtdmo: $(GENERIC_SRC) wtdmo.c dmo.h
-	$(CC) $(CFLAGS) -o wtdmo wtdmo.c file_reader.c $(GLIBS)
-
 wtdbg-cns: $(GENERIC_SRC) wtdbg-cns.c kswx.h ksw.h ksw.c dbgcns.h dagcns.h queue.h general_graph.h
 	$(CC) $(CFLAGS) -o wtdbg-cns wtdbg-cns.c file_reader.c ksw.c $(GLIBS)
 
 wtpoa-cns: $(GENERIC_SRC) wtpoa-cns.c poacns.h tripoa.h ksw.h ksw.c
 	$(CC) $(CFLAGS) -o $@ wtpoa-cns.c file_reader.c ksw.c $(GLIBS)
-
-map2dbgcns: $(GENERIC_SRC) map2dbgcns.c
-	$(CC) $(CFLAGS) -o map2dbgcns map2dbgcns.c file_reader.c $(GLIBS)
-
-ttr_finder: $(GENERIC_SRC) ttr_finder.c
-	$(CC) $(CFLAGS) -o ttr_finder ttr_finder.c file_reader.c $(GLIBS)
 
 clean:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out $(PROGS)
