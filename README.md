@@ -2,10 +2,8 @@
 ```sh
 git clone https://github.com/ruanjue/wtdbg2
 cd wtdbg2 && make
-# assemble PacBio reads
-./wtdbg2 -t 16 -i pacbio.fa.gz -fo prefix -L 5000
-# assemble Nanopore reads
-./wtdbg2 -t 16 -i ont.fa.gz -fo prefix -L 5000
+# assemble long reads
+./wtdbg2 -t 16 -i reads.fa.gz -fo prefix -L 5000
 # derive consensus
 ./wtpoa-cns -t 16 -i prefix.ctg.lay -fo prefix.ctg.lay.fa
 ```
