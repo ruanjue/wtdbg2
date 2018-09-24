@@ -20,7 +20,7 @@
 #include "kswx.h"
 #include "dbgcns.h"
 #include "dagcns.h"
-#include "file_reader.h"
+#include "filereader.h"
 
 static int cns_debug = 0;
 
@@ -229,7 +229,7 @@ uint32_t run(int reglen, int ksize, int Z, int W, int M, int X, int I, int D, in
 	eid = 0;
 	thread_wait_one(mcns);
 	while(1){
-		c = fread_table(fr);
+		c = readtable_filereader(fr);
 		if(c == -1 || fr->line->string[0] == 'E' || fr->line->string[0] == '>'){
 			thread_wake(mcns);
 			thread_wait_one(mcns);
@@ -506,13 +506,13 @@ int main(int argc, char **argv){
 		return usage();
 	}
 	if(cns_debug > 1) DBGCNS_DEBUG = 1;
-	if(infs->size) fr = fopen_m_filereader(infs->size, infs->buffer);
-	else fr = stdin_filereader();
+	if(infs->size) fr = open_all_filereader(infs->size, infs->buffer, 1);
+	else fr = open_filereader(NULL, 1);
 	if(outf){
 		out = open_file_for_write(outf, NULL, 1);
 	} else out = stdout;
 	run(reglen, ksize, Z, W, M, X, I, D, E, H, L, XX, OO, EE, cns_model, pM, pX, pI, pD, candidate_mode, corr_struct, ncpu, fr, out);
-	fclose_filereader(fr);
+	close_filereader(fr);
 	if(outf) fclose(out);
 	free_cplist(infs);
 	END_STAT_PROC_INFO(stderr);

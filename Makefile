@@ -30,10 +30,10 @@ wtdbg2: $(GENERIC_SRC) wtdbg.c kbm.h
 	$(CC) $(CFLAGS) -o $@ wtdbg.c $(GLIBS)
 
 wtdbg-cns: $(GENERIC_SRC) wtdbg-cns.c kswx.h ksw.h ksw.c dbgcns.h dagcns.h queue.h general_graph.h
-	$(CC) $(CFLAGS) -o wtdbg-cns wtdbg-cns.c file_reader.c ksw.c $(GLIBS)
+	$(CC) $(CFLAGS) -o wtdbg-cns wtdbg-cns.c ksw.c $(GLIBS)
 
 wtpoa-cns: $(GENERIC_SRC) wtpoa-cns.c poacns.h tripoa.h ksw.h ksw.c
-	$(CC) $(CFLAGS) -o $@ wtpoa-cns.c file_reader.c ksw.c $(GLIBS)
+	$(CC) $(CFLAGS) -o $@ wtpoa-cns.c ksw.c $(GLIBS)
 
 clean:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out $(PROGS)

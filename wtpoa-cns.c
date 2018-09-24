@@ -19,7 +19,7 @@
 
 #include "tripoa.h"
 #include "kswx.h"
-#include "file_reader.h"
+#include "filereader.h"
 
 #define MCNS_TASK_POACNS	1
 #define MCNS_TASK_OVERLAP	2
@@ -166,7 +166,7 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 	meths[0] = meths[1] = 0;
 	thread_wait_one(mcns);
 	while(1){
-		c = fread_table(fr);
+		c = readtable_filereader(fr);
 		if(c == -1 || fr->line->string[0] == 'E' || fr->line->string[0] == '>'){
 			thread_wake(mcns);
 			thread_wait_one(mcns);
@@ -423,13 +423,13 @@ int main(int argc, char **argv){
 		fprintf(stderr, "File exists! '%s'\n\n", outf);
 		return usage();
 	}
-	if(infs->size) fr = fopen_m_filereader(infs->size, infs->buffer);
-	else fr = stdin_filereader();
+	if(infs->size) fr = open_all_filereader(infs->size, infs->buffer, 1);
+	else fr = open_filereader(NULL, 1);
 	if(outf){
 		out = open_file_for_write(outf, NULL, 1);
 	} else out = stdout;
 	run_cns(fr, ncpu, use_sse, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, rW, mincnt, minfreq, reglen, out);
-	fclose_filereader(fr);
+	close_filereader(fr);
 	if(outf) fclose(out);
 	free_cplist(infs);
 	END_STAT_PROC_INFO(stderr);
