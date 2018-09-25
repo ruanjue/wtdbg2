@@ -220,7 +220,7 @@ static inline size_t encap_list(void **buffer, size_t e_size, size_t size, size_
 }
 
 
-#define ZEROS(e) memset(e, 0, sizeof(*(e)))
+#define ZEROS(e) memset((void*)(e), 0, sizeof(*(e)))
 
 #ifndef __USE_GNU
 
