@@ -235,9 +235,11 @@ static inline void clear_and_encap_##list_type(list_type *list, size_type n){	\
 	encap_##list_type(list, n);	\
 }	\
 	\
-static inline void encap_and_inc_##list_type(list_type *list, size_type n){	\
+static inline void clear_and_inc_##list_type(list_type *list, size_type n){	\
+	list->size = 0;	\
+	list->off  = 0;	\
 	encap_##list_type(list, n);	\
-	list->size += n;	\
+	list->size = n;	\
 }	\
 	\
 static inline void trunc_##list_type(list_type *list, size_type size){	\
