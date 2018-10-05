@@ -246,7 +246,7 @@ static inline void beg_pog(POG *g){
 // OVERLAP
 static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seqlen, u2i vst, u4i coff1, u4i coff2, b2i *qp){
 	__m128i I, D, H, E, F, S, MAX, MIN, CMP;
-	__m128i BT, BT1, BT2, BT1_MASK, BT2_MASK;
+	__m128i BT, BT1, BT2, BT1_MASK, BT2_MASK, BTX_MASK;
 	b2i *row1, *row2, *btds;
 	u4i i, slen, seqlex, beg, end;
 	int lsth, lstf, msk, mi, center;
@@ -257,7 +257,8 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	D = _mm_set1_epi16(g->D);
 	MIN = _mm_set1_epi16(POG_SCORE_MIN);
 	BT1_MASK = _mm_set1_epi16(0b10);
-	BT2_MASK = _mm_set1_epi16(0b01 | (vst << 2));
+	BT2_MASK = _mm_set1_epi16(0b01);
+	BTX_MASK = _mm_set1_epi16(vst << 2);
 	row1 = ref_b2v(g->rows, coff1);
 	row2 = ref_b2v(g->rows, coff2);
 	btds = ref_b2v(g->btds, coff2);
@@ -343,7 +344,8 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 		lstf = _mm_extract_epi16(F, 7);
 		BT2 = _mm_cmpgt_epi16(F, S);
 		BT2 = _mm_and_si128(BT2, BT2_MASK);
-		BT  = _mm_xor_si128(BT1, BT2); // (0, (1, 3), 2) | (vst << 2)
+		BT  = _mm_xor_si128(BT1, BT2); // (0, (1, 3), 2)
+		BT  = _mm_xor_si128(BT, BTX_MASK); // (0, (1, 3), 2) | (vst << 2)
 		_mm_store_si128(((__m128i*)row2) + i, F);
 		_mm_stream_si128(((__m128i*)btds) + i, BT);
 	}
@@ -424,38 +426,55 @@ static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2)
 			}
 		}
 	}
-	if(beg[0] < beg[1]){
-		b = beg[0];
-		if(end[0] >= beg[1]){
-			sz = beg[1] - beg[0];
-			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
-			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
-		} else {
-			__m128i F;
-			F = _mm_set1_epi16(POG_SCORE_MIN);
-			sz = end[0] - beg[0];
-			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
-			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
-			for(i=end[0];i<beg[1];i+=8){
-				_mm_store_si128(((__m128i*)(row2 + i)), F);
+	if(0){
+		if(beg[0] < beg[2]){
+			sz = num_min(beg[2], end[0]) - beg[0];
+			memcpy(row2 + beg[0], row1 + beg[0], sz * sizeof(b2i));
+			memcpy(btd2 + beg[0], btd1 + beg[0], sz * sizeof(b2i));
+		}
+		for(i=end[2];i<beg[2];i++){ // in case of two independent regions
+			row2[i] = POG_SCORE_MIN;
+		}
+		if(end[0] > end[2]){
+			//sz = num_min(end[0] + 8, seqlex) - end[2];
+			sz = num_min(end[0], seqlex) - end[2];
+			memcpy(row2 + end[2], row1 + end[2], sz * sizeof(b2i));
+			memcpy(btd2 + end[2], btd1 + end[2], sz * sizeof(b2i));
+		}
+	} else {
+		if(beg[0] < beg[1]){
+			b = beg[0];
+			if(end[0] >= beg[1]){
+				sz = beg[1] - beg[0];
+				memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+				memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+			} else {
+				__m128i F;
+				F = _mm_set1_epi16(POG_SCORE_MIN);
+				sz = end[0] - beg[0];
+				memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+				memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+				for(i=end[0];i<beg[1];i+=8){
+					_mm_store_si128(((__m128i*)(row2 + i)), F);
+				}
 			}
 		}
-	}
-	if(end[0] > end[1]){
-		if(beg[0] <= end[1]){
-			b = end[1];
-			sz = end[0] - b;
-			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
-			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
-		} else {
-			__m128i F;
-			F = _mm_set1_epi16(POG_SCORE_MIN);
-			b = beg[0];
-			sz = end[0] - b;
-			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
-			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
-			for(i=end[1];i<beg[0];i+=8){
-				_mm_store_si128(((__m128i*)(row2 + i)), F);
+		if(end[0] > end[1]){
+			if(beg[0] <= end[1]){
+				b = end[1];
+				sz = end[0] - b;
+				memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+				memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+			} else {
+				__m128i F;
+				F = _mm_set1_epi16(POG_SCORE_MIN);
+				b = beg[0];
+				sz = end[0] - b;
+				memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+				memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+				for(i=end[1];i<beg[0];i+=8){
+					_mm_store_si128(((__m128i*)(row2 + i)), F);
+				}
 			}
 		}
 	}
@@ -601,6 +620,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		v->vst = 0;
 		v->erev = bb;
 		bb += v->nin;
+		if(i < 2) bb ++; // in case of add mnode
 		if(v->nin || v->edge){
 			rmax ++; // estimate max rows
 		}
@@ -671,7 +691,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			inc_b2v(g->rows, seqinc);
 			inc_b2v(g->btds, seqinc);
 			g->btxs->buffer[v->erev + v->vst] = nidx; // save backtrace nidx
-			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, u->vst, u->coff, coff, qp);
+			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, v->vst, u->coff, coff, qp);
 			if(v->vst){
 				merge_row_rdaln_pog(g, seqlen, coff, v->coff);
 				trunc_b2v(g->rows, seqinc);
@@ -680,8 +700,11 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				v->coff = coff;
 			}
 			v->vst ++;
-			if(v->vst >= v->nin){
+			if(v->vst == v->nin){
 				push_u4v(g->stack, e->node);
+			} else if(v->vst > v->nin){
+				fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				abort();
 			}
 		}
 	}
@@ -776,7 +799,6 @@ static inline int align_rd_pog(POG *g, u2i rid){
 					eidx = f->next;
 					if(f->node == e->node){
 						inc_edge_core_pog(g, u, f);
-						//f->cov ++;
 						v->nin --;
 						flag = 1;
 						break;
@@ -784,8 +806,6 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				}
 				if(flag == 0){
 					add_edge_core_pog(g, u, e);
-					//e->next = u->edge;
-					//u->edge = offset_pogedgev(g->edges, e);
 				} else {
 					trunc_pogedgev(g->edges, 1);
 				}
@@ -854,7 +874,6 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		} else {
 			nidx = g->btxs->buffer[g->nodes->buffer[nidx].erev + vst];
 		}
-		//nidx = (bt & POG_DP_BT_I)? nidx : get_u4v(g->btxs, btx);
 		if(nidx >= g->nodes->size){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			abort();
@@ -1528,7 +1547,8 @@ static inline void end_pog(POG *g){
 		fprintf(stderr, " -- edges\t%llu --\n", (u8i)g->edges->cap); fflush(stderr);
 		fprintf(stderr, " -- rows\t%llu/%llu --\n", (u8i)g->rows->size, (u8i)g->rows->cap); fflush(stderr);
 		fprintf(stderr, " -- btds\t%llu/%llu --\n", (u8i)g->rows->size, (u8i)g->btds->cap); fflush(stderr);
-		fprintf(stderr, " -- cns\t%llu --\n\n", (u8i)g->cns->cap); fflush(stderr);
+		fprintf(stderr, " -- btxs\t%llu/%llu --\n", (u8i)g->btxs->size, (u8i)g->btxs->cap); fflush(stderr);
+		fprintf(stderr, " -- cns\t%llu --\n", (u8i)g->cns->cap); fflush(stderr);
 	}
 }
 
