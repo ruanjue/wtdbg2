@@ -20,7 +20,7 @@ output. Wtdbg2 is able to assemble the human and even the 32Gb
 During assembly, wtdbg2 chops reads into 1024bp segments, merges similar
 segments into a vertex and connects vertices based on the segment adjacency on
 reads. The resulting graph is called fuzzy Bruijn graph (FBG). It is akin to De
-Buijn graph but permits mismatches/gaps and keeps read paths when collapsing
+Bruijn graph but permits mismatches/gaps and keeps read paths when collapsing
 k-mers. The use of FBG distinguishes wtdbg2 from the majority of long-read
 assemblers.
 
