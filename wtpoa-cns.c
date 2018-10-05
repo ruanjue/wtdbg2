@@ -21,60 +21,50 @@
 #include "kswx.h"
 #include "filereader.h"
 
-#define MCNS_TASK_POACNS	1
-#define MCNS_TASK_OVERLAP	2
+typedef struct {
+	u8i idx;
+	u4i node1, node2, soff, slen;
+	int beg, end;
+} edge_cns_t;
+define_list(edgecnsv, edge_cns_t);
 
-thread_beg_def(mcns);
-uint32_t eid;
-TriPOG *g;
-u1v *seq1, *seq2;
-u4i node1, node2;
-int reglen;
-kswx_t ret;
-u32list *cigars;
-int task;
-thread_end_def(mcns);
+typedef struct {
+	edgecnsv *heap;
+	edgecnsv *rs;
+	String *tag;
+	BaseBank *seq;
+	u8i widx;
+	u4i cidx, eidx;
+	int M, X, O, E, reglen;
+	FILE *out;
+} CTGCNS;
 
-thread_beg_func(mcns);
-TriPOG *g;
-u8list *mem_cache;
-u1v    *mem_buffer;
-u32list *cigars[2];
-kswx_t *xs[2];
-int qb, qe, tb, te;
-mem_cache = init_u8list(1024);
-cigars[0] = mcns->cigars;
-cigars[1] = NULL;
-xs[0] = malloc(sizeof(kswx_t));
-xs[1] = NULL;
-g = mcns->g;
-mem_buffer = init_u1v(1024);
-thread_beg_loop(mcns);
-if(mcns->task == MCNS_TASK_POACNS){
-	if(g->seqs->nseq){
-	end_tripog(g);
-	}
-} else if(mcns->task == MCNS_TASK_OVERLAP){
-	if(mcns->seq2->size == 0){
-		mcns->ret = KSWX_NULL;
-		continue;
-	}
-	qb = 0; qe = mcns->seq1->size;
-	tb = 0; te = mcns->seq2->size;
-	if(qe > mcns->reglen) qb = qe - mcns->reglen;
-	if(te > mcns->reglen) te = mcns->reglen;
-	kswx_overlap_align_core(xs, cigars, qe - qb, mcns->seq1->buffer + qb, te - tb, mcns->seq2->buffer + tb, 1, g->pogs[0]->M, g->pogs[0]->X, g->pogs[0]->I, g->pogs[0]->D, -1, mem_cache);
-	xs[0]->qb += qb;
-	xs[0]->qe += qb;
-	xs[0]->tb += tb;
-	xs[0]->te += tb;
-	mcns->ret = *xs[0];
+static inline CTGCNS* init_ctgcns(int M, int X, int O, int E, int reglen, FILE *out){
+	CTGCNS *cc;
+	cc = malloc(sizeof(CTGCNS));
+	cc->heap = init_edgecnsv(64);
+	cc->rs   = init_edgecnsv(64);
+	cc->tag = init_string(64);
+	cc->seq = init_basebank();
+	cc->widx = 0;
+	cc->cidx = 0;
+	cc->eidx = 0;
+	cc->M = M;
+	cc->X = X;
+	cc->O = O;
+	cc->E = E;
+	cc->reglen = reglen;
+	cc->out  = out;
+	return cc;
 }
-thread_end_loop(mcns);
-free(xs[0]);
-free_u8list(mem_cache);
-free_u1v(mem_buffer);
-thread_end_func(mcns);
+
+static inline void free_ctgcns(CTGCNS *cc){
+	free_edgecnsv(cc->heap);
+	free_edgecnsv(cc->rs);
+	free_string(cc->tag);
+	free_basebank(cc->seq);
+	free(cc);
+}
 
 int revise_joint_point(u32list *cigars, int *qe, int *te){
 	u4i i, op, ln, max;
@@ -98,233 +88,252 @@ int revise_joint_point(u32list *cigars, int *qe, int *te){
 			t += ln;
 		}
 	}
-	if(cns_debug){
-		fprintf(stderr, "qe = %d -> %d\n", *qe, (*qe) - qq);
-		fprintf(stderr, "te = %d -> %d\n", *te, (*te) - tt);
-		fflush(stderr);
-	}
 	*qe -= qq;
 	*te -= tt;
 	return 1;
 }
 
-int revise_joint_point2(u32list *cigars, int *qe, int *te, int overhang){
-	u4i i, op, ln;
-	int qq, q, tt, t;
-	q = t = 0;
-	qq = tt = 0;
-	for(i=1;i<=cigars->size;i++){
-		op = cigars->buffer[cigars->size - i] & 0xF;
-		ln = cigars->buffer[cigars->size - i] >> 4;
-		switch(op){
-			case 1: q += ln; break;
-			case 2: t += ln; break;
-			default: qq = q; tt = t; q += ln; t += ln;
-		}
-		if(q >= overhang && t >= overhang){
-			if(cns_debug){
-				fprintf(stderr, "qe = %d -> %d\n", *qe, (*qe) - qq);
-				fprintf(stderr, "te = %d -> %d\n", *te, (*te) - tt);
-				fflush(stderr);
-			}
-			*qe -= qq;
-			*te -= tt;
-			return 1;
-		}
-	}
-	return 0;
-}
+thread_beg_def(mcns);
+CTGCNS *cc;
+TriPOG *g;
+edge_cns_t edge;
+thread_end_def(mcns);
 
-int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int rW, int mincnt, float minfreq, int reglen, FILE *out){
-	String *tag, *seq;
-	u1v *cseqs;
-	u4v *cxs, *cys, *tes, *qes;
-	u4i i, m, eid, beg, end, meths[2];
-	int c, j, sl, b, e;
+thread_beg_func(mcns);
+CTGCNS *cc;
+TriPOG *g;
+edge_cns_t *edge;
+u1v *seq1, *seq2;
+kswx_t XX, *xs[2];
+u8list *mem_cache;
+u32list *cigars[2];
+u4i eidx;
+int qb, qe, tb, te, b, e;
+cc = mcns->cc;
+g = mcns->g;
+seq1 = init_u1v(1024);
+seq2 = init_u1v(1024);
+mem_cache = init_u8list(1024);
+cigars[0] = init_u32list(64);
+cigars[1] = NULL;
+xs[0] = &XX;
+xs[1] = NULL;
+thread_beg_loop(mcns);
+if(g->seqs->nseq){
+	end_tripog(g);
+}
+eidx = MAX_U4;
+thread_beg_syn(mcns);
+if(cc->eidx + 1 < cc->rs->size){
+	eidx = cc->eidx;
+	edge = ref_edgecnsv(cc->rs, eidx);
+	clear_and_inc_u1v(seq1, edge->slen);
+	bitseq_basebank(cc->seq, edge->soff, edge->slen, seq1->buffer);
+	edge = ref_edgecnsv(cc->rs, eidx + 1);
+	clear_and_inc_u1v(seq2, edge->slen);
+	bitseq_basebank(cc->seq, edge->soff, edge->slen, seq2->buffer);
+	cc->eidx ++;
+}
+thread_end_syn(mcns);
+if(eidx != MAX_U4){
+	qb = 0; qe = seq1->size;
+	tb = 0; te = seq2->size;
+	if(qe > cc->reglen) qb = qe - cc->reglen;
+	if(te > cc->reglen) te = cc->reglen;
+	kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, cc->O, cc->O, cc->E, mem_cache);
+	XX.qb += qb;
+	XX.qe += qb;
+	XX.tb += tb;
+	XX.te += tb;
+	//if(cns_debug){
+		//fprintf(stderr, "#%llu_%s\t%d\t%d\t%d", edge->idx - 1, ctg->string, (int)cseqs->size, XX.qb, XX.qe);
+		//fprintf(stderr, "\t%llu_%s\t%d\t%d\t%d", edge->idx ,   ctg->string, (int)edge->len,   XX.tb, XX.te);
+		//fprintf(stderr, "\t%d\t%d\t%d\t%d\t%d\n", XX.aln, XX.mat, XX.mis, XX.ins, XX.del);
+	//}
+	b = XX.qe;
+	e = XX.te;
+	revise_joint_point(cigars[0], &b, &e);
+	thread_beg_syn(mcns);
+	if(cns_debug){
+		fprintf(stderr, "qe = %d -> %d\n", XX.qe, b);
+		fprintf(stderr, "te = %d -> %d\n", XX.te, e);
+		fflush(stderr);
+	}
+	ref_edgecnsv(cc->rs, eidx    )->end = b;
+	ref_edgecnsv(cc->rs, eidx + 1)->beg = e;
+	thread_end_syn(mcns);
+}
+thread_end_loop(mcns);
+free_u1v(seq1);
+free_u1v(seq2);
+free_u8list(mem_cache);
+free_u32list(cigars[0]);
+thread_end_func(mcns);
+
+int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen, FILE *out){
+	CTGCNS *cc;
+	BaseBank *seq;
+	edge_cns_t *edge;
+	u8i ridx;
+	u4i nrun, eidx, meths[2];
+	u4i i;
+	int c, j, sl, state, next, flag;
 	char *ss;
 	thread_preprocess(mcns);
-	tag = init_string(32);
-	seq = init_string(32);
-	cseqs = init_u1v(32);
-	cxs = init_u4v(32);
-	cys = init_u4v(32);
-	tes = init_u4v(32);
-	qes = init_u4v(32);
+	cc = init_ctgcns(M, X, (I + D) / 2, E, reglen, out);
+	seq = init_basebank();
 	thread_beg_init(mcns, ncpu);
-	mcns->eid = 0;
+	mcns->cc = cc;
 	mcns->g = init_tripog(winlen, winmin, fail_skip, M, X, I, D, W, use_sse, rW, mincnt, minfreq);
-	mcns->seq1 = init_u1v(32);
-	mcns->seq2 = init_u1v(32);
-	mcns->node1 = 0;
-	mcns->node2 = 0;
-	mcns->reglen = reglen;
-	mcns->ret = KSWX_NULL;
-	mcns->cigars = init_u32list(16);
-	mcns->task = 0;
+	ZEROS(&(mcns->edge));
 	thread_end_init(mcns);
-	eid = 0;
 	meths[0] = meths[1] = 0;
+	clear_string(cc->tag);
+	append_string(cc->tag, "anonymous", 9);
 	thread_wait_one(mcns);
-	while(1){
-		c = readtable_filereader(fr);
-		if(c == -1 || fr->line->string[0] == 'E' || fr->line->string[0] == '>'){
-			thread_wake(mcns);
-			thread_wait_one(mcns);
-			if(mcns->task == MCNS_TASK_POACNS && mcns->g->seqs->nseq){
+	cc->widx = 1;
+	ridx = 1;
+	state = 1;
+	next = 0;
+	c = 0;
+	nrun = flag = 0;
+	while(state){
+		if(state == 1){
+			c = readtable_filereader(fr);
+			if(c == -1 || fr->line->string[0] == '>'){
+				if(c != -1) cc->cidx ++;
+				if(mcns->edge.idx) thread_wake(mcns);
+				nrun = ncpu + 1;
+				state = 2;
+			} else if(fr->line->string[0] == 'E'){
+				if(mcns->edge.idx) thread_wake(mcns);
+				nrun = 1;
+				state = 3;
+			} else if(fr->line->string[0] == 'S' || fr->line->string[0] == 's'){
+				if(mcns->g->seqs->nseq >= seqmax) continue;
+				ss = get_col_str(fr, 5);
+				sl = get_col_len(fr, 5);
+				if(UInt(sl) > POG_RDLEN_MAX){
+					sl = POG_RDLEN_MAX;
+				}
+				push_tripog(mcns->g, ss, sl);
+			}
+		} else if(state == 2){
+			if(nrun){ // wait for all edge consensus
+				thread_wait_next(mcns);
+				nrun --;
+				state = 4;
+				next = 2;
+			} else { // end of one contig consensus
+				if(cc->rs->size){
+					while(1){
+						thread_beg_syn(mcns);
+						eidx = cc->eidx;
+						thread_end_syn(mcns);
+						if(eidx + 1 >= cc->rs->size) break;
+						thread_wait_one(mcns);
+						thread_wake(mcns);
+					}
+					clear_basebank(seq);
+					for(i=0;i<cc->rs->size;i++){
+						edge = ref_edgecnsv(cc->rs, i);
+						if(edge->end > edge->beg){
+							fast_fwdbits2basebank(seq, cc->seq->bits, edge->soff + edge->beg, edge->end - edge->beg);
+						} else if(Int(seq->size) + edge->end > edge->beg){
+							seq->size = seq->size + edge->end - edge->beg;
+							normalize_basebank(seq);
+						} else {
+							clear_basebank(seq);
+						}
+					}
+					fprintf(out, ">%s len=%d\n", cc->tag->string, (u4i)seq->size);
+					for(i=0;i<seq->size;i+=100){
+						if(i + 100 <= seq->size){
+							println_seq_basebank(seq, i, 100, out);
+						} else {
+							println_seq_basebank(seq, i, seq->size - i, out);
+						}
+					}
+					fflush(out);
+				}
+				if(c == -1){
+					state = 0;
+				} else {
+					state = 1;
+					clear_string(cc->tag);
+					ss = get_col_str(fr, 0) + 1;
+					sl = get_col_len(fr, 0) - 1;
+					for(j=0;j<sl;j++){
+						if(ss[j] == ' ') break;
+					}
+					append_string(cc->tag, ss, j);
+					clear_basebank(cc->seq);
+					clear_edgecnsv(cc->heap);
+					clear_edgecnsv(cc->rs);
+					cc->eidx = 0;
+				}
+			}
+		} else if(state == 3){
+			if(nrun){
+				thread_wait_one(mcns);
+				next = 3;
+				state = 4;
+				nrun --;
+			} else {
+				beg_tripog(mcns->g);
+				mcns->edge.idx = ridx ++;
+				mcns->edge.node1 = atoll(get_col_str(fr, 2) + 1);
+				mcns->edge.node2 = atoll(get_col_str(fr, 4) + 1);
+				mcns->edge.soff = 0;
+				mcns->edge.slen = 0;
+				mcns->edge.beg = 0;
+				mcns->edge.end = 0;
+				state = 1;
+			}
+		} else if(state == 4){ // collect edge consensus
+			if(mcns->edge.idx){
 				meths[mcns->g->is_tripog] ++;
 				if(cns_debug){
-					fprintf(stderr, "%s_%d_N%u_N%u\t%d\t%d\t", tag->string, mcns->eid, mcns->node1, mcns->node2, mcns->g->seqs->nseq, (u4i)mcns->g->cns->size);
+					thread_beg_syn(mcns);
+					fprintf(stderr, "%llu_%s_N%u_N%u\t%d\t%d\t", mcns->edge.idx, cc->tag->string, mcns->edge.node1, mcns->edge.node2, mcns->g->seqs->nseq, (u4i)mcns->g->cns->size);
 					println_seq_basebank(mcns->g->cns, 0, mcns->g->cns->size, stderr);
+					thread_end_syn(mcns);
 				}
-				cxs->buffer[mcns->eid] = cseqs->size;
-				inc_u1v(cseqs, mcns->g->cns->size);
-				bitseq_basebank(mcns->g->cns, 0, mcns->g->cns->size, cseqs->buffer + cxs->buffer[mcns->eid]);
-				cys->buffer[mcns->eid] = cseqs->size;
+				mcns->edge.soff = cc->seq->size;
+				mcns->edge.slen = mcns->g->cns->size;
+				mcns->edge.beg = 0;
+				mcns->edge.end = mcns->g->cns->size;
+				fast_fwdbits2basebank(cc->seq, mcns->g->cns->bits, 0, mcns->g->cns->size);
+				array_heap_push(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, mcns->edge, num_cmp(a.idx, b.idx));
+				ZEROS(&mcns->edge);
 			}
-			beg_tripog(mcns->g);
-			mcns->task = MCNS_TASK_POACNS;
-			mcns->eid = eid ++;
-			push_u4v(cxs, 0);
-			push_u4v(cys, 0);
-			if(c != -1 && fr->line->string[0] == 'E'){
-				mcns->node1 = atoll(get_col_str(fr, 2) + 1);
-				mcns->node2 = atoll(get_col_str(fr, 4) + 1);
-				continue;
-			}
-			if(tag->size){
-				thread_beg_iter(mcns);
-				thread_wait(mcns);
-				if(mcns->task == MCNS_TASK_POACNS && mcns->g->seqs->nseq){
-					meths[mcns->g->is_tripog] ++;
-					if(cns_debug){
-						fprintf(stderr, "%s_%d_N%u_N%u\t%d\t%d\t", tag->string, mcns->eid, mcns->node1, mcns->node2, mcns->g->seqs->nseq, (u4i)mcns->g->cns->size);
-						println_seq_basebank(mcns->g->cns, 0, mcns->g->cns->size, stderr);
+			thread_beg_syn(mcns);
+			while(cc->heap->size){
+				edge = head_edgecnsv(cc->heap);
+				if(edge->idx == cc->widx){
+					if(!cns_debug && (cc->widx % 100) == 0){
+						fprintf(stderr, "\r%u contigs %llu edge", cc->cidx, cc->widx); fflush(stderr);
 					}
-					cxs->buffer[mcns->eid] = cseqs->size;
-					inc_u1v(cseqs, mcns->g->cns->size);
-					bitseq_basebank(mcns->g->cns, 0, mcns->g->cns->size, cseqs->buffer + cxs->buffer[mcns->eid]);
-					cys->buffer[mcns->eid] = cseqs->size;
-				}
-				beg_tripog(mcns->g);
-				mcns->eid = 0;
-				mcns->task = 0;
-				mcns->node1 = 0;
-				mcns->node2 = 0;
-				thread_end_iter(mcns);
-				push_u4v(qes, 0);
-				push_u4v(tes, 0);
-				for(i=1;i<eid;i++){
-					thread_wait_one(mcns);
-					if(mcns->task == MCNS_TASK_OVERLAP && mcns->ret.aln > 0){
-						if(cns_debug){
-							fprintf(stderr, "#%s_%d\t%d\t%d\t%d", tag->string, mcns->eid - 1, (int)mcns->seq1->size, mcns->ret.qb, mcns->ret.qe);
-							fprintf(stderr, "\t%s_%d\t%d\t%d\t%d", tag->string, mcns->eid, (int)mcns->seq2->size, mcns->ret.tb, mcns->ret.te);
-							fprintf(stderr, "\t%d\t%d\t%d\t%d\t%d\n", mcns->ret.aln, mcns->ret.mat, mcns->ret.mis, mcns->ret.ins, mcns->ret.del);
-						}
-						{
-							b = mcns->ret.qe;
-							e = mcns->ret.te;
-							if(1){
-								revise_joint_point(mcns->cigars, &b, &e);
-							}
-							qes->buffer[mcns->eid] = b;
-							tes->buffer[mcns->eid] = e;
-						}
-					}
-					mcns->task = MCNS_TASK_OVERLAP;
-					mcns->eid = i;
-					clear_u1v(mcns->seq1); append_array_u1v(mcns->seq1, cseqs->buffer + cxs->buffer[i-1], cys->buffer[i-1] - cxs->buffer[i-1]);
-					clear_u1v(mcns->seq2); append_array_u1v(mcns->seq2, cseqs->buffer + cxs->buffer[i], cys->buffer[i] - cxs->buffer[i]);
-					mcns->ret = KSWX_NULL;
-					push_u4v(qes, mcns->seq1->size);
-					push_u4v(tes, 0);
-					thread_wake(mcns);
-				}
-				push_u4v(qes, cys->buffer[eid-1] - cxs->buffer[eid-1]);
-				push_u4v(tes, 0);
-				thread_beg_iter(mcns);
-				thread_wait(mcns);
-				if(mcns->task == MCNS_TASK_OVERLAP && mcns->ret.aln > 0){
-					if(cns_debug){
-						fprintf(stderr, "#%s_%d\t%d\t%d\t%d", tag->string, mcns->eid - 1, (int)mcns->seq1->size, mcns->ret.qb, mcns->ret.qe);
-						fprintf(stderr, "\t%s_%d\t%d\t%d\t%d", tag->string, mcns->eid, (int)mcns->seq2->size, mcns->ret.tb, mcns->ret.te);
-						fprintf(stderr, "\t%d\t%d\t%d\t%d\t%d\n", mcns->ret.aln, mcns->ret.mat, mcns->ret.mis, mcns->ret.ins, mcns->ret.del);
-					}
-					{
-						b = mcns->ret.qe;
-						e = mcns->ret.te;
-						if(1){
-							revise_joint_point(mcns->cigars, &b, &e);
-						}
-						qes->buffer[mcns->eid] = b;
-						tes->buffer[mcns->eid] = e;
-					}
-				}
-				mcns->ret = KSWX_NULL;
-				mcns->eid = 0;
-				mcns->task = 0;
-				thread_end_iter(mcns);
-				// generate contig seq
-				clear_string(seq);
-				for(i=0;i<eid;i++){
-					beg = cxs->buffer[i] + tes->buffer[i];
-					end = cxs->buffer[i] + qes->buffer[i + 1];
-					for(m=beg;m<end;m++){
-						push_string(seq, bit_base_table[cseqs->buffer[m]]);
-					}
-					if(cns_debug){
-						fprintf(stderr, "=%s_%d\t%d\t%d\n", tag->string, i, seq->size - (end - beg), seq->size);
-					}
-				}
-				fprintf(out, ">%s len=%d\n", tag->string, seq->size);
-				for(j=0;j<seq->size;j+=100){
-					sl = num_min(j + 100, seq->size);
-					char ch = seq->string[sl];
-					seq->string[sl] = 0;
-					fprintf(out, "%s\n", seq->string + j);
-					seq->string[sl] = ch;
+					push_edgecnsv(cc->rs, *edge);
+					array_heap_remove(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, 0, num_cmp(a.idx, b.idx));
+					cc->widx ++;
+				} else {
+					break;
 				}
 			}
-			if(c == -1) break;
-			clear_string(tag);
-			ss = get_col_str(fr, 0) + 1;
-			sl = get_col_len(fr, 0) - 1;
-			for(j=0;j<sl;j++){
-				if(ss[j] == ' ') break;
-				push_string(tag, ss[j]);
-			}
-			clear_string(seq);
-			eid = 0;
-			clear_u1v(cseqs);
-			clear_u4v(cxs);
-			clear_u4v(cys);
-			clear_u4v(tes);
-			clear_u4v(qes);
-			thread_wait_one(mcns);
-		} else if(fr->line->string[0] == 'S' || fr->line->string[0] == 's'){
-			if(mcns->g->seqs->nseq >= seqmax) continue;
-			ss = get_col_str(fr, 5);
-			sl = get_col_len(fr, 5);
-			if(UInt(sl) > POG_RDLEN_MAX){
-				sl = POG_RDLEN_MAX;
-			}
-			push_tripog(mcns->g, ss, sl);
+			thread_end_syn(mcns);
+			state = next;
 		}
 	}
-	fprintf(stderr, " -- %u %u in %s -- %s:%d --\n", meths[0], meths[1], __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+	if(!cns_debug){
+		fprintf(stderr, "\r%u contigs %llu edge", cc->cidx, cc->widx); fflush(stderr);
+	}
+	fprintf(stderr, " -- TRIPOA %u %u --\n", meths[0], meths[1]); fflush(stderr);
 	thread_beg_close(mcns);
 	free_tripog(mcns->g);
-	free_u1v(mcns->seq1);
-	free_u1v(mcns->seq2);
-	free_u32list(mcns->cigars);
 	thread_end_close(mcns);
-	free_u1v(cseqs);
-	free_u4v(cxs);
-	free_u4v(cys);
-	free_u4v(tes);
-	free_u4v(qes);
-	free_string(tag);
-	free_string(seq);
+	free_basebank(seq);
+	free_ctgcns(cc);
 	return 0;
 }
 
@@ -353,7 +362,7 @@ int usage(){
 	" -R <int>    Realignment bandwidth, 0: disable, [16]\n"
 	" -C <int>    Min count of bases to call a consensus base, [3]\n"
 	" -F <float>  Min frequency of non-gap bases to call a consensus base, [0.5]\n"
-	" -N <int>    Max number of reads in PO-MSA, [20]\n"
+	" -N <int>    Max number of reads in PO-MSA [20]\n"
 	"             Keep in mind that I am not going to generate high accurate consensus sequences here\n"
 	" -v          Verbose\n"
 	"\n");
@@ -365,7 +374,7 @@ int main(int argc, char **argv){
 	cplist *infs;
 	FILE *out;
 	char *outf;
-	int reglen, use_sse, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, mincnt, seqmax;
+	int reglen, use_sse, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax;
 	float minfreq;
 	int c, ncpu, overwrite;
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
@@ -381,13 +390,14 @@ int main(int argc, char **argv){
 	X = -5;
 	I = -2;
 	D = -4;
+	E = -1;
 	rW = 16;
 	mincnt = 3;
 	minfreq = 0.5;
 	infs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
-	while((c = getopt(argc, argv, "hvt:i:o:fS:B:W:w:AM:X:I:D:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvt:i:o:fS:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
@@ -403,6 +413,7 @@ int main(int argc, char **argv){
 			case 'X': X = atoi(optarg); break;
 			case 'I': I = atoi(optarg); break;
 			case 'D': D = atoi(optarg); break;
+			case 'E': E = atoi(optarg); break;
 			case 'R': rW = atoi(optarg); break;
 			case 'C': mincnt = atoi(optarg); break;
 			case 'F': minfreq = atof(optarg); break;
@@ -413,6 +424,9 @@ int main(int argc, char **argv){
 	}
 	if(winmin <= 0){
 		winmin = winlen * 0.5;
+	}
+	if(seqmax <= 0 || seqmax >= POG_RDCNT_MAX){
+		seqmax = POG_RDCNT_MAX;
 	}
 	if(ncpu <= 0 && _sig_proc_deamon) ncpu = _sig_proc_deamon->ncpu;
 	if(ncpu <= 0){
@@ -428,7 +442,7 @@ int main(int argc, char **argv){
 	if(outf){
 		out = open_file_for_write(outf, NULL, 1);
 	} else out = stdout;
-	run_cns(fr, ncpu, use_sse, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, rW, mincnt, minfreq, reglen, out);
+	run_cns(fr, ncpu, use_sse, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen, out);
 	close_filereader(fr);
 	if(outf) fclose(out);
 	free_cplist(infs);

@@ -168,7 +168,7 @@ static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u1i ksize){
 		push_u4v(kidxs, ridx);
 	}
 	sort_array(kidxs->buffer, kidxs->size, u4i, num_cmpgt(kords->buffer[b], kords->buffer[a]));
-	if(cns_debug){
+	if(cns_debug > 1){
 		for(i=0;i<kidxs->size;i++){
 			fprintf(stderr, "SHUFFLE[%u] %u\t%0.4f\n", i, kidxs->buffer[i], kords->buffer[kidxs->buffer[i]]);
 		}
