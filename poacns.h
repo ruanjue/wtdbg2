@@ -264,7 +264,7 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	if(g->W){
 		if(row1[row1[seqlex]] >= g->W_score){
 			if(g->near_dialog){
-				if(row1[seqlex + 1] > 0 || row1[seqlex + 2] < Int(seqlen)){
+				if(row1[seqlex + 1] > 0 || row1[seqlex + 2] < Int(seqlex)){
 					if(row1[seqlex] == (row1[seqlex + 1] + row1[seqlex + 2]) / 2){
 						center = (row1[seqlex + 1] + row1[seqlex + 2]) / 2 + 1;
 					} else if(row1[seqlex] > (row1[seqlex + 1] + row1[seqlex + 2]) / 2){
@@ -280,30 +280,32 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 			}
 			beg = num_max(center - g->W, row1[seqlex + 1]);
 			end = num_min(center + 1 + g->W, row1[seqlex + 2] + 1);
-			if(end > seqlen) end = seqlen;
+			if(end > seqlex) end = seqlex;
 		} else {
 			beg = row1[seqlex + 1];
-			end = num_min(row1[seqlex + 2] + 1, Int(seqlen));
+			end = num_min(row1[seqlex + 2] + 1, Int(seqlex));
 		}
 	} else {
 		beg = 0;
-		end = seqlen;
-	}
-	if(nidx2 == POG_TAIL_NODE){
-		end = row1[seqlex + 2];
-		while(end & 0x07){
-			row1[end] = POG_SCORE_MIN;
-			end ++;
-		}
-		while(end < seqlex){
-			_mm_store_si128(((__m128i*)(row1 + end)), MIN);
-			end += 8;
-		}
+		end = seqlex;
 	}
 	beg = beg / 8;
 	end = (end + 7) / 8;
-	if(beg){
-		_mm_store_si128(((__m128i*)row2) + beg - 1, MIN);
+	if(Int(beg * 8) < row1[seqlex + 1]){
+		for(i=beg*8;Int(i)<row1[seqlex + 1];i+=8){
+			_mm_store_si128(((__m128i*)(row1 + i)), MIN);
+		}
+	}
+	if(Int(end * 8) > row1[seqlex + 2]){
+		for(i=row1[seqlex+2];i<end*8;i+=8){
+			_mm_store_si128(((__m128i*)(row1 + i)), MIN);
+		}
+	}
+	if(nidx2 == POG_TAIL_NODE){
+		while(end * 8 < seqlex){
+			_mm_store_si128(((__m128i*)(row1)) + end, MIN);
+			end ++;
+		}
 	}
 	MAX = _mm_set1_epi16(POG_SCORE_MIN);
 	if(g->aln_mode == POG_ALNMODE_OVERLAP){
@@ -370,18 +372,14 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 			}
 		}
 	}
-	if(end < slen){
-		_mm_store_si128(((__m128i*)row2) + end, MIN);
-	}
 	row2[seqlex] = mi;
 	row2[seqlex + 1] = beg * 8;
-	row2[seqlex + 2] = num_min(end * 8, seqlen);
+	row2[seqlex + 2] = end * 8;
 }
 
 static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2){
 	b2i *row1, *row2, *btd1, *btd2;
-	u4i i, seqlex, beg[3], end[3], sz;
-	int delta;
+	u4i i, seqlex, beg[3], end[3], sz, b;
 	row1 = ref_b2v(g->rows, coff1);
 	row2 = ref_b2v(g->rows, coff2);
 	btd1 = ref_b2v(g->btds, coff1);
@@ -426,23 +424,40 @@ static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2)
 			}
 		}
 	}
-	if(beg[0] < beg[2]){
-		if(beg[0] > 8){
-			delta = 8;
+	if(beg[0] < beg[1]){
+		b = beg[0];
+		if(end[0] >= beg[1]){
+			sz = beg[1] - beg[0];
+			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
 		} else {
-			delta = beg[0];
+			__m128i F;
+			F = _mm_set1_epi16(POG_SCORE_MIN);
+			sz = end[0] - beg[0];
+			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+			for(i=end[0];i<beg[1];i+=8){
+				_mm_store_si128(((__m128i*)(row2 + i)), F);
+			}
 		}
-		sz = num_min(beg[2], end[0]) - beg[0] + delta;
-		memcpy(row2 + beg[0] - delta, row1 + beg[0] - delta, sz * sizeof(b2i));
-		memcpy(btd2 + beg[0] - delta, btd1 + beg[0] - delta, sz * sizeof(b2i));
 	}
-	for(i=end[2];i<beg[2];i++){ // in case of two independent regions
-		row2[i] = POG_SCORE_MIN;
-	}
-	if(end[0] > end[2]){
-		sz = num_min(end[0] + 8, seqlex) - end[2];
-		memcpy(row2 + end[2], row1 + end[2], sz * sizeof(b2i));
-		memcpy(btd2 + end[2], btd1 + end[2], sz * sizeof(b2i));
+	if(end[0] > end[1]){
+		if(beg[0] <= end[1]){
+			b = end[1];
+			sz = end[0] - b;
+			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+		} else {
+			__m128i F;
+			F = _mm_set1_epi16(POG_SCORE_MIN);
+			b = beg[0];
+			sz = end[0] - b;
+			memcpy(row2 + b, row1 + b, sz * sizeof(b2i));
+			memcpy(btd2 + b, btd1 + b, sz * sizeof(b2i));
+			for(i=end[1];i<beg[0];i+=8){
+				_mm_store_si128(((__m128i*)(row2 + i)), F);
+			}
+		}
 	}
 	row2[seqlex + 1] = num_min(beg[0], beg[1]);
 	row2[seqlex + 2] = num_max(end[0], end[1]);
@@ -623,11 +638,11 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	if(g->near_dialog && g->W_score <= 0){
 		row[seqlex] = g->W;
 		row[seqlex + 1] = 0;
-		row[seqlex + 2] = num_min(Int(seqlen), 2 * g->W + 1);
+		row[seqlex + 2] = num_min(Int(seqlex), 2 * g->W + 1);
 	} else {
 		row[seqlex] = 0;
 		row[seqlex + 1] = 0;
-		row[seqlex + 2] = seqlen;
+		row[seqlex + 2] = seqlex;
 	}
 	clear_u4v(g->stack);
 	push_u4v(g->stack, POG_HEAD_NODE);
@@ -681,7 +696,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		}
 		row[seqlex] = j;
 		row[seqlex + 1] = 0;
-		row[seqlex + 2] = seqlen;
+		row[seqlex + 2] = seqlex;
 	}
 	if(g->aln_mode == POG_ALNMODE_OVERLAP){
 		if(g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])] + g->T > score){
