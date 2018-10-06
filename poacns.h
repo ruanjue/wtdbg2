@@ -223,13 +223,9 @@ static inline void beg_pog(POG *g){
 	clear_seqbank(g->seqs);
 	clear_pognodev(g->nodes);
 	clear_pogedgev(g->edges);
-	exp_size = 16 * 1024 * 1024;
-	if(g->rows->cap > exp_size){
-		renew_b2v(g->rows, exp_size);
-		renew_b2v(g->btds, exp_size);
-	} else {
-		clear_b2v(g->rows);
-		clear_b2v(g->btds);
+	exp_size = 8 * 1024 * 1024;
+	if(g->btvs->cap > exp_size){
+		renew_u1v(g->btvs, exp_size);
 	}
 	clear_basebank(g->cns);
 	head = next_ref_pognodev(g->nodes);
@@ -444,7 +440,6 @@ static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2,
 			row2[i] = POG_SCORE_MIN;
 		}
 		if(end[0] > end[2]){
-			//sz = num_min(end[0] + 8, seqlex) - end[2];
 			sz = num_min(end[0], seqlex) - end[2];
 			memcpy(row2 + end[2], row1 + end[2], sz * sizeof(b2i));
 			memcpy(btd2 + end[2], btd1 + end[2], sz * sizeof(b2i));
@@ -651,10 +646,12 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		}
 		bb --;
 	}
+#if 0
 	if(bb){
 		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		abort();
 	}
+#endif
 	rmax += 2;
 	head_sl_b2v(g->rows, g->rows->n_head);
 	clear_and_encap_b2v(g->rows, rmax * seqinc + 8);
@@ -738,24 +735,21 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			if(g->rowr->size){
 				coff = roff = g->rowr->buffer[-- g->rowr->size];
 			} else {
+#if 0
 				if(g->rows->size + seqinc + g->rows->n_head > g->rows->cap){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					abort();
 				}
+#endif
 				roff = g->rows->size;
 				inc_b2v(g->rows, seqinc);
 				coff = g->btds->size;
 				inc_b2v(g->btds, seqinc);
-				if(g->btds->size != g->rows->size){
-					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-					abort();
-				}
 			}
 			g->btxs->buffer[v->erev + v->vst] = nidx; // save backtrace nidx
 			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, v->vst, u->coff, coff, u->roff, roff, qp);
 			if(v->vst){
 				merge_row_rdaln_pog(g, seqlen, coff, v->coff, roff, v->roff);
-				//trunc_b2v(g->btds, seqinc);
 				push_u4v(g->rowr, roff);
 			} else {
 				v->coff = coff;
@@ -764,13 +758,15 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			v->vst ++;
 			if(v->vst == v->nin){
 				push_u4v(g->stack, e->node);
+#if 0
 			} else if(v->vst > v->nin){
 				fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 				abort();
+#endif
 			}
 		}
 		push_u4v(g->rowr, u->roff);
-		{
+		{ // compress-copy btds into btvs
 			u->voff = g->btvs->size;
 			inc_u1v(g->btvs, u->rend - u->rbeg);
 			for(i=u->rbeg;i<u->rend;i++){
@@ -779,6 +775,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		}
 	}
 	v = ref_pognodev(g->nodes, POG_TAIL_NODE);
+#if 0
 	if(v->roff == 0){
 		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		abort();
@@ -787,6 +784,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		abort();
 	}
+#endif
 	if(g->W == 0){
 		row = ref_b2v(g->rows, v->roff);
 		j = 0;
@@ -958,10 +956,12 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		} else {
 			nidx = g->btxs->buffer[g->nodes->buffer[nidx].erev + vst];
 		}
+#if 0
 		if(nidx >= g->nodes->size){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			abort();
 		}
+#endif
 		u = ref_pognodev(g->nodes, nidx);
 		btx = (nidx == 0 && x == 0)? 0 : 1;
 		if(x < u->rbeg || x >= u->rend){
@@ -1296,9 +1296,8 @@ static inline void gen_cns_pog(POG *g){
 	s = ref_u1v(g->msa, g->msa_len * g->seqs->nseq);
 	memset(s, 4, g->msa_len);
 	clear_basebank(g->cns);
-	//vsts = calloc(g->seqs->nseq, sizeof(u2i));
-	bls  = calloc(g->seqs->nseq, sizeof(u2i));
 	hcovs = g->hcovs->buffer;
+	bls   = hcovs + g->msa_len; // bls is all zeros, see end_pog
 	if(g->rW){
 		memset(g->hcovs->buffer, 0, g->msa_len * sizeof(u2i));
 		for(rid=0;rid<g->seqs->nseq;rid++){
@@ -1426,8 +1425,6 @@ static inline void gen_cns_pog(POG *g){
 			}
 		}
 	}
-	//free(vsts);
-	free(bls);
 	if(cns_debug > 1){
 		for(cl=0;cl<fmax1;cl++){
 			fprintf(stderr, "RUNLEN[%u]", cl + 1);
@@ -1602,8 +1599,8 @@ static inline void end_pog(POG *g){
 			}
 		}
 	}
-	clear_and_encap_u2v(g->hcovs, g->msa_len);
-	memset(g->hcovs->buffer, 0, g->msa_len * sizeof(u2i));
+	clear_and_encap_u2v(g->hcovs, g->msa_len + g->seqs->nseq);
+	memset(g->hcovs->buffer, 0, (g->msa_len + g->seqs->nseq) * sizeof(u2i));
 	for(ridx=0;ridx<g->seqs->nseq;ridx++){
 		r = ref_u1v(g->msa, g->msa_len * ridx);
 		beg = 0;
