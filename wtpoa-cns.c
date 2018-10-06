@@ -312,7 +312,7 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 				edge = head_edgecnsv(cc->heap);
 				if(edge->idx == cc->widx){
 					if(!cns_debug && (cc->widx % 100) == 0){
-						fprintf(stderr, "\r%u contigs %llu edge", cc->cidx, cc->widx); fflush(stderr);
+						fprintf(stderr, "\r%u contigs %llu edges", cc->cidx, cc->widx); fflush(stderr);
 					}
 					push_edgecnsv(cc->rs, *edge);
 					array_heap_remove(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, 0, num_cmp(a.idx, b.idx));
@@ -326,9 +326,9 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 		}
 	}
 	if(!cns_debug){
-		fprintf(stderr, "\r%u contigs %llu edge", cc->cidx, cc->widx); fflush(stderr);
+		fprintf(stderr, "\r%u contigs %llu edges\n", cc->cidx, cc->widx); fflush(stderr);
 	}
-	fprintf(stderr, " -- TRIPOA %u %u --\n", meths[0], meths[1]); fflush(stderr);
+	fprintf(stderr, " -- TRIPOA: no=%u yes=%u --\n", meths[0], meths[1]); fflush(stderr);
 	thread_beg_close(mcns);
 	free_tripog(mcns->g);
 	thread_end_close(mcns);
