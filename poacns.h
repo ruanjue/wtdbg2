@@ -81,14 +81,15 @@ typedef struct {
 	u2v *bcnts[7];
 	u2v *hcovs;
 	BaseBank *cns;
+	u8i ncall;
 } POG;
 
 static inline POG* init_pog(int M, int X, int I, int D, int W, int Wscore_cutoff, int use_sse, int rW, u4i min_cnt, float min_freq){
 	POG *g;
 	g = malloc(sizeof(POG));
 	g->seqs = init_seqbank();
-	g->nodes = init_pognodev(1024);
-	g->edges = init_pogedgev(1024);
+	g->nodes = init_pognodev(16 * 1024);
+	g->edges = init_pogedgev(16 * 1024);
 	g->sse = use_sse;
 	g->W_score = Wscore_cutoff;
 	g->near_dialog = 0;
@@ -102,25 +103,47 @@ static inline POG* init_pog(int M, int X, int I, int D, int W, int Wscore_cutoff
 	g->rW = rW;
 	g->msa_min_cnt = min_cnt;
 	g->msa_min_freq = min_freq;
-	g->qprof = init_b2v(1024);
-	g->rows  = init_b2v(1024);
-	g->rowr  = init_u4v(1024);
-	g->btds  = init_b2v(1024);
-	g->btvs  = init_u1v(1024);
+	g->qprof = init_b2v(4 * 1024);
+	g->rows  = init_b2v(16 * 1024);
+	g->rowr  = init_u4v(64);
+	g->btds  = init_b2v(16 * 1024);
+	g->btvs  = init_u1v(8 * 1024 * 1024);
 	g->btxs  = init_u4v(1024);
 	g->stack = init_u4v(32);
 	g->msa_len = 0;
-	g->msa = init_u1v(1024);
-	g->bcnts[0] = init_u2v(1024);
-	g->bcnts[1] = init_u2v(1024);
-	g->bcnts[2] = init_u2v(1024);
-	g->bcnts[3] = init_u2v(1024);
-	g->bcnts[4] = init_u2v(1024);
-	g->bcnts[5] = init_u2v(1024);
-	g->bcnts[6] = init_u2v(1024);
-	g->hcovs = init_u2v(1024);
+	g->msa = init_u1v(16 * 1024);
+	g->bcnts[0] = init_u2v(4 * 1024);
+	g->bcnts[1] = init_u2v(4 * 1024);
+	g->bcnts[2] = init_u2v(4 * 1024);
+	g->bcnts[3] = init_u2v(4 * 1024);
+	g->bcnts[4] = init_u2v(4 * 1024);
+	g->bcnts[5] = init_u2v(4 * 1024);
+	g->bcnts[6] = init_u2v(4 * 1024);
+	g->hcovs = init_u2v(4 * 1024);
 	g->cns = init_basebank();
+	g->ncall = 0;
 	return g;
+}
+
+static inline void renew_pog(POG *g){
+	free_seqbank(g->seqs); g->seqs = init_seqbank();
+	renew_pognodev(g->nodes, 16 * 1024);
+	renew_pogedgev(g->edges, 16 * 1024);
+	renew_b2v(g->qprof, 4 * 1024);
+	renew_b2v(g->rows, 16 * 1024);
+	renew_b2v(g->btds, 16 * 1024);
+	renew_u1v(g->btvs, 8 * 1024 * 1024);
+	renew_u4v(g->btxs, 16 * 1024);
+	renew_u1v(g->msa, 16 * 1024);
+	renew_u2v(g->bcnts[0], 4 * 1024);
+	renew_u2v(g->bcnts[1], 4 * 1024);
+	renew_u2v(g->bcnts[2], 4 * 1024);
+	renew_u2v(g->bcnts[3], 4 * 1024);
+	renew_u2v(g->bcnts[4], 4 * 1024);
+	renew_u2v(g->bcnts[5], 4 * 1024);
+	renew_u2v(g->bcnts[6], 4 * 1024);
+	renew_u2v(g->hcovs, 4 * 1024);
+	free_basebank(g->cns); g->cns = init_basebank();
 }
 
 static inline void free_pog(POG *g){
@@ -219,14 +242,13 @@ static inline void print_seqs_pog(POG *g, char *prefix, char *suffix){
 static inline void beg_pog(POG *g){
 	pog_node_t *head, *tail;
 	pog_edge_t *e;
-	u8i exp_size;
+	g->ncall ++;
+	if((g->ncall % 16) == 0){
+		renew_pog(g);
+	}
 	clear_seqbank(g->seqs);
 	clear_pognodev(g->nodes);
 	clear_pogedgev(g->edges);
-	exp_size = 8 * 1024 * 1024;
-	if(g->btvs->cap > exp_size){
-		renew_u1v(g->btvs, exp_size);
-	}
 	clear_basebank(g->cns);
 	head = next_ref_pognodev(g->nodes);
 	ZEROS(head);
