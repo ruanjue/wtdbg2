@@ -29,7 +29,7 @@
 
 static int cns_debug = 0;
 
-#define POG_RDLEN_MAX	MAX_B2
+#define POG_RDLEN_MAX	0x7FF8
 #define POG_RDCNT_MAX	0x3FFF
 #define POG_HEAD_NODE	0
 #define POG_TAIL_NODE	1
