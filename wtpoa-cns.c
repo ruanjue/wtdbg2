@@ -155,8 +155,7 @@ if(eidx != MAX_U4){
 	revise_joint_point(cigars[0], &b, &e);
 	thread_beg_syn(mcns);
 	if(cns_debug){
-		fprintf(stderr, "qe = %d -> %d\n", XX.qe, b);
-		fprintf(stderr, "te = %d -> %d\n", XX.te, e);
+		fprintf(stderr, "JOINT\t%llu\tqe = %d -> %d\tte = %d -> %d\n", ref_edgecnsv(cc->rs, eidx)->idx, XX.qe, b, XX.te, e);
 		fflush(stderr);
 	}
 	ref_edgecnsv(cc->rs, eidx    )->end = b;
@@ -234,6 +233,7 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 						thread_wait_one(mcns);
 						thread_wake(mcns);
 					}
+					thread_wait_all(mcns);
 					clear_basebank(seq);
 					for(i=0;i<cc->rs->size;i++){
 						edge = ref_edgecnsv(cc->rs, i);
