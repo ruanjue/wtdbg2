@@ -46,6 +46,7 @@ static int cns_debug = 0;
 typedef struct {
 	u4i rid:15, pos:14, base:3;
 	u2i nin, vst;
+	u2i rbeg, rend, rmax;
 	u4i edge, erev;
 	u4i aligned;
 	u4i btx;
@@ -70,6 +71,7 @@ typedef struct {
 	float msa_min_freq;
 	b2v *qprof;
 	b2v *rows;
+	u4v *rowr;
 	b2v *btds;
 	u4v *btxs;
 	u4v *stack;
@@ -101,6 +103,7 @@ static inline POG* init_pog(int M, int X, int I, int D, int W, int Wscore_cutoff
 	g->msa_min_freq = min_freq;
 	g->qprof = init_b2v(1024);
 	g->rows  = init_b2v(1024);
+	g->rowr  = init_u4v(1024);
 	g->btds  = init_b2v(1024);
 	g->btxs  = init_u4v(1024);
 	g->stack = init_u4v(32);
@@ -124,6 +127,7 @@ static inline void free_pog(POG *g){
 	free_pogedgev(g->edges);
 	free_b2v(g->qprof);
 	free_b2v(g->rows);
+	free_u4v(g->rowr);
 	free_b2v(g->btds);
 	free_u4v(g->btxs);
 	free_u4v(g->stack);
@@ -218,10 +222,10 @@ static inline void beg_pog(POG *g){
 	clear_pogedgev(g->edges);
 	exp_size = 64 * 1024 * 1024;
 	if(g->rows->size > exp_size){
-		renew_b2v(g->rows, exp_size);
+		//renew_b2v(g->rows, exp_size);
 		renew_b2v(g->btds, exp_size);
 	} else {
-		clear_b2v(g->rows);
+		//clear_b2v(g->rows);
 		clear_b2v(g->btds);
 	}
 	clear_basebank(g->cns);
@@ -244,13 +248,14 @@ static inline void beg_pog(POG *g){
 // SSE
 // BANDED, Auto fit the previous-row's max score in center
 // OVERLAP
-static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seqlen, u2i vst, u4i coff1, u4i coff2, b2i *qp){
+static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seqlen, u2i vst, u4i coff1, u4i coff2, u4i roff1, u4i roff2, b2i *qp){
 	__m128i I, D, H, E, F, S, MAX, MIN, CMP;
 	__m128i BT, BT1, BT2, BT1_MASK, BT2_MASK, BTX_MASK;
 	b2i *row1, *row2, *btds;
 	u4i i, slen, seqlex, beg, end;
 	int lsth, lstf, msk, mi, center;
 	UNUSED(nidx1);
+	UNUSED(coff1);
 	slen = (seqlen + 7) / 8;
 	seqlex = slen * 8;
 	I = _mm_set1_epi16(g->I);
@@ -259,8 +264,8 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	BT1_MASK = _mm_set1_epi16(0b10);
 	BT2_MASK = _mm_set1_epi16(0b01);
 	BTX_MASK = _mm_set1_epi16(vst << 2);
-	row1 = ref_b2v(g->rows, coff1);
-	row2 = ref_b2v(g->rows, coff2);
+	row1 = ref_b2v(g->rows, roff1);
+	row2 = ref_b2v(g->rows, roff2);
 	btds = ref_b2v(g->btds, coff2);
 	if(g->W){
 		if(row1[row1[seqlex]] >= g->W_score){
@@ -379,11 +384,11 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	row2[seqlex + 2] = end * 8;
 }
 
-static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2){
+static inline void merge_row_rdaln_pog(POG *g, u4i seqlen, u4i coff1, u4i coff2, u4i roff1, u4i roff2){
 	b2i *row1, *row2, *btd1, *btd2;
 	u4i i, seqlex, beg[3], end[3], sz, b;
-	row1 = ref_b2v(g->rows, coff1);
-	row2 = ref_b2v(g->rows, coff2);
+	row1 = ref_b2v(g->rows, roff1);
+	row2 = ref_b2v(g->rows, roff2);
 	btd1 = ref_b2v(g->btds, coff1);
 	btd2 = ref_b2v(g->btds, coff2);
 	seqlex = roundup_times(seqlen, 8);
@@ -550,7 +555,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	b4i score, x, xb, xe;
 	b2i *qp, *row, *btds;
 	u8i rmax;
-	u4i nidx, xidx, eidx, coff, btx, vst, bt, mnode;
+	u4i nidx, xidx, eidx, coff, roff, btx, vst, bt, mnode;
 	u4i i, j, flag, bb, bl;
 	seqoff = g->seqs->rdoffs->buffer[rid];
 	seqlen = g->seqs->rdlens->buffer[rid];
@@ -611,18 +616,58 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	// init graph
 	encap_pognodev(g->nodes, seqlen);
 	encap_pogedgev(g->edges, seqlen);
+	// estimate cap of g->rows
+	for(i=0;i<g->nodes->size;i++){
+		v = ref_pognodev(g->nodes, i);
+		v->roff = 0;
+		v->vst = 0;
+	}
+	clear_u4v(g->stack);
+	push_u4v(g->stack, POG_HEAD_NODE);
+	rmax = 0;
+	bb = 1;
+	while(pop_u4v(g->stack, &nidx)){
+		u = ref_pognodev(g->nodes, nidx);
+		eidx = u->edge;
+		while(eidx){
+			e = ref_pogedgev(g->edges, eidx);
+			eidx = e->next;
+			v = ref_pognodev(g->nodes, e->node);
+			if(v->vst == 0){
+				bb ++;
+				if(bb > rmax){
+					rmax = bb;
+				}
+			}
+			v->vst ++;
+			if(v->vst == v->nin){
+				push_u4v(g->stack, e->node);
+			}
+		}
+		bb --;
+	}
+	if(bb){
+		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+		abort();
+	}
+	rmax ++;
+	head_sl_b2v(g->rows, g->rows->n_head);
+	clear_and_encap_b2v(g->rows, rmax * seqinc + 8);
+	head_sr_b2v(g->rows, (16 - (((u8i)g->rows->buffer) & 0xF)) >> 1);
+	inc_b2v(g->rows, seqinc);
+	clear_u4v(g->rowr);
+	// estimate max cap of g->btds
 	rmax = g->seqs->nseq + 1;
 	bb = 0;
 	for(i=0;i<g->nodes->size;i++){
 		v = ref_pognodev(g->nodes, i);
 		v->coff = 0;
-		v->roff = 0;
 		v->vst = 0;
 		v->erev = bb;
 		bb += v->nin;
 		if(i < 2) bb ++; // in case of add mnode
 		if(v->nin || v->edge){
-			rmax ++; // estimate max rows
+			rmax ++; // estimate max reactions
 		}
 	}
 	if(0){
@@ -631,17 +676,19 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	clear_and_encap_u4v(g->btxs, bb + 1);
 	// init first row
 	// fit to 16 bytes aligned
-	head_sl_b2v(g->rows, g->rows->n_head);
-	clear_and_encap_b2v(g->rows, rmax * seqinc + 8);
-	head_sr_b2v(g->rows, (16 - (((u8i)g->rows->buffer) & 0xF)) >> 1);
 	head_sl_b2v(g->btds, g->btds->n_head);
 	clear_and_encap_b2v(g->btds, rmax * seqinc + 8);
 	head_sr_b2v(g->btds, (16 - (((u8i)g->btds->buffer) & 0xF)) >> 1);
 	u = ref_pognodev(g->nodes, POG_HEAD_NODE);
-	u->coff = g->rows->size;
-	inc_b2v(g->rows, seqinc);
+	if(g->rowr->size){
+		u->roff = g->rowr->buffer[--g->rowr->size];
+	} else {
+		u->roff = g->rows->size;
+		inc_b2v(g->rows, seqinc);
+	}
+	u->coff = g->btds->size;
 	inc_b2v(g->btds, seqinc);
-	row = ref_b2v(g->rows, u->coff);
+	row = ref_b2v(g->rows, u->roff);
 	btds = ref_b2v(g->btds, u->coff);
 	if(g->aln_mode == POG_ALNMODE_OVERLAP){ // overlap alignment
 		memset(row,  0, seqinc * sizeof(b2i));
@@ -672,12 +719,16 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	int my_print = (cns_debug > 2);
 	while(pop_u4v(g->stack, &nidx)){
 		u = ref_pognodev(g->nodes, nidx);
+		u->rmax = g->rows->buffer[u->roff + seqlex];
+		u->rbeg = g->rows->buffer[u->roff + seqlex + 1];
+		u->rend = g->rows->buffer[u->roff + seqlex + 2];
 		if(my_print){
-			fprintf(stderr, "NODEALN[%u:R%u:%u] %d-%d:%d:%d %d\n", nidx, u->rid, u->pos, g->rows->buffer[u->coff + seqlex + 1], g->rows->buffer[u->coff + seqlex + 2], g->rows->buffer[u->coff + seqlex], g->rows->buffer[u->coff + g->rows->buffer[u->coff + seqlex]], g->btds->buffer[u->coff + g->rows->buffer[u->coff + seqlex]]);
+			fprintf(stderr, "NODEALN[%u:R%u:%u] %d-%d:%d:%d %d %d\n", nidx, u->rid, u->pos, u->rbeg, u->rend, u->rmax,
+				g->rows->buffer[u->roff + u->rmax], g->btds->buffer[u->coff + u->rmax] >> 2, g->btds->buffer[u->coff + u->rmax] & 0x03);
 		}
 		if(g->aln_mode == POG_ALNMODE_OVERLAP){
-			if((g->rows->buffer[u->coff + seqlex + 2]) >= Int(seqlen) &&  g->rows->buffer[u->coff + x] > score){ // overlap alignment
-				score = g->rows->buffer[u->coff + x];
+			if(u->rend >= seqlen &&  g->rows->buffer[u->roff + x] > score){ // overlap alignment
+				score = g->rows->buffer[u->roff + x];
 				mnode = nidx;
 			}
 		}
@@ -687,17 +738,23 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			eidx = e->next;
 			v = ref_pognodev(g->nodes, e->node);
 			qp = g->qprof->buffer + v->base * seqlex;
-			coff = g->rows->size;
-			inc_b2v(g->rows, seqinc);
+			coff = g->btds->size;
 			inc_b2v(g->btds, seqinc);
+			if(g->rowr->size){
+				roff = g->rowr->buffer[-- g->rowr->size];
+			} else {
+				roff = g->rows->size;
+				inc_b2v(g->rows, seqinc);
+			}
 			g->btxs->buffer[v->erev + v->vst] = nidx; // save backtrace nidx
-			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, v->vst, u->coff, coff, qp);
+			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, v->vst, u->coff, coff, u->roff, roff, qp);
 			if(v->vst){
-				merge_row_rdaln_pog(g, seqlen, coff, v->coff);
-				trunc_b2v(g->rows, seqinc);
+				merge_row_rdaln_pog(g, seqlen, coff, v->coff, roff, v->roff);
 				trunc_b2v(g->btds, seqinc);
+				push_u4v(g->rowr, roff);
 			} else {
 				v->coff = coff;
+				v->roff = roff;
 			}
 			v->vst ++;
 			if(v->vst == v->nin){
@@ -707,28 +764,33 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				abort();
 			}
 		}
+		push_u4v(g->rowr, u->roff);
 	}
 	v = ref_pognodev(g->nodes, POG_TAIL_NODE);
+	if(v->roff == 0){
+		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+		abort();
+	}
 	if(g->W == 0){
-		row = ref_b2v(g->rows, v->coff);
+		row = ref_b2v(g->rows, v->roff);
 		j = 0;
 		for(i=1;i<seqlen;i++){
 			if(row[i] > row[j]){
 				j = i;
 			}
 		}
-		row[seqlex] = j;
-		row[seqlex + 1] = 0;
-		row[seqlex + 2] = seqlex;
+		v->rmax = row[seqlex] = j;
+		v->rbeg = row[seqlex + 1] = 0;
+		v->rend = row[seqlex + 2] = seqlex;
 	}
 	if(g->aln_mode == POG_ALNMODE_OVERLAP){
-		if(g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])] + g->T > score){
-			score = g->rows->buffer[v->coff + (g->rows->buffer[v->coff + seqlex])];
+		if(g->rows->buffer[v->roff + v->rmax] + g->T > score){
+			score = g->rows->buffer[v->roff + (g->rows->buffer[v->roff + seqlex])];
 			mnode = POG_TAIL_NODE;
-			x = (g->rows->buffer[v->coff + seqlex]);
+			x = (g->rows->buffer[v->roff + seqlex]);
 		}
 	} else {
-		score = g->rows->buffer[v->coff + seqlen - 1];
+		score = g->rows->buffer[v->roff + seqlen - 1];
 		mnode = POG_TAIL_NODE;
 		x = seqlen - 1;
 	}
@@ -773,7 +835,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		if(my_print){
 			pog_node_t *w;
 			w = ref_pognodev(g->nodes, nidx);
-			fprintf(stderr, "BT[%u] y=N%u_R%u_%u_%c x=%d:%c z=%d %d\n", rid, nidx, w->rid, w->pos, bit_base_table[w->base], x, x>=0? bit_base_table[get_basebank(g->seqs->rdseqs, seqoff + x)] : '*', bt, g->rows->buffer[btx]);
+			fprintf(stderr, "BT[%u] y=N%u_R%u_%u_%c x=%d:%c z=%d\n", rid, nidx, w->rid, w->pos, bit_base_table[w->base], x, x>=0? bit_base_table[get_basebank(g->seqs->rdseqs, seqoff + x)] : '*', bt);
 			fflush(stderr);
 		}
 		if(bt == POG_DP_BT_M){
@@ -880,7 +942,8 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		}
 		u = ref_pognodev(g->nodes, nidx);
 		btx = u->coff + x;
-		if(x < g->rows->buffer[u->coff + seqlex + 1] || x >= g->rows->buffer[u->coff + seqlex + 2]){
+		//if(x < g->rows->buffer[u->coff + seqlex + 1] || x >= g->rows->buffer[u->coff + seqlex + 2]){
+		if(x < u->rbeg || x >= u->rend){
 			xb = x;
 			while(x >= 0){
 				e = next_ref_pogedgev(g->edges);
@@ -904,8 +967,6 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				v->nin ++;
 				u = ref_pognodev(g->nodes, POG_HEAD_NODE);
 				add_edge_core_pog(g, u, e);
-				//e->next = u->edge;
-				//u->edge = offset_pogedgev(g->edges, e);
 				v = u;
 			}
 			break;
@@ -1398,8 +1459,6 @@ static inline void end_pog(POG *g){
 		u->btx = 0;
 		u->coff = 0;
 	}
-	//fprintf(stderr, " -- check dup edges in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-	//check_dup_edges_pog(g);
 	// calcuate msa_len
 	clear_u4v(g->stack);
 	push_u4v(g->stack, POG_HEAD_NODE);
