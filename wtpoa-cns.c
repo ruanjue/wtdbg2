@@ -341,7 +341,7 @@ int usage(){
 	printf(
 	"WTPOA-CNS: Consensuser for wtdbg using PO-MSA\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 1.0\n"
+	"Version: 1.1\n"
 	"Usage: wtpoa-cns [options]\n"
 	"Options:\n"
 	" -t <int>    Number of threads, [4]\n"
