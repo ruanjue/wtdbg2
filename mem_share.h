@@ -643,6 +643,7 @@ if(log){	\
 	for(i=0;i<argc;i++) fprintf(log, " %s", opts[i]);	\
 	fprintf(log, "\n");	\
 	fprintf(log, "-- pid          %16d\n", getpid());	\
+	fprintf(log, "-- date         %s\n", date());	\
 	fprintf(log, "--\n");	\
 	fflush(log);	\
 }	\
