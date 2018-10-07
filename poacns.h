@@ -26,7 +26,13 @@
 #include "list.h"
 #include "hashset.h"
 #include <emmintrin.h>
+#include <tmmintrin.h>
 
+#if __BYTE_ORDER == 1234
+//#pragma message(" ** " __FILE__ " has been tested in LITTLE_ENDIAN **\n")
+#else
+#pragma message(" ** " __FILE__ " hasn't been tested in BIG_ENDIAN **\n")
+#endif
 static int cns_debug = 0;
 
 #define POG_RDLEN_MAX	0x7FF8
@@ -574,6 +580,8 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	u4i seqoff, seqlen, seqlex, slen, seqinc;
 	b4i score, x, xb, xe;
 	b2i *qp, *row, *btds;
+	__m128i SMASK, BTD, BTV;
+	union {__m128i V; u8i vals[2]; u2i v2[8]; u1i v1[16]; } V16;
 	u8i rmax;
 	u4i nidx, xidx, eidx, coff, roff, btx, vst, bt, mnode;
 	u4i i, j, flag, bb, bl;
@@ -582,6 +590,12 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	seqlex = roundup_times(seqlen, 8); // 128 = 8 * sizeof(b2i)
 	slen = seqlex >> 3;
 	seqinc = seqlex + 8; // seqlex, max_idx, beg, end, and paddings
+#if __BYTE_ORDER == 1234
+	SMASK = _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
+#else
+	// TODO: need to test in BIG_ENDIAN
+	SMASK = _mm_setr_epi8(1, 3, 5, 7, 9, 11, 13, 15, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
+#endif
 	// set query prof
 	// fit buffer to 16 bytes aligned
 	head_sl_b2v(g->qprof, g->qprof->n_head);
@@ -693,7 +707,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		if(i < 2) bb ++; // in case of add mnode
 	}
 	clear_u1v(g->btvs);
-	inc_u1v(g->btvs, 1);
+	inc_u1v(g->btvs, 8);
 	clear_and_inc_u4v(g->btxs, bb + 1);
 	u = ref_pognodev(g->nodes, POG_HEAD_NODE);
 	if(g->rowr->size){
@@ -791,8 +805,27 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		{ // compress-copy btds into btvs
 			u->voff = g->btvs->size;
 			inc_u1v(g->btvs, u->rend - u->rbeg);
-			for(i=u->rbeg;i<u->rend;i++){
-				g->btvs->buffer[u->voff + i - u->rbeg] = (u1i)g->btds->buffer[u->coff + i];
+			if(0){
+				for(i=u->rbeg;i<u->rend;i++){
+					g->btvs->buffer[u->voff + i - u->rbeg] = (u1i)g->btds->buffer[u->coff + i];
+				}
+			} else {
+				for(i=u->rbeg;i<u->rend;i+=8){
+					BTD = _mm_load_si128((__m128i*)(g->btds->buffer + u->coff + i));
+					BTV = _mm_shuffle_epi8(BTD, SMASK);
+					_mm_store_si128(&V16.V, BTV);
+					// asseumes g->btvs->buffer is at least 8 bytes aligned
+					((u8i*)(g->btvs->buffer + u->voff + (i - u->rbeg)))[0] = V16.vals[0];
+				}
+				// TODO: check the results
+				if(0){
+					for(i=u->rbeg;i<u->rend;i++){
+						if(g->btvs->buffer[u->voff + i - u->rbeg] != (u1i)g->btds->buffer[u->coff + i]){
+							fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+							abort();
+						}
+					}
+				}
 			}
 		}
 	}
