@@ -328,7 +328,7 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 	if(!cns_debug){
 		fprintf(stderr, "\r%u contigs %llu edges\n", cc->cidx, cc->widx); fflush(stderr);
 	}
-	fprintf(stderr, " -- TRIPOA: no=%u yes=%u --\n", meths[0], meths[1]); fflush(stderr);
+	fprintf(stderr, " -- TRIPOA: not=%u yes=%u --\n", meths[0], meths[1]); fflush(stderr);
 	thread_beg_close(mcns);
 	free_tripog(mcns->g);
 	thread_end_close(mcns);
