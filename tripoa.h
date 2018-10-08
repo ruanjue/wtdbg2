@@ -383,7 +383,7 @@ static inline void end_tripog(TriPOG *tp){
 	beg_pog(g);
 	for(ridx=0;ridx<tp->seqs->nseq;ridx++){
 		if(tp->regs[0]->buffer[ridx] == MAX_U2) continue;
-		revbitpush_pog(g, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[ridx], tp->regs[0]->buffer[ridx] + 1);
+		revbitpush_pog(g, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[ridx], tp->regs[0]->buffer[ridx]);
 	}
 	if(0){
 		print_seqs_pog(g, "p1.fa", NULL);

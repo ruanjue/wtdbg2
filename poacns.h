@@ -1018,7 +1018,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		}
 #endif
 		u = ref_pognodev(g->nodes, nidx);
-		btx = (nidx == 0 && x == 0)? 0 : 1;
+		//btx = (nidx == 0 && x == 0)? 0 : 1;
 		if(x < u->rbeg || x >= u->rend){
 			xb = x;
 			while(x >= 0){
@@ -1216,6 +1216,10 @@ static inline u4i realign_msa_pog_core(POG *g, u4i ridx, int W){
 				row2[j] = h;
 			}
 		}
+		if(beg){
+			row2[beg - 1] = 0;
+			bs[beg - 1]   = 0;
+		}
 		row2[end] = 0;
 		bs[end] = 0;
 		if(cns_debug > 2){
@@ -1243,12 +1247,12 @@ static inline u4i realign_msa_pog_core(POG *g, u4i ridx, int W){
 			fprintf(stderr, " -- x = %d y = %d bt = %d in %s -- %s:%d --\n", x, y, bt, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		}
 	}
+	if(cns_debug > 1){
+		fprintf(stderr, " -- max = %d x = %d y = %d in %s -- %s:%d --\n", max, x, y, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+	}
 	while(y >= 0){
 		r[y] = 4;
 		y --;
-	}
-	if(cns_debug > 1){
-		fprintf(stderr, " -- max = %d x = %d in %s -- %s:%d --\n", max, x, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 	}
 	return max;
 }
@@ -1352,7 +1356,7 @@ static inline void gen_cns_pog(POG *g){
 	memset(s, 4, g->msa_len);
 	clear_basebank(g->cns);
 	hcovs = g->hcovs->buffer;
-	bls   = hcovs + g->msa_len; // bls is all zeros, see end_pog
+	bls   = hcovs + 8 + g->msa_len; // bls is all zeros, see end_pog
 	if(g->rW){
 		memset(g->hcovs->buffer, 0, g->msa_len * sizeof(u2i));
 		for(rid=0;rid<g->seqs->nseq;rid++){
@@ -1654,8 +1658,8 @@ static inline void end_pog(POG *g){
 			}
 		}
 	}
-	clear_and_encap_u2v(g->hcovs, g->msa_len + g->seqs->nseq);
-	memset(g->hcovs->buffer, 0, (g->msa_len + g->seqs->nseq) * sizeof(u2i));
+	clear_and_encap_u2v(g->hcovs, g->msa_len + 8 + g->seqs->nseq);
+	memset(g->hcovs->buffer, 0, (g->msa_len + 8 + g->seqs->nseq) * sizeof(u2i));
 	for(ridx=0;ridx<g->seqs->nseq;ridx++){
 		r = ref_u1v(g->msa, g->msa_len * ridx);
 		beg = 0;
