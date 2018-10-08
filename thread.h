@@ -201,13 +201,41 @@ while(1){	\
 
 #define thread_begin_close(tname) for(tname##_i=0;tname##_i<tname##_params[0].n_cpu;tname##_i++){ \
 		tname = tname##_params + tname##_i;\
-		thread_wait(tname);\
 		tname->running = 0; \
+		thread_wait(tname);\
 		pthread_join(tname##_pids[tname##_i], NULL)
 #define thread_beg_close(tname) thread_begin_close(tname)
 #define thread_end_close(tname) }  free((void*)tname##_params); free(tname##_pids)
 
-#define thread_fast_run(tname, ncpu, expr)	\
+#define thread_run(tname, ncpu, vars_expr, init_expr, free_expr, pre_expr, loop_expr, post_expr, invoke_expr)	\
+{	\
+	thread_beg_def(tname);	\
+	vars_expr	\
+	thread_end_def(tname);	\
+	thread_begin_func_core(tname);	\
+	pre_expr	\
+	thread_beg_loop(tname);	\
+	loop_expr	\
+	thread_end_loop(tname);	\
+	post_expr	\
+	thread_end_func(tname);	\
+	{	\
+		thread_preprocess(tname);	\
+		thread_beg_init(tname, ncpu);	\
+		init_expr	\
+		thread_end_init(tname);	\
+		invoke_expr	\
+		thread_beg_close(tname);	\
+		free_expr	\
+		thread_end_close(tname);	\
+	}	\
+}
+
+#define THREAD_EXPR(...) __VA_ARGS__
+
+#define thread_fast_run(tname, ncpu, loop_expr) thread_run(tname, ncpu, , , , THREAD_EXPR(int NCPU; int TIDX; NCPU = tname->n_cpu; TIDX = tname->t_idx;), loop_expr, , THREAD_EXPR(thread_wake_all(tname); thread_wait_all(tname);))
+
+#define thread_fast_run2(tname, ncpu, expr)	\
 {	\
 	thread_beg_def(tname);	\
 	thread_end_def(tname);	\
