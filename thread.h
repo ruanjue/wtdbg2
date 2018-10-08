@@ -103,7 +103,7 @@ struct tname##_struct {		\
 #define thread_beg_syn_write(tname) pthread_rwlock_wrlock(tname->rw_lock)
 #define thread_end_syn_write(tname) pthread_rwlock_unlock(tname->rw_lock)
 //#define thread_end_loop(tname) } tname->state = 0; nano_sleep(1); }
-#define thread_end_loop(tname) } if(tname->once) tname->state = 0; }
+#define thread_end_loop(tname) } if(tname->once) tname->state = 0; } tname->state = 0
 #define thread_end_func(tname) return NULL; }
 
 #define thread_preprocess(tname) volatile struct tname##_struct * tname##_params = NULL;\
