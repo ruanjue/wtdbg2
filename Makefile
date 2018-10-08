@@ -1,6 +1,7 @@
 #VERSION=2.1
 
-CC := gcc
+CC  := gcc
+BIN := =/usr/local/bin
 
 ifeq (0, ${MAKELEVEL})
 TIMESTAMP=$(shell date)
@@ -12,7 +13,6 @@ else
 CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DTIMESTAMP="$(TIMESTAMP)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -mpopcnt -msse4.2
 endif
 
-INSTALLDIR=/usr/local/bin
 GLIBS=-lm -lrt -lpthread
 GENERIC_SRC=mem_share.h string.h filereader.h bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
 
@@ -39,4 +39,4 @@ clear:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out
 
 install:
-	cp -fvu $(PROGS) $(INSTALLDIR)
+	cp -fvu $(PROGS) $(BIN)
