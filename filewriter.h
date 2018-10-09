@@ -25,7 +25,7 @@
 
 typedef struct {
 	FILE *bios[2];
-	FILE *out;
+	FILE *out, *_out_;
 	int bidx;
 	size_t buf_size;
 	char *buffs[2];
@@ -56,7 +56,7 @@ static inline void* _buffered_writer_thread_func(void *obj){
 		}
 		if(bsize[!bidx]){
 			fflush(bw->bios[!bidx]);
-			fwrite(bw->buffs[!bidx], 1, bsize[!bidx], bw->out);
+			fwrite(bw->buffs[!bidx], 1, bsize[!bidx], bw->_out_);
 			bw->nbytes += bsize[!bidx];
 			fseek(bw->bios[!bidx], 0, SEEK_SET);
 		}
@@ -84,11 +84,11 @@ static inline void* _buffered_writer_thread_func(void *obj){
 		fflush(bw->bios[1]);
 		bidx = bw->bidx;
 		if(bsize[!bidx]){
-			fwrite(bw->buffs[!bidx], 1, bsize[!bidx], bw->out);
+			fwrite(bw->buffs[!bidx], 1, bsize[!bidx], bw->_out_);
 			bw->nbytes += bsize[!bidx];
 		}
 		if(bsize[bidx]){
-			fwrite(bw->buffs[bidx], 1, bsize[bidx], bw->out);
+			fwrite(bw->buffs[bidx], 1, bsize[bidx], bw->_out_);
 			bw->nbytes += bsize[bidx];
 		}
 	}
@@ -98,13 +98,14 @@ static inline void* _buffered_writer_thread_func(void *obj){
 static inline BufferedWriter* open_bufferedwriter(FILE *out, size_t buf_size){
 	BufferedWriter *bw;
 	bw = malloc(sizeof(BufferedWriter));
-	bw->out = out;
+	bw->_out_ = out;
 	bw->buffs[0] = NULL;
 	bw->buffs[1] = NULL;
 	bw->blens[0] = 0;
 	bw->blens[1] = 0;
 	bw->bios[0] = open_memstream(bw->buffs + 0, bw->blens + 0);
 	bw->bios[1] = open_memstream(bw->buffs + 1, bw->blens + 1);
+	bw->out = NULL;
 	bw->bidx = 0;
 	bw->buf_size = buf_size? buf_size : 4 * 1024;
 	bw->nbytes = 0;
@@ -118,13 +119,13 @@ static inline BufferedWriter* open_bufferedwriter(FILE *out, size_t buf_size){
 	return bw;
 }
 
-static inline FILE* beg_bufferedwriter(BufferedWriter *bw){
+static inline void beg_bufferedwriter(BufferedWriter *bw){
 	if(bw->pid){
 		while(bw->flush){ nano_sleep(1); }
 		pthread_mutex_lock(&bw->lock);
-		return bw->bios[bw->bidx];
+		bw->out = bw->bios[bw->bidx];
 	} else {
-		return bw->out;
+		bw->out = bw->_out_;
 	}
 }
 
@@ -132,6 +133,7 @@ static inline void end_bufferedwriter(BufferedWriter *bw){
 	if(bw->pid){
 		pthread_mutex_unlock(&bw->lock);
 	}
+	bw->out = NULL;
 }
 
 static inline size_t flush_bufferedwriter(BufferedWriter *bw){
