@@ -358,7 +358,6 @@ int is_dovetail_overlap(Graph *g, kbm_map_t *hit){
 	return 1;
 }
 
-//#define DEBUG_PARSE_ALN
 int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4v *maps[3]){
 	KBM *kbm;
 	u8i ndoff;
@@ -410,7 +409,7 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 	bpos[0][1] = hit->qe / KBM_BIN_SIZE;
 	bpos[1][0] = hit->tb / KBM_BIN_SIZE;
 	bpos[1][1] = hit->te / KBM_BIN_SIZE;
-#ifdef DEBUG_PARSE_ALN
+#if 0
 	fprintf(stdout, "BPOS\t%d\t%d\t%d\t%d\n", bpos[0][0], bpos[0][1], bpos[1][0], bpos[1][1]);
 	for(j=0;j<maps[0]->size;j++){
 		fprintf(stdout, "%d,%d\t", maps[0]->buffer[j], maps[1]->buffer[j]);
@@ -467,7 +466,7 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 			} else {
 				ndoff ++;
 			}
-#ifdef DEBUG_PARSE_ALN
+#if 0
 			rd_reg_t *rg = ref_rdregv(regs, regs->size - 1);
 			fprintf(stdout, "NPOS\tX=%d,%d\tY=%d,%d\t%d\t%d\t%d\t%d\n", j, j - bpos[0][0], j + qn - 1, j + qn - 1 - bpos[0][0], npos[0][0], npos[0][1], npos[1][0], npos[1][1]);
 			fprintf(stdout, "REG\t%llu\t%s\t%c\t%d\t%d\t%d\n", rg->node, kbm->reads->buffer[rg->rid].tag, "+-"[rg->dir], rg->beg, rg->end,  rg->end - rg->beg);
@@ -515,7 +514,7 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 					closed = 1;
 				}
 				push_rdregv(regs, (rd_reg_t){ndoff, hit->qidx, hit->qdir, beg, end, mask | closed});
-#ifdef DEBUG_PARSE_ALN
+#if 0
 				fprintf(stdout, "NPOS\tX=%d,%d\tY=%d,%d\t%d\t%d\t%d\t%d\n", j, j - bpos[1][0], j + qn - 1, j + qn - 1 - bpos[1][0], npos[0][0], npos[0][1], npos[1][0], npos[1][1]);
 				rd_reg_t *rg = ref_rdregv(regs, regs->size - 1);
 				fprintf(stdout, "REG\t%llu\t%s\t%c\t%d\t%d\t%d\n", rg->node, kbm->reads->buffer[rg->rid].tag, "+-"[rg->dir], rg->beg, rg->end,  rg->end - rg->beg);
@@ -1475,10 +1474,35 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			fclose(clplog);
 			fprintf(KBM_LOGF, "%.2f%% bases\n", ((tot - clp) * 100.0) / tot); fflush(KBM_LOGF);
 		}
-		for(idx=0;idx<g->pwalns->size;idx++){
-			hit = ref_kbmmapv(g->pwalns, idx);
-			if(hit->mat == 0) continue;
-			hit2rdregs_graph(g, regs, hit, g->cigars, maps);
+		if(0){
+			for(idx=0;idx<g->pwalns->size;idx++){
+				hit = ref_kbmmapv(g->pwalns, idx);
+				if(hit->mat == 0) continue;
+				hit2rdregs_graph(g, regs, hit, g->cigars, maps);
+			}
+		} else {
+			thread_fast_run(mhit, ncpu, EXPR(
+				u8i i;
+				rdregv *rs;
+				u4v *ms[3];
+				rs = init_rdregv(1024);
+				ms[0] = init_u4v(1024);
+				ms[1] = init_u4v(1024);
+				ms[2] = init_u4v(1024);
+				for(i=TIDX;i<g->pwalns->size;i+=NCPU){
+					clear_rdregv(rs);
+					hit2rdregs_graph(g, rs, ref_kbmmapv(g->pwalns, i), g->cigars, ms);
+					if(rs->size){
+						thread_beg_syn(mhit);
+						append_rdregv(regs, rs);
+						thread_end_syn(mhit);
+					}
+				}
+				free_rdregv(rs);
+				free_u4v(ms[0]);
+				free_u4v(ms[1]);
+				free_u4v(ms[2]);
+			));
 		}
 		free_kbmmapv(g->pwalns); g->pwalns = init_kbmmapv(1024);
 		free_bitsvec(g->cigars); g->cigars = init_bitsvec(1024, 3);
