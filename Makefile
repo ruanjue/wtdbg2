@@ -14,7 +14,7 @@ CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DTIMESTAMP="$(TIMESTAMP)" 
 endif
 
 GLIBS=-lm -lrt -lpthread
-GENERIC_SRC=mem_share.h string.h filereader.h bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
+GENERIC_SRC=mem_share.h string.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
 
 PROGS=kbm wtdbg2 wtdbg-cns wtpoa-cns
 
