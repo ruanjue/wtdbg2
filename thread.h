@@ -68,31 +68,43 @@ struct tname##_struct {		\
 	volatile int running;	\
 	volatile int state;	\
 	volatile int once;	\
-	volatile int sleep_inv;	\
 	pthread_mutex_t *mutex_lock;	\
-	pthread_rwlock_t *rw_lock;
+	pthread_rwlock_t *rw_lock;	\
+	pthread_mutex_t _COND_LOCK;	\
+	pthread_cond_t _COND
 #define thread_end_def(tname) }
 
 #define thread_beg_def(tname) thread_begin_def(tname)
 
 #define thread_begin_func_core(tname) inline void* thread_##tname##_func(void *obj){\
-	volatile struct tname##_struct * tname = (volatile struct tname##_struct *)obj;\
+	struct tname##_struct * tname = (struct tname##_struct *)obj;\
 	int tname##_var_i, tname##_var_j;\
 	struct tname##_struct * tname##_params
 #define thread_begin_func(tname) static thread_begin_func_core(tname)
 #define thread_beg_func(tname) thread_begin_func(tname)
 #define thread_beg_func_inline(tname) inline void* thread_##tname##_func(void *obj){\
-	volatile struct tname##_struct * tname = (volatile struct tname##_struct *)obj;\
+	struct tname##_struct * tname = (struct tname##_struct *)obj;\
 	int tname##_var_i, tname##_var_j;\
 	struct tname##_struct * tname##_params
 #define thread_begin_loop(tname) tname##_params = tname->tname##_params;	\
 	if(tname##_params + tname->t_idx != tname){	\
 		fprintf(stderr, " --  Unexcepted error in thread [%s] in %s -- %s:%d --\n", #tname, __FUNCTION__, __FILE__, __LINE__);	\
 	}	\
+	pthread_mutex_lock(&tname->_COND_LOCK);	\
 	tname->state = 0;	\
+	pthread_cond_signal(&tname->_COND);	\
+	pthread_mutex_unlock(&tname->_COND_LOCK);	\
 	(void)(tname##_var_j);\
-	while(tname->running){\
-		if(tname->state == 0){ nano_sleep(tname->sleep_inv); continue; }\
+	while(tname->running){	\
+		if(tname->state == 0){	\
+			struct timespec _timeout;	\
+			pthread_mutex_lock(&tname->_COND_LOCK);	\
+			clock_gettime(CLOCK_REALTIME, &_timeout);	\
+			_timeout.tv_nsec += 1000000;	\
+			pthread_cond_timedwait(&tname->_COND, &tname->_COND_LOCK, &_timeout);	\
+			pthread_mutex_unlock(&tname->_COND_LOCK);	\
+			continue;	\
+		}	\
 		for(tname##_var_i=0;tname##_var_i<1;tname##_var_i++){
 #define thread_beg_loop(tname) thread_begin_loop(tname)
 #define thread_begin_syn(tname) pthread_mutex_lock(tname->mutex_lock)
@@ -102,12 +114,23 @@ struct tname##_struct {		\
 #define thread_end_syn_read(tname) pthread_rwlock_unlock(tname->rw_lock)
 #define thread_beg_syn_write(tname) pthread_rwlock_wrlock(tname->rw_lock)
 #define thread_end_syn_write(tname) pthread_rwlock_unlock(tname->rw_lock)
-//#define thread_end_loop(tname) } tname->state = 0; nano_sleep(1); }
-#define thread_end_loop(tname) } if(tname->once) tname->state = 0; } tname->state = 0
+#define thread_end_loop(tname)	\
+		}	\
+		if(tname->once){	\
+			pthread_mutex_lock(&tname->_COND_LOCK);	\
+			tname->state = 0;	\
+			pthread_cond_signal(&tname->_COND);	\
+			pthread_mutex_unlock(&tname->_COND_LOCK);	\
+		}	\
+	}	\
+	pthread_mutex_lock(&tname->_COND_LOCK);	\
+	tname->state = 0;	\
+	pthread_cond_signal(&tname->_COND);	\
+	pthread_mutex_unlock(&tname->_COND_LOCK)
 #define thread_end_func(tname) return NULL; }
 
-#define thread_preprocess(tname) volatile struct tname##_struct * tname##_params = NULL;\
-	volatile struct tname##_struct * tname = NULL;\
+#define thread_preprocess(tname) struct tname##_struct * tname##_params = NULL;\
+	struct tname##_struct * tname = NULL;\
 	pthread_mutex_t tname##_mlock = PTHREAD_MUTEX_INITIALIZER;\
 	pthread_rwlock_t tname##_rwlock = PTHREAD_RWLOCK_INITIALIZER; \
 	pthread_t * tname##_pids = NULL;\
@@ -116,18 +139,19 @@ struct tname##_struct {		\
 	int tname##_var_next = 0
 #define thread_prepare(tname) thread_preprocess(tname)
 #define thread_begin_init(tname, n_thread) assert(n_thread > 0);\
-	tname##_params = (volatile struct tname##_struct *)malloc(sizeof(struct tname##_struct) * n_thread);\
+	tname##_params = (struct tname##_struct *)malloc(sizeof(struct tname##_struct) * n_thread);\
 	tname##_pids = (pthread_t *)malloc(sizeof(pthread_t) * n_thread); \
 	for(tname##_i=0,tname##_j=0;tname##_i<(int)(n_thread);tname##_i++){ \
 		tname = tname##_params + tname##_i;\
 		tname->mutex_lock = &tname##_mlock;\
 		tname->rw_lock = &tname##_rwlock;\
+		tname->_COND_LOCK = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;	\
+		tname->_COND = (pthread_cond_t)PTHREAD_COND_INITIALIZER;	\
 		tname->n_cpu      = n_thread;\
 		tname->t_idx      = tname##_i;\
 		tname->running    = 1;\
 		tname->state      = 2;\
 		tname->once       = 1;\
-		tname->sleep_inv  = 10;\
 		tname->tname##_params = (struct tname##_struct*)tname##_params;\
 		tname->tname##_array  = (struct tname##_struct*)tname##_params
 #define thread_beg_init(tname, n_thread) thread_begin_init(tname, n_thread)
@@ -137,21 +161,43 @@ struct tname##_struct {		\
 			fprintf(stderr, " -- Failed to create thread [%s, %04d] in %s -- %s:%d --\n", #tname, tname##_i, __FUNCTION__, __FILE__, __LINE__);\
 			exit(1);\
 		}\
-		while(tname->state > 0){ nano_sleep(1); }\
+		while(1){	\
+			int _stop;	\
+			_stop = 0;	\
+			pthread_mutex_lock(&tname->_COND_LOCK);	\
+			pthread_cond_wait(&tname->_COND, &tname->_COND_LOCK);	\
+			if(tname->state == 0) _stop = 1;	\
+			pthread_mutex_unlock(&tname->_COND_LOCK);	\
+			if(_stop) break;	\
+		}	\
 	}\
 	if(tname##_var_next) tname##_var_next = 0;	\
 	if(tname##_j) tname##_j = 0
 
 #define thread_begin_operate(tname, idx) tname = tname##_params + idx
 #define thread_beg_operate(tname, idx) thread_begin_operate(tname, idx)
-#define thread_sleep(tname) tname->state = 0
-#define thread_wake(tname)  tname->state = 1
-#define thread_wake_all(tname)  for(tname##_i=0;tname##_i<tname##_params[0].n_cpu;tname##_i++){ tname##_params[tname##_i].state = 1; }
-#define thread_waitfor_idle(tname) while(tname->state > 0){ nano_sleep(1); }
+#define thread_wake(tname)  do { pthread_mutex_lock(&tname->_COND_LOCK); tname->state = 1; pthread_cond_signal(&tname->_COND); pthread_mutex_unlock(&tname->_COND_LOCK); } while(0)
+#define thread_wake_all(tname)  do { thread_beg_iter(tname); thread_wake(tname); thread_end_iter(tname); } while(0);
+#define thread_waitfor_idle(tname)	\
+	while(1){	\
+		int _stop;	\
+		_stop = 0;	\
+		pthread_mutex_lock(&tname->_COND_LOCK);	\
+		if(tname->state == 0) _stop = 1;	\
+		else {	\
+			struct timespec _timeout;	\
+			clock_gettime(CLOCK_REALTIME, &_timeout);	\
+			_timeout.tv_nsec += 1000;	\
+			pthread_cond_timedwait(&tname->_COND, &tname->_COND_LOCK, &_timeout);	\
+			if(tname->state == 0) _stop = 1;	\
+		}	\
+		pthread_mutex_unlock(&tname->_COND_LOCK);	\
+		if(_stop) break;	\
+	}
 #define thread_wait(tname) thread_waitfor_idle(tname)
 #define thread_wait_next(tname) do { thread_beg_operate(tname, tname##_var_next); thread_wait(tname); tname##_var_next = (tname##_var_next + 1) % tname##_params[0].n_cpu; } while(0)
 #define thread_end_operate(tname, idx)   tname = NULL
-#define thread_begin_iter(tname) { volatile struct tname##_struct * tname = NULL; int tname##_i; for(tname##_i=0;tname##_i<tname##_params[0].n_cpu;tname##_i++){ tname = tname##_params + tname##_i
+#define thread_begin_iter(tname) { struct tname##_struct * tname = NULL; int tname##_i; for(tname##_i=0;tname##_i<tname##_params[0].n_cpu;tname##_i++){ tname = tname##_params + tname##_i
 #define thread_beg_iter(tname) thread_begin_iter(tname)
 #define thread_is_idle(tname) (tname->state == 0)
 #define thread_n_cpus(tname) (tname->n_cpu)
@@ -180,7 +226,7 @@ while(1){	\
 	}	\
 	if(tname##_j >= tname##_params[0].n_cpu){	\
 		tname##_j = 0;	\
-		nano_sleep(1);	\
+		nano_sleep(10);	\
 	} else {	\
 		tname##_j = (tname##_j + 1) % tname##_params[0].n_cpu;	\
 		break;	\
@@ -201,7 +247,10 @@ while(1){	\
 
 #define thread_begin_close(tname) for(tname##_i=0;tname##_i<tname##_params[0].n_cpu;tname##_i++){ \
 		tname = tname##_params + tname##_i;\
+		pthread_mutex_lock(&tname->_COND_LOCK);	\
 		tname->running = 0; \
+		pthread_cond_wait(&tname->_COND, &tname->_COND_LOCK);	\
+		pthread_mutex_unlock(&tname->_COND_LOCK);	\
 		thread_wait(tname);\
 		pthread_join(tname##_pids[tname##_i], NULL)
 #define thread_beg_close(tname) thread_begin_close(tname)
