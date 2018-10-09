@@ -108,6 +108,8 @@ typedef long double f8i;
 
 #define UNUSED(x) (void)(x)
 
+#define EXPR(...) __VA_ARGS__
+
 #define _QUOTE_STR(x) #x
 #define TOSTR(x) _QUOTE_STR(x)
 
