@@ -226,6 +226,7 @@ typedef struct {
 	uint32_t reglen, regovl, bestn;
 	int      min_node_mats;
 	int      max_overhang, chainning_hits;
+	float    node_max_conflict; // 0.25
 	float    node_merge_cutoff;
 	uint32_t max_node_cov, min_node_cov, exp_node_cov, min_edge_cov;
 	u4i      max_node_cov_sg, max_sg_end;
@@ -272,6 +273,7 @@ Graph* init_graph(KBM *kbm){
 	g->only_fix = 0;
 	g->reglen = 1024;
 	g->regovl = 256;
+	g->node_max_conflict = 0.25;
 	g->node_merge_cutoff = 0.8;
 	g->max_overhang = -1;
 	g->bestn = 0;
@@ -566,7 +568,7 @@ kmers[0] = adv_init_kmeroffv(64, 0, 1);
 kmers[1] = adv_init_kmeroffv(64, 0, 1);
 thread_beg_loop(mdbg);
 if(mdbg->task == 1){
-if(reg->closed) continue;
+	if(reg->closed) continue;
 	query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, kmers);
 	map_kbm(aux);
 	sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
@@ -1020,7 +1022,7 @@ void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u4i ncpu, u8i u
 						upds[0] ++;
 					}
 				} else {
-					if(pass < g->min_node_cov || pass < (u4i)mupd->nd->cnt * 3 / 4){
+					if(pass < g->min_node_cov || pass < (u4i)(mupd->nd->cnt * (1 - g->node_max_conflict))){
 						upds[1] ++;
 						closed = 1;
 						continue;
@@ -1238,7 +1240,6 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		mdbg->end = 0;
 		mdbg->raw = raw;
 		mdbg->alno = alno;
-		mdbg->sleep_inv = 1;
 		thread_end_init(mdbg);
 		reset_kbm = 0;
 		while(ib < mi){
@@ -6310,6 +6311,7 @@ static struct option prog_opts[] = {
 	{"limit-input",                      1, 0, 1003},
 	{"node-len",                         1, 0, 1004},
 	{"node-ovl",                         1, 0, 1005},
+	{"node-drop",                        1, 0, 1006},
 	{"edge-min",                         1, 0, 'e'},
 	{"node-min",                         1, 0, 1007},
 	{"node-max",                         1, 0, 1008},
@@ -6462,6 +6464,8 @@ int usage(int level){
 	"   Min matched bins in a node, default:1\n"
 	" --node-ovl <int>\n"
 	"   Default: 256. Max overlap size between two adjacent intervals in any read. It is used in selecting best nodes representing reads in graph\n"
+	" --node-drop <float>\n"
+	"   Default: 0.25. Will discard an node when has more this ratio intervals are conflicted with previous generated node\n"
 	" -e <int>, --edge-min=<int>\n"
 	"   Default: 3. The minimal depth of a valid edge is set to 3. In another word, Valid edges must be supported by at least 3 reads\n"
 	"   When the sequence depth is low, have a try with --edge-min 2. Or very high, try --edge-min 4\n"
@@ -6538,7 +6542,7 @@ int main(int argc, char **argv){
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode;
-	float node_mrg, ttr_e_cov, fval;
+	float node_drop, node_mrg, ttr_e_cov, fval;
 	pbs = init_cplist(4);
 	ngs = init_cplist(4);
 	pws = init_cplist(4);
@@ -6551,6 +6555,7 @@ int main(int argc, char **argv){
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
 	reglen = 1024;
 	regovl = 256;
+	node_drop = 0.25;
 	node_mrg = 0.9;
 	only_fix = 0;
 	node_cov = 0;
@@ -6635,6 +6640,7 @@ int main(int argc, char **argv){
 			case 1003: max_bp = atol(optarg); break;
 			case 1004: reglen = atoi(optarg); break;
 			case 1005: regovl = atoi(optarg); break;
+			case 1006: node_drop = atof(optarg); break;
 			case 'e':  edge_cov = atoi(optarg); break;
 			case 1007: node_cov = atoi(optarg); break;
 			case 1008: max_node_cov = atoi(optarg); break;
@@ -6854,6 +6860,7 @@ int main(int argc, char **argv){
 	g->reglen = reglen;
 	g->regovl = regovl;
 	g->max_overhang = max_overhang;
+	g->node_max_conflict = node_drop;
 	g->node_merge_cutoff = node_mrg;
 	g->min_node_cov = node_cov;
 	g->max_node_cov_sg = node_cov;
