@@ -1885,14 +1885,12 @@ static inline void rebuild_tag2idx_kbm(void *_kbm, size_t aux){
 
 static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *src_cigars, kbm_map_t *dst, BitsVec *dst_cigars, float max_aln_var){
 	kbm_map_t *hit;
-	u4i i, j, x, y, z, f;
+	u4i i, x, y, z, f;
 	if(size < 2) return 0;
 	sort_array(srcs, size, kbm_map_t, num_cmpgt(a.tb, b.tb));
 	*dst = srcs[0];
 	dst->cgoff = dst_cigars->size;
-	for(j=0;j<srcs[0].cglen;j++){
-		push_bitsvec(dst_cigars, get_bitsvec(src_cigars, srcs[0].cgoff + j));
-	}
+	append_bitsvec(dst_cigars, src_cigars, srcs[0].cgoff, srcs[0].cglen);
 	for(i=1;i<size;i++){
 		hit = srcs + i;
 		if(dst->te > hit->tb){
@@ -1922,9 +1920,7 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 		dst->gap += num_max(x, y) / KBM_BIN_SIZE;
 		z = num_min(x, y);
 		f = 0x4 | 0; // diagonal GAP
-		for(j=0;j<z;j+=KBM_BIN_SIZE){
-			push_bitsvec(dst_cigars, f);
-		}
+		pushs_bitsvec(dst_cigars, f, z);
 		x -= z;
 		y -= z;
 		if(x > y){
@@ -1934,12 +1930,8 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 			z = y;
 			f = 0x4 | 2;
 		}
-		for(j=0;j<z;j+=KBM_BIN_SIZE){
-			push_bitsvec(dst_cigars, f);
-		}
-		for(j=0;j<hit->cglen;j++){
-			push_bitsvec(dst_cigars, get_bitsvec(src_cigars, hit->cgoff + j));
-		}
+		pushs_bitsvec(dst_cigars, f, z);
+		append_bitsvec(dst_cigars, src_cigars, hit->cgoff, hit->cglen);
 	}
 	dst->aln = num_min(dst->qe - dst->qb, dst->te - dst->tb);
 	if(dst->aln * max_aln_var < num_diff(dst->qe - dst->qb, dst->te - dst->tb)){
