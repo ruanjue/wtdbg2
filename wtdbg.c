@@ -18,6 +18,7 @@
  */
 
 #include "kbm.h"
+#include "filewriter.h"
 #include <getopt.h>
 #include <regex.h>
 
@@ -1082,6 +1083,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	kbm_map_t *hit, HIT;
 	BitVec *rks, *rdflags;
 	u4v *maps[3];
+	BufferedWriter *bw;
 	FILE *alno, *clplog, *kmlog;
 	cuhash_t *cu;
 	u8i idx, rank, kcnts[256], upds[3], nbp, fix_node;
@@ -1092,7 +1094,6 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	rnkrefv *nds;
 	rnk_ref_t *nd;
 	thread_preprocess(mdbg);
-	thread_preprocess(mbio);
 	thread_preprocess(mclp);
 	if(KBM_LOG) n_cpu = 1;
 	else n_cpu = ncpu;
@@ -1223,6 +1224,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		} else max_node_cov = g->max_node_cov;
 		round = 0;
 		alno   = open_file_for_write(prefix, ".alignments", 1);
+		bw = open_bufferedwriter(alno, 1024 * 1024);
 		rdflags = g->par->skip_contained? init_bitvec(g->kbm->reads->size) : NULL;
 		thread_beg_init(mdbg, n_cpu);
 		mdbg->g = g;
@@ -1238,11 +1240,6 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		mdbg->alno = alno;
 		mdbg->sleep_inv = 1;
 		thread_end_init(mdbg);
-		thread_beg_init(mbio, 1);
-		mbio->out = alno;
-		mbio->buf_size = 1024 * 1024;
-		thread_end_init(mbio);
-		thread_wake_all(mbio);
 		reset_kbm = 0;
 		while(ib < mi){
 			nbp = 0;
@@ -1340,13 +1337,12 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 							}
 						}
 						if(alno){
-							thread_beg_syn(mbio);
+							beg_bufferedwriter(bw);
 							for(i=0;i<mdbg->aux->hits->size;i++){
 								hit = ref_kbmmapv(mdbg->aux->hits, i);
-								fprint_hit_kbm(mdbg->aux, i, mbio->bios[mbio->bidx]);
+								fprint_hit_kbm(mdbg->aux, i, bw->out);
 							}
-							fflush(mbio->bios[mbio->bidx]);
-							thread_end_syn(mbio);
+							end_bufferedwriter(bw);
 						}
 						for(i=0;i<mdbg->aux->hits->size;i++){
 							hit = ref_kbmmapv(mdbg->aux->hits, i);
@@ -1385,9 +1381,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		thread_beg_close(mdbg);
 		free_kbmaux(mdbg->aux);
 		thread_end_close(mdbg);
-		thread_beg_close(mbio);
-		thread_end_close(mbio);
 		if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", nqry, (u8i)g->pwalns->size);
+		if(bw) close_bufferedwriter(bw);
 		if(alno) fclose(alno);
 		if(rdflags) free_bitvec(rdflags);
 		if(reset_kbm){
@@ -5724,21 +5719,37 @@ void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs){
 thread_beg_def(mlay);
 Graph *g;
 seqletv *path;
-u4i tidx;
+layv    *lays;
 layregv *regs;
+FILE *log;
 thread_end_def(mlay);
 
 thread_beg_func(mlay);
+seqlet_t *let;
+lay_t *lay;
+u8i i;
 thread_beg_loop(mlay);
-if(mlay->path && mlay->tidx != 0xFFFFFFFFU){
-	gen_lay_regs_core_graph(mlay->g, ref_seqletv(mlay->path, mlay->tidx), mlay->regs);
-	sort_array(mlay->regs->buffer, mlay->regs->size, lay_reg_t, num_cmpgt(b.end - b.beg, a.end - a.beg));
+clear_layregv(mlay->regs);
+for(i=mlay->t_idx;i<mlay->path->size;i+=mlay->n_cpu){
+	let = ref_seqletv(mlay->path, i);
+	lay = ref_layv(mlay->lays, i);
+	lay->tidx = mlay->t_idx;
+	lay->roff = mlay->regs->size;
+	gen_lay_regs_core_graph(mlay->g, let, mlay->regs);
+	lay->rcnt = mlay->regs->size - lay->roff;
+	sort_array(mlay->regs->buffer + lay->roff, lay->rcnt, lay_reg_t, num_cmpgt(b.end - b.beg, a.end - a.beg));
+	if(lay->rcnt == 0 && mlay->log){
+		thread_beg_syn(mlay);
+		fprintf(mlay->log, " -- N%llu(%c) -> N%llu(%c) has no read path --\n", (u8i)let->node1, "+-"[let->dir1], (u8i)let->node2, "+-"[let->dir2]); fflush(mlay->log);
+		thread_end_syn(mlay);
+	}
 }
 thread_end_loop(mlay);
 thread_end_func(mlay);
 
 u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *lay_suffix, u4i ncpu, FILE *log){
 	FILE *o_lay;
+	BufferedWriter *bw;
 	layv *lays;
 	layregv *regs;
 	seqletv *path;
@@ -5749,81 +5760,55 @@ u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *la
 	u4i j, c, len;
 	thread_preprocess(mlay);
 	o_lay = open_file_for_write(prefix, lay_suffix, 1);
+	bw = open_bufferedwriter(o_lay, 8 * 1024 * 1024);
 	lays = init_layv(32);
-	regs = init_layregv(32);
 	thread_beg_init(mlay, ncpu);
 	mlay->g = g;
 	mlay->path = NULL;
-	mlay->tidx = 0xFFFFFFFFU;
+	mlay->lays = lays;
 	mlay->regs = init_layregv(32);
+	mlay->log  = log;
 	thread_end_init(mlay);
 	ret = 0;
 	for(i=beg;i<end;i++){
 		path = (seqletv*)get_vplist(g->ctgs, i);
 		if(path->size == 0) continue;
-		clear_layv(lays);
-		clear_layregv(regs);
-		thread_beg_iter(mlay);
-		mlay->path = path;
-		mlay->tidx = 0xFFFFFFFFU;
-		clear_layregv(mlay->regs);
-		thread_end_iter(mlay);
-		for(j=0;j<path->size + ncpu;j++){
-			if(j < path->size){
-				thread_wait_one(mlay);
-			} else {
-				thread_wait_next(mlay);
-			}
-			if(mlay->tidx != 0xFFFFFFFFU){
-				if(mlay->regs->size == 0){
-					if(log){
-						fprintf(log, " -- N%llu(%c) -> N%llu(%c) has no read path --\n", (u8i)path->buffer[mlay->tidx].node1, "+-"[path->buffer[mlay->tidx].dir1], (u8i)path->buffer[mlay->tidx].node2, "+-"[path->buffer[mlay->tidx].dir2]); fflush(stderr);
-					}
-				} else {
-					lay = next_ref_layv(lays);
-					lay->tidx = mlay->tidx;
-					lay->roff = regs->size;
-					lay->rcnt = mlay->regs->size;
-					append_layregv(regs, mlay->regs);
-				}
-				clear_layregv(mlay->regs);
-				mlay->tidx = 0xFFFFFFFFU;
-			}
-			if(j < path->size){
-				mlay->tidx = j;
-				thread_wake(mlay);
-			}
-		}
-		if(lays->size == 0) continue;
+		clear_and_inc_layv(lays, path->size);
+		thread_apply_all(mlay, EXPR(mlay->path = path));
 		uid ++;
 		ret ++;
-		sort_array(lays->buffer, lays->size, lay_t, num_cmpgt(a.tidx, b.tidx));
 		len = path->buffer[path->size - 1].off + path->buffer[path->size - 1].len;
-		fprintf(o_lay, ">ctg%llu nodes=%llu len=%u\n", uid, (u8i)path->size + 1, len);
-		if(log) fprintf(log, "OUTPUT_CTG\tctg%d -> ctg%d nodes=%llu len=%u\n", (int)i, (int)uid, (u8i)path->size + 1, len);
-		for(j=0;j<lays->size;j++){
-			lay = ref_layv(lays, j);
-			t = ref_seqletv(path, lay->tidx);
-			fprintf(o_lay, "E\t%d\tN%llu\t%c\tN%llu\t%c\n", (int)t->off, (u8i)t->node1, "+-"[t->dir1], (u8i)t->node2, "+-"[t->dir2]);
-			for(c=0;c<lay->rcnt;c++){
-				reg = ref_layregv(regs, lay->roff + c);
-				fprintf(o_lay, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg, reg->end - reg->beg);
-				if(reg->dir){
-					print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, o_lay);
-				} else {
-					print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, o_lay);
+		{
+			beg_bufferedwriter(bw);
+			fprintf(bw->out, ">ctg%llu nodes=%llu len=%u\n", uid, (u8i)path->size + 1, len);
+			if(log) fprintf(log, "OUTPUT_CTG\tctg%d -> ctg%d nodes=%llu len=%u\n", (int)i, (int)uid, (u8i)path->size + 1, len);
+			for(j=0;j<lays->size;j++){
+				lay = ref_layv(lays, j);
+				if(lay->rcnt == 0) continue;
+				t = ref_seqletv(path, j);
+				fprintf(bw->out, "E\t%d\tN%llu\t%c\tN%llu\t%c\n", (int)t->off, (u8i)t->node1, "+-"[t->dir1], (u8i)t->node2, "+-"[t->dir2]);
+				regs = thread_access(mlay, (j % mlay->n_cpu))->regs;
+				for(c=0;c<lay->rcnt;c++){
+					reg = ref_layregv(regs, lay->roff + c);
+					fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg, reg->end - reg->beg);
+					if(reg->dir){
+						print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, bw->out);
+					} else {
+						print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, bw->out);
+					}
+					fprintf(bw->out, "\n");
 				}
-				fprintf(o_lay, "\n");
 			}
+			end_bufferedwriter(bw);
 		}
 	}
+	close_bufferedwriter(bw);
 	fclose(o_lay);
 	thread_beg_close(mlay);
 	free_layregv(mlay->regs);
 	thread_end_close(mlay);
 	fprintf(KBM_LOGF, "[%s] output %u contigs\n", date(), (u4i)ret);
 	free_layv(lays);
-	free_layregv(regs);
 	return uid;
 }
 
