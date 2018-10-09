@@ -6320,6 +6320,7 @@ static struct option prog_opts[] = {
 	{"quiet",                            0, 0, 'q'},
 	{"help",                             0, 0, 1000}, // detailed document
 	{"tidy-reads",                       1, 0, 'L'},
+	{"keep-name",                        0, 0, 1001},
 	{"err-free-nodes",                   0, 0, 1002},
 	{"limit-input",                      1, 0, 1003},
 	{"node-len",                         1, 0, 1004},
@@ -6461,6 +6462,8 @@ int usage(int level){
 	" -L <int>, --tidy-reads=<int>\n"
 	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
 	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio reads\n"
+	" --keep-name\n"
+	"   Keep orignal read names even with --tidy-reads\n"
 	" --err-free-nodes\n"
 	"   Select nodes from error-free-sequences only. E.g. you have contigs assembled from NGS-WGS reads, and long noisy reads.\n"
 	"   You can type '--err-free-seq your_ctg.fa --input your_long_reads.fa --err-free-nodes' to perform assembly somehow act as long-reads scaffolding\n"
@@ -6548,7 +6551,7 @@ int main(int argc, char **argv){
 	uint32_t i, j, k;
 	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
-	int quiet, tidy_reads, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
+	int quiet, tidy_reads, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode;
 	float node_mrg, ttr_e_cov, fval;
 	pbs = init_cplist(4);
@@ -6557,6 +6560,7 @@ int main(int argc, char **argv){
 	asyn_read = 1;
 	ncpu = 4;
 	tidy_reads = 0;
+	tidy_rdtag = -1;
 	fast_mode = 0;
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
@@ -6641,6 +6645,7 @@ int main(int argc, char **argv){
 			case 'h': return usage(0);
 			case 1000: return usage(1);
 			case 'L':  tidy_reads = atoi(optarg); break;
+			case 1001: tidy_rdtag = 0; break;
 			case 1002: only_fix = 1; break;
 			case 1003: max_bp = atol(optarg); break;
 			case 1004: reglen = atoi(optarg); break;
@@ -6705,6 +6710,9 @@ int main(int argc, char **argv){
 		int devnull;
 		devnull = open("/dev/null", O_WRONLY);
 		dup2(devnull, STDERR_FILENO);
+	}
+	if(tidy_rdtag == -1){
+		tidy_rdtag = tidy_reads;
 	}
 	max_bp *= 1000000;
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
@@ -6813,9 +6821,11 @@ int main(int argc, char **argv){
 						if(has) continue;
 						else break;
 					}
-					sprintf(regtag, "S%010llu", (u8i)kbm->reads->size);
-					clear_string(seq->tag);
-					append_string(seq->tag, regtag, 11);
+					if(tidy_rdtag){
+						sprintf(regtag, "S%010llu", (u8i)kbm->reads->size);
+						clear_string(seq->tag);
+						append_string(seq->tag, regtag, 11);
+					}
 				} else {
 					if(has == 0) break;
 					seq = seqs[k];
