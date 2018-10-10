@@ -164,10 +164,16 @@ struct tname##_struct {		\
 		while(1){	\
 			int _stop;	\
 			_stop = 0;	\
-			pthread_mutex_lock(&tname->_COND_LOCK);	\
-			pthread_cond_wait(&tname->_COND, &tname->_COND_LOCK);	\
 			if(tname->state == 0) _stop = 1;	\
-			pthread_mutex_unlock(&tname->_COND_LOCK);	\
+			else {	\
+				struct timespec _timeout;	\
+				pthread_mutex_lock(&tname->_COND_LOCK);	\
+				clock_gettime(CLOCK_REALTIME, &_timeout);	\
+				_timeout.tv_nsec += 1000000;	\
+				pthread_cond_timedwait(&tname->_COND, &tname->_COND_LOCK, &_timeout);	\
+				if(tname->state == 0) _stop = 1;	\
+				pthread_mutex_unlock(&tname->_COND_LOCK);	\
+			}	\
 			if(_stop) break;	\
 		}	\
 	}\
@@ -249,7 +255,7 @@ while(1){	\
 		tname = tname##_params + tname##_i;\
 		pthread_mutex_lock(&tname->_COND_LOCK);	\
 		tname->running = 0; \
-		pthread_cond_wait(&tname->_COND, &tname->_COND_LOCK);	\
+		pthread_cond_signal(&tname->_COND);	\
 		pthread_mutex_unlock(&tname->_COND_LOCK);	\
 		thread_wait(tname);\
 		pthread_join(tname##_pids[tname##_i], NULL)

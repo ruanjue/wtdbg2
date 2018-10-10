@@ -404,6 +404,13 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 		push_u4v(maps[0], x + 1);
 		push_u4v(maps[1], y + 1);
 		push_u4v(maps[2], 0);
+#if 0
+		if(x + 1 + (hit->qb / KBM_BIN_SIZE) != (hit->qe / KBM_BIN_SIZE) || y + 1 + (hit->tb / KBM_BIN_SIZE) != (hit->te / KBM_BIN_SIZE)){
+			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+			print_hit_kbm(g->kbm, hit, cigars, stderr);
+			abort();
+		}
+#endif
 	}
 	bpos[0][0] = hit->qb / KBM_BIN_SIZE;
 	bpos[0][1] = hit->qe / KBM_BIN_SIZE;
@@ -1107,7 +1114,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	clear_regv(g->regs);
 	next_ref_regv(g->regs);
 	clear_rdhitv(g->rdhits);
-	next_ref_rdhitv(g->rdhits);
+	ZEROS(next_ref_rdhitv(g->rdhits));
 	clear_kbmmapv(g->pwalns);
 	clear_bitsvec(g->cigars);
 	raw = !(g->chainning_hits || (g->bestn > 0) || rdclip);
@@ -1124,7 +1131,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		hit = &HIT;
 		nhit = 0;
 		while((ncol = readtable_filereader(pws)) != -1){
-			if((pws->n_line % 10000) == 0){
+			if((pws->n_line % 100000) == 0){
 				fprintf(KBM_LOGF, "\r%llu", pws->n_line); fflush(KBM_LOGF);
 			}
 			if(pws->line->buffer[0] == '#') continue;
