@@ -1536,7 +1536,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	free_bitvec(rks);
 	// generating nodes
 	fprintf(KBM_LOGF, "[%s] sorting regs ... ", date()); fflush(KBM_LOGF);
-	psort_array(regs->buffer, regs->size, rd_reg_t, ncpu, num_cmpgtxx(a.node, b.node, a.rid, b.rid, a.beg, b.beg));
+	psort_array(regs->buffer, regs->size, rd_reg_t, ncpu, num_cmpgtxx((a.node << 26) | a.rid, (b.node << 26) | b.rid, a.beg, b.beg, b.end, a.end));
 	fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
 	rank = 0xFFFFFFFFFFFFFFFFLLU;
 	nd = NULL;
@@ -6470,7 +6470,7 @@ int usage(int level){
 	" --aln-max-var <float>\n"
 	"   See -s 0.2\n"
 	" --aln-dovetail <int>\n"
-	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, -1 to disable filtering, default: 256\n"
+	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: -1\n"
 	" --aln-strand <int>\n"
 	"   1: forward, 2: reverse, 3: both. Please don't change the deault vaule 3, unless you exactly know what you are doing\n"
 	" --aln-maxhit <int>\n"
@@ -6628,7 +6628,7 @@ int main(int argc, char **argv){
 	log_rep = 1;
 	rep_detach = 0;
 	del_iso = 1;
-	max_overhang = 256;
+	max_overhang = -1;
 	min_ctg_len = 5000;
 	min_ctg_nds = 3;
 	node_order = 0;
