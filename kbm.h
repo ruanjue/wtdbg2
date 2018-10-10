@@ -353,6 +353,7 @@ static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, int seql
 		ptr = NULL;
 	}
 	if((u4i)seqlen > KBM_MAX_RDLEN) seqlen = KBM_MAX_RDLEN;
+	seqlen = (seqlen / KBM_BIN_SIZE) * KBM_BIN_SIZE;
 	//if(ptr) kv_put_cuhash(kbm->tag2idx, ptr, kbm->reads->size);
 	rd = next_ref_kbmreadv(kbm->reads);
 	rd->rdoff = kbm->rdseqs->size;
@@ -1530,7 +1531,7 @@ static inline void fprint_hit_kbm(KBMAux *aux, u4i hidx, FILE *out){
 	bt = len = 0;
 	coff = hit->cgoff;
 	clen = hit->cglen;
-	if(1){
+	{
 		clear_string(aux->str);
 		while(clen){
 			_bt = get_bitsvec(aux->cigars, coff + clen - 1);
@@ -1558,31 +1559,6 @@ static inline void fprint_hit_kbm(KBMAux *aux, u4i hidx, FILE *out){
 			aux->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], aux->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te,
 			hit->mat, hit->aln, hit->cnt, hit->gap,
 			aux->str->string);
-	} else {
-		fprintf(out, "%s\t%c\t%d\t%d\t%d", aux->qtag, "+-"[hit->qdir], aux->qlen, hit->qb, hit->qe);
-		fprintf(out, "\t%s\t%c\t%d\t%d\t%d", aux->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], aux->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te);
-		fprintf(out, "\t%d\t%d\t%d\t%d\t", hit->mat, hit->aln, hit->cnt, hit->gap);
-		while(clen){
-			_bt = get_bitsvec(aux->cigars, coff + clen - 1);
-			if(_bt == bt){
-				len ++;
-			} else {
-				if(len > 1){
-					fprintf(out, "%d%c", len, "MID?mid?"[bt]);
-				} else if(len == 1){
-					fprintf(out, "%c", "MID?mid?"[bt]);
-				}
-				bt = _bt;
-				len = 1;
-			}
-			clen --;
-		}
-		if(len > 1){
-			fprintf(out, "%d%c", len, "MID?mid?"[bt]);
-		} else if(len == 1){
-			fprintf(out, "%c", "MID?mid?"[bt]);
-		}
-		fprintf(out, "\n");
 	}
 	if(0){
 		u4i i, j, bb, be;
@@ -1920,7 +1896,7 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 		dst->gap += num_max(x, y) / KBM_BIN_SIZE;
 		z = num_min(x, y);
 		f = 0x4 | 0; // diagonal GAP
-		pushs_bitsvec(dst_cigars, f, z);
+		pushs_bitsvec(dst_cigars, f, z / KBM_BIN_SIZE);
 		x -= z;
 		y -= z;
 		if(x > y){
@@ -1930,7 +1906,7 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 			z = y;
 			f = 0x4 | 2;
 		}
-		pushs_bitsvec(dst_cigars, f, z);
+		pushs_bitsvec(dst_cigars, f, z / KBM_BIN_SIZE);
 		append_bitsvec(dst_cigars, src_cigars, hit->cgoff, hit->cglen);
 	}
 	dst->aln = num_min(dst->qe - dst->qb, dst->te - dst->tb);
