@@ -216,18 +216,25 @@ static inline void add_char_string(String *str, char ch){
 #define push_string(str, ch) add_char_string(str, ch)
 
 static inline void add_int_string(String *str, long long val){
+	string_size_t n;
+	long long v;
 	encap_string(str, 30);
-	if(val < 0){
-		val = - val;
-		str->string[str->size++] = '-';
-	}
 	if(val == 0){
 		str->string[str->size++] = '0';
 	} else {
-		while(val){
-			str->string[str->size++] = '0' + (val % 10);
-			val /= 10;
+		if(val < 0){
+			val = - val;
+			str->string[str->size++] = '-';
 		}
+		v = val;
+		for(n=0;v;n++) v /= 10;
+		str->size += n;
+		v = val;
+		while(v){
+			str->string[--str->size] = '0' + (v % 10);
+			v /= 10;
+		}
+		str->size += n;
 	}
 	str->string[str->size] = 0;
 }
