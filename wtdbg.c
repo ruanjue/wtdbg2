@@ -1148,8 +1148,11 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			hit->qdir = (get_col_str(pws, 1)[0] == '-');
 			qlen = atoi(get_col_str(pws, 2));
 			if(qlen != (int)g->kbm->reads->buffer[hit->qidx].rdlen){
-				fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-				exit(1);
+				if(nwarn < mwarn){
+					fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+					nwarn ++;
+				}
+				continue;
 			}
 			hit->qb = atoi(get_col_str(pws, 3));
 			hit->qe = atoi(get_col_str(pws, 4));
@@ -5815,6 +5818,10 @@ u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *la
 			fprintf(bw->out, ">ctg%llu nodes=%llu len=%u\n", uid, (u8i)path->size + 1, len);
 			if(log) fprintf(log, "OUTPUT_CTG\tctg%d -> ctg%d nodes=%llu len=%u\n", (int)i, (int)uid, (u8i)path->size + 1, len);
 			for(j=0;j<lays->size;j++){
+				if((j % 100) == 0){
+					end_bufferedwriter(bw);
+					beg_bufferedwriter(bw);
+				}
 				lay = ref_layv(lays, j);
 				if(lay->rcnt == 0) continue;
 				t = ref_seqletv(path, j);
