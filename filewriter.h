@@ -23,6 +23,9 @@
 #include "mem_share.h"
 #include "thread.h"
 
+/**
+ * BufferedWriter
+ */
 typedef struct {
 	FILE *bios[2];
 	FILE *out, *_out_;
@@ -163,6 +166,5 @@ static inline size_t close_bufferedwriter(BufferedWriter *bw){
 	free(bw);
 	return ret;
 }
-
 
 #endif
