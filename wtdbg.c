@@ -852,7 +852,7 @@ void clip_read_core(Graph *g, u4i rid, hitlnkv *lnks, rdclpv *brks, rdclpv *chis
 				x = (f1->beg > margin && f2->end + margin < dlen);
 				y = (f1->end + margin < rlen && f2->beg > margin);
 			} else {
-				x = (f1->beg > g->max_overhang && f2->beg > margin);
+				x = (f1->beg > margin && f2->beg > margin);
 				y = (f1->end + margin < rlen && f2->end + margin < dlen);
 			}
 			if(x && y){
