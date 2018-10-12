@@ -742,7 +742,7 @@ if(midx->task == 1){
 							x = ref_kbmkauxv(kbm->kauxs[kidx], offset_kbmhash(kbm->hashs[kidx], u));
 							kbm->bins->buffer[mx->bidx].degree ++;
 							if(x->cnt < u->tot){
-								if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == i){
+								if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == mx->bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == mx->dir){
 									// repeated kmer within one bin
 								} else {
 									kbm->seeds->buffer[x->off + x->cnt].bidx = mx->bidx;
@@ -768,10 +768,10 @@ if(midx->task == 1){
 				mx = ref_kbmmidxv(kidxs[kidx], k);
 				u = get_kbmhash(kbm->hashs[kidx], mx->mer);
 				if(u && u->flt == 0){
-					kbm->bins->buffer[mx->bidx].degree ++;
 					x = ref_kbmkauxv(kbm->kauxs[kidx], offset_kbmhash(kbm->hashs[kidx], u));
+					kbm->bins->buffer[mx->bidx].degree ++;
 					if(x->cnt < u->tot){
-						if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == i){
+						if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == mx->bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == mx->dir){
 							// repeated kmer within one bin
 						} else {
 							kbm->seeds->buffer[x->off + x->cnt].bidx = mx->bidx;
