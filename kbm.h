@@ -712,6 +712,7 @@ if(midx->task == 1){
 	}
 } else if(midx->task == 6){
 	// fill seeds
+	for(i=0;i<KBM_N_HASH;i++) clear_kbmmidxv(kidxs[i]);
 	for(bidx=midx->beg+tidx;bidx<midx->end;bidx+=ncpu){
 		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%u", bidx - midx->beg); fflush(KBM_LOGF); }
 		bin = ref_kbmbinv(kbm->bins, bidx);
@@ -725,36 +726,65 @@ if(midx->task == 1){
 			for(j=0;j<kmers[i]->size;j++){
 				f = ref_kmeroffv(kmers[i], j);
 				if(f->closed) continue;
-				u = get_kbmhash(kbm->hashs[f->kidx], f->kmer);
-				if(u && u->flt == 0){
-					x = ref_kbmkauxv(kbm->kauxs[f->kidx], offset_kbmhash(kbm->hashs[f->kidx], u));
-					// lock hashs[f->kidx]
-					if(1){
-						pthread_mutex_lock(midx->locks + f->kidx);
-					} else {
-						while(lock_cmpxchg((kbm->hash_status + f->kidx), 0, 1)){
-							nano_sleep(1);
+				mx = next_ref_kbmmidxv(kidxs[f->kidx]);
+				mx->mer = f->kmer;
+				mx->kidx = f->kidx;
+				mx->bidx = bidx;
+				mx->dir  = i;
+				mx->koff = f->off;
+				if(kidxs[f->kidx]->size >= 64){
+					kidx = f->kidx;
+					pthread_mutex_lock(midx->locks + kidx);
+					for(k=0;k<kidxs[kidx]->size;k++){
+						mx = ref_kbmmidxv(kidxs[kidx], k);
+						u = get_kbmhash(kbm->hashs[kidx], mx->mer);
+						if(u && u->flt == 0){
+							x = ref_kbmkauxv(kbm->kauxs[kidx], offset_kbmhash(kbm->hashs[kidx], u));
+							if(x->cnt < u->tot){
+								if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == i){
+									// repeated kmer within one bin
+								} else {
+									kbm->bins->buffer[mx->bidx].degree ++;
+									kbm->seeds->buffer[x->off + x->cnt].bidx = mx->bidx;
+									kbm->sauxs->buffer[x->off + x->cnt].dir  = mx->dir;
+									kbm->sauxs->buffer[x->off + x->cnt].koff = mx->koff >> 1;
+									x->cnt ++;
+								}
+							}
 						}
 					}
+					pthread_mutex_unlock(midx->locks + kidx);
+					clear_kbmmidxv(kidxs[kidx]);
+				}
+			}
+		}
+	}
+	for(kidx=0;kidx<KBM_N_HASH;kidx++){
+		if(kidxs[kidx]->size){
+			// lock hashs[kidx]
+			pthread_mutex_lock(midx->locks + kidx);
+			// hash adding
+			for(k=0;k<kidxs[kidx]->size;k++){
+				mx = ref_kbmmidxv(kidxs[kidx], k);
+				u = get_kbmhash(kbm->hashs[kidx], mx->mer);
+				if(u && u->flt == 0){
+					x = ref_kbmkauxv(kbm->kauxs[kidx], offset_kbmhash(kbm->hashs[kidx], u));
 					if(x->cnt < u->tot){
-						bin->degree ++;
 						if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == i){
 							// repeated kmer within one bin
 						} else {
-							kbm->seeds->buffer[x->off + x->cnt].bidx = bidx;
-							kbm->sauxs->buffer[x->off + x->cnt].dir  = i;
-							kbm->sauxs->buffer[x->off + x->cnt].koff = f->off >> 1;
+							kbm->bins->buffer[mx->bidx].degree ++;
+							kbm->seeds->buffer[x->off + x->cnt].bidx = mx->bidx;
+							kbm->sauxs->buffer[x->off + x->cnt].dir  = mx->dir;
+							kbm->sauxs->buffer[x->off + x->cnt].koff = mx->koff >> 1;
 							x->cnt ++;
 						}
 					}
-					// free hashs[f->kidx]
-					if(1){
-						pthread_mutex_unlock(midx->locks + f->kidx);
-					} else {
-						lock_cmpxchg((kbm->hash_status + f->kidx), 1, 0);
-					}
 				}
 			}
+			// free hashs[f->kidx]
+			pthread_mutex_unlock(midx->locks + kidx);
+			clear_kbmmidxv(kidxs[kidx]);
 		}
 	}
 } else if(midx->task == 7){
@@ -1805,8 +1835,10 @@ static inline void map_kbm(KBMAux *aux){
 #ifdef TEST_MODE
 				if(aux->par->test_mode <= 3){
 #endif
-					sort_array(aux->caches[0]->buffer, aux->caches[0]->size, kbm_dpe_t, num_cmpgt((((u8i)a.bidx) << 32) | a.poff, (((u8i)b.bidx) << 32) | b.poff));
-					sort_array(aux->caches[1]->buffer, aux->caches[1]->size, kbm_dpe_t, num_cmpgt((((u8i)a.bidx) << 32) | a.poff, (((u8i)b.bidx) << 32) | b.poff));
+					sort_array(aux->caches[0]->buffer, aux->caches[0]->size, kbm_dpe_t, num_cmpgtx(a.bidx, b.bidx, a.poff, b.poff));
+					sort_array(aux->caches[1]->buffer, aux->caches[1]->size, kbm_dpe_t, num_cmpgtx(a.bidx, b.bidx, a.poff, b.poff));
+					//sort_array(aux->caches[0]->buffer, aux->caches[0]->size, kbm_dpe_t, num_cmpgt((((u8i)a.bidx) << 32) | a.poff, (((u8i)b.bidx) << 32) | b.poff));
+					//sort_array(aux->caches[1]->buffer, aux->caches[1]->size, kbm_dpe_t, num_cmpgt((((u8i)a.bidx) << 32) | a.poff, (((u8i)b.bidx) << 32) | b.poff));
 					// TODO: sort by bidx+koff is more reasonable, need to modify push_kmer_match_kbm too
 #ifdef TEST_MODE
 				}
