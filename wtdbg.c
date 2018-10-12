@@ -6470,7 +6470,7 @@ int usage(int level){
 	" --aln-max-var <float>\n"
 	"   See -s 0.2\n"
 	" --aln-dovetail <int>\n"
-	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: -1\n"
+	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: 256\n"
 	" --aln-strand <int>\n"
 	"   1: forward, 2: reverse, 3: both. Please don't change the deault vaule 3, unless you exactly know what you are doing\n"
 	" --aln-maxhit <int>\n"
@@ -6628,7 +6628,7 @@ int main(int argc, char **argv){
 	log_rep = 1;
 	rep_detach = 0;
 	del_iso = 1;
-	max_overhang = -1;
+	max_overhang = 256;
 	min_ctg_len = 5000;
 	min_ctg_nds = 3;
 	node_order = 0;
@@ -6880,6 +6880,7 @@ int main(int argc, char **argv){
 				if(max_bp && tot_bp >= max_bp){ break; }
 				if(has == 0) break;
 				if(kbm->reads->size >= WT_MAX_RD){
+					fprintf(stderr, " -- Read Number Out of Range: %u --\n", (u4i)kbm->reads->size); fflush(stderr);
 					break;
 				}
 			}
