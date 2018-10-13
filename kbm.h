@@ -543,6 +543,7 @@ thread_beg_def(midx);
 KBM *kbm;
 u4i beg, end; // (end - beg) * KBM_BSIZE MUST <= KBM_KMEROFF_MAX
 u8i ktot, nrem, Nrem, none, nflt, offset;
+u8i srem, Srem;
 u8i *cnts, n_cnt;
 int task;
 int cal_degree;
@@ -788,6 +789,19 @@ if(midx->task == 1){
 		}
 	}
 } else if(midx->task == 7){
+	// count added kmers
+	midx->srem = midx->Srem = 0;
+	for(i=tidx;i<KBM_N_HASH;i+=ncpu){
+		reset_iter_kbmhash(kbm->hashs[i]);
+		while((u = ref_iter_kbmhash(kbm->hashs[i]))){
+			x = ref_kbmkauxv(kbm->kauxs[i], offset_kbmhash(kbm->hashs[i], u));
+			if(x->cnt){
+				midx->srem ++;
+				midx->Srem += x->cnt;
+			}
+		}
+	}
+} else if(midx->task == 8){
 	// sort seeds within a kmer
 	for(i=tidx;i<KBM_N_HASH;i+=ncpu){
 		reset_iter_kbmhash(kbm->hashs[i]);
@@ -823,7 +837,7 @@ free_tmpbmerv(bms);
 thread_end_func(midx);
 
 static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
-	u8i ktyp, nflt, nrem, Nrem, none, ktot, off, cnt, *kcnts, MAX;
+	u8i ktyp, nflt, nrem, Nrem, none, ktot, srem, Srem, off, cnt, *kcnts, MAX;
 	u4i kavg, i, b, e, batch_size, n;
 	pthread_mutex_t *hash_locks;
 	thread_preprocess(midx);
@@ -931,9 +945,16 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
 	fprintf(KBM_LOGF, "[%s] - average kmer depth = %d\n", date(), kavg);
 	fprintf(KBM_LOGF, "[%s] - %llu low frequency kmers (<%d)\n", date(), none, kbm->par->kmin);
 	fprintf(KBM_LOGF, "[%s] - %llu high frequency kmers (>%d)\n", date(), nflt, kbm->par->kmax);
-	fprintf(KBM_LOGF, "[%s] - indexing %llu kmers, %llu instances\n", date(), nrem, Nrem);
+	fprintf(KBM_LOGF, "[%s] - indexing %llu kmers, %llu instances (at most)\n", date(), nrem, Nrem);
 	thread_apply_all(midx, midx->task = 6);
 	if(KBM_LOG == 0){ fprintf(KBM_LOGF, "\r%u bins\n", end - beg); fflush(KBM_LOGF); }
+	thread_apply_all(midx, midx->task = 7);
+	srem = Srem = 0;
+	thread_beg_iter(midx);
+	srem += midx->srem;
+	Srem += midx->Srem;
+	thread_end_iter(midx);
+	fprintf(KBM_LOGF, "[%s] - indexed  %llu kmers, %llu instances\n", date(), srem, Srem);
 	{
 		n = 0;
 		for(i=0;i<kbm->bins->size;i++){
@@ -947,7 +968,7 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
 		fprintf(KBM_LOGF, "[%s] - masked %u bins as closed\n", date(), n);
 	}
 	fprintf(KBM_LOGF, "[%s] - sorting\n", date());
-	thread_apply_all(midx, midx->task = 7);
+	thread_apply_all(midx, midx->task = 8);
 	thread_beg_close(midx);
 	thread_end_close(midx);
 	if(1){
