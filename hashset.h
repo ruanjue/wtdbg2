@@ -325,6 +325,7 @@ static inline int freeze_##hash_type(hash_type *set, float load_factor){	\
 		if(j < hvs[i]) j = hvs[i];	\
 		j ++;	\
 	}	\
+	if(j < sz) j = sz;	\
 	set->ones = init_bitvec(j + 1);	\
 	for(i=j=0;i<set->count;i++){	\
 		if(j < hvs[i]) j = hvs[i];	\
