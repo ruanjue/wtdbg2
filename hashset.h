@@ -129,8 +129,8 @@ static inline hash_ele_type* get_##hash_type(hash_type *set, hash_key_type key){
 			} else {	\
 				return NULL;	\
 			}	\
-			hc = (hc + 1) % set->size;	\
-			hi = (hi + 1) % set->count;	\
+			hc ++; \
+			hi ++;	\
 		}	\
 	}	\
 	return NULL;                                                               \
@@ -321,15 +321,13 @@ static inline int freeze_##hash_type(hash_type *set, float load_factor){	\
 		hvs[i] = hash_code_macro(set->array[i]) % sz;	\
 	}	\
 	sort_array_adv(set->count, hvs[a] > hvs[b], swap_var(hvs[a], hvs[b]); swap_var(set->array[a], set->array[b]));	\
-	set->ones = init_bitvec(sz);	\
 	for(i=j=0;i<set->count;i++){	\
 		if(j < hvs[i]) j = hvs[i];	\
-		one_bitvec(set->ones, j);	\
 		j ++;	\
-		if(j >= sz) break;	\
 	}	\
-	for(j=0;i<set->count;i++){	\
-		while(get_bitvec(set->ones, j)) j ++;	\
+	set->ones = init_bitvec(j + 1);	\
+	for(i=j=0;i<set->count;i++){	\
+		if(j < hvs[i]) j = hvs[i];	\
 		one_bitvec(set->ones, j);	\
 		j ++;	\
 	}	\
