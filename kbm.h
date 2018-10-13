@@ -714,6 +714,8 @@ if(midx->task == 1){
 } else if(midx->task == 6){
 	// fill seeds
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmmidxv(kidxs[i]);
+	u4v *chgs;
+	chgs = init_u4v(KBM_BSIZE);
 	for(bidx=midx->beg+tidx;bidx<midx->end;bidx+=ncpu){
 		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%u", bidx - midx->beg); fflush(KBM_LOGF); }
 		bin = ref_kbmbinv(kbm->bins, bidx);
@@ -723,6 +725,7 @@ if(midx->task == 1){
 		off = kbm->reads->buffer[bin->ridx].rdoff + bin->off * KBM_BIN_SIZE;
 		len = KBM_BIN_SIZE;
 		split_FIXP_kmers_kbm(kbm->rdseqs, off, len, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
+		clear_u4v(chgs);
 		for(i=0;i<2;i++){
 			for(j=0;j<kmers[i]->size;j++){
 				f = ref_kmeroffv(kmers[i], j);
@@ -734,30 +737,34 @@ if(midx->task == 1){
 				mx->dir  = i;
 				mx->koff = f->off;
 				if(kidxs[f->kidx]->size >= 64){
-					kidx = f->kidx;
-					pthread_mutex_lock(midx->locks + kidx);
-					for(k=0;k<kidxs[kidx]->size;k++){
-						mx = ref_kbmmidxv(kidxs[kidx], k);
-						u = get_kbmhash(kbm->hashs[kidx], mx->mer);
-						if(u && u->flt == 0){
-							x = ref_kbmkauxv(kbm->kauxs[kidx], offset_kbmhash(kbm->hashs[kidx], u));
-							kbm->bins->buffer[mx->bidx].degree ++;
-							if(x->cnt < u->tot){
-								if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == mx->bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == mx->dir){
-									// repeated kmer within one bin
-								} else {
-									kbm->seeds->buffer[x->off + x->cnt].bidx = mx->bidx;
-									kbm->sauxs->buffer[x->off + x->cnt].dir  = mx->dir;
-									kbm->sauxs->buffer[x->off + x->cnt].koff = mx->koff >> 1;
-									x->cnt ++;
-								}
-							}
-						}
-					}
-					pthread_mutex_unlock(midx->locks + kidx);
-					clear_kbmmidxv(kidxs[kidx]);
+					push_u4v(chgs, f->kidx);
 				}
 			}
+		}
+		for(i=0;i<chgs->size;i++){
+			kidx = chgs->buffer[i];
+			if(kidxs[kidx]->size == 0) continue;
+			pthread_mutex_lock(midx->locks + kidx);
+			for(k=0;k<kidxs[kidx]->size;k++){
+				mx = ref_kbmmidxv(kidxs[kidx], k);
+				u = get_kbmhash(kbm->hashs[kidx], mx->mer);
+				if(u && u->flt == 0){
+					x = ref_kbmkauxv(kbm->kauxs[kidx], offset_kbmhash(kbm->hashs[kidx], u));
+					kbm->bins->buffer[mx->bidx].degree ++;
+					if(x->cnt < u->tot){
+						if(x->cnt && kbm->seeds->buffer[x->off + x->cnt - 1].bidx == mx->bidx && kbm->sauxs->buffer[x->off + x->cnt - 1].dir == mx->dir){
+							// repeated kmer within one bin
+						} else {
+							kbm->seeds->buffer[x->off + x->cnt].bidx = mx->bidx;
+							kbm->sauxs->buffer[x->off + x->cnt].dir  = mx->dir;
+							kbm->sauxs->buffer[x->off + x->cnt].koff = mx->koff >> 1;
+							x->cnt ++;
+						}
+					}
+				}
+			}
+			pthread_mutex_unlock(midx->locks + kidx);
+			clear_kbmmidxv(kidxs[kidx]);
 		}
 	}
 	for(kidx=0;kidx<KBM_N_HASH;kidx++){
@@ -788,6 +795,7 @@ if(midx->task == 1){
 			clear_kbmmidxv(kidxs[kidx]);
 		}
 	}
+	free_u4v(chgs);
 } else if(midx->task == 7){
 	// count added kmers
 	midx->srem = midx->Srem = 0;
