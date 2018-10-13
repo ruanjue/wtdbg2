@@ -342,6 +342,12 @@ static inline void reset_index_kbm(KBM *kbm){
 	zeros_bitvec(kbm->binmarks);
 }
 
+static inline int cvt_kbm_read_length(u4i seqlen){
+	if(seqlen > KBM_MAX_RDLEN) seqlen = KBM_MAX_RDLEN;
+	seqlen = (seqlen / KBM_BIN_SIZE) * KBM_BIN_SIZE;
+	return seqlen;
+}
+
 static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, int seqlen){
 	kbm_read_t *rd;
 	char *ptr;
@@ -352,9 +358,7 @@ static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, int seql
 	} else {
 		ptr = NULL;
 	}
-	if((u4i)seqlen > KBM_MAX_RDLEN) seqlen = KBM_MAX_RDLEN;
-	seqlen = (seqlen / KBM_BIN_SIZE) * KBM_BIN_SIZE;
-	//if(ptr) kv_put_cuhash(kbm->tag2idx, ptr, kbm->reads->size);
+	seqlen = cvt_kbm_read_length(seqlen);
 	rd = next_ref_kbmreadv(kbm->reads);
 	rd->rdoff = kbm->rdseqs->size;
 	rd->rdlen = seqlen;

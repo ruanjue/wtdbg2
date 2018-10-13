@@ -381,6 +381,7 @@ int kbm_main(int argc, char **argv){
 					}
 					nhit += aux->hits->size;
 				}
+				trunc_string(seq->seq, cvt_kbm_read_length(seq->seq->size));
 				clear_basebank(maln->rdseqs);
 				seq2basebank(maln->rdseqs, seq->seq->string, seq->seq->size);
 				clear_string(maln->rdtag);
