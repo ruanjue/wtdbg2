@@ -1152,7 +1152,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 					fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					nwarn ++;
 				}
-				continue;
+				//continue;
 			}
 			hit->qb = atoi(get_col_str(pws, 3));
 			hit->qe = atoi(get_col_str(pws, 4));
