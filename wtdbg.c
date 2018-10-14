@@ -6387,7 +6387,7 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 2.1 (20181007)\n"
+	"Version: 2.huge (20181014)\n"
 #ifdef TIMESTAMP
 	"Compiled: %s\n"
 #endif
