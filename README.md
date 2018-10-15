@@ -61,15 +61,18 @@ Please run `wtdbg2 --help` for a complete list of available options or consult
 [README-ori.md](README-ori.md) for more help.
 
 The following table shows various command lines and their resource usage for
-the assembly step (not including the consensus step):
+the assembly step:
 
-|Dataset                 |Genome|Coverage  |Wtdbg2 options|CPU hours|Peak RAM|
-|:-----------------------|-----:|---------:|:-------------|--------:|-------:|
-|[E. coli][pbcr]         |4.6Mb |PacBio x20|              |         |        |
-|[C. elegans][ce]        |100Mb |PacBio x80|-L5000 -e4    |3.3      |    9.7G|
-|[Human CHM1][chm1]      |3Gb   |PacBio x60|-L5000 -e4    |378.5    |  252.7G|
-|[Human NA12878][na12878]|3Gb   |ONT x30   |-S2 -e2       |197.4    |  244.9G|
-|[Axolotl][axosra]       |32Gb  |PacBio x32|-L5000 -AS2   |3189.7   | 1593.6G|
+|Dataset                 |Genome|Coverage|Asm options   |CPU asm|CPU cns|Real  |Peak RAM|
+|:-----------------------|-----:|-------:|:-------------|------:|------:|-----:|-------:|
+|[E. coli][pbcr]         |4.6Mb |PB x20  |-L5000        |    39s| 10m34s|   29s|   1.14G|
+|[C. elegans][ce]        |100Mb |PB x80  |-L5000 -e4    |  1h00m|  5h06m|16m16s|    9.5G|
+|[Human CHM1][chm1]      |3Gb   |PB x60  |-L5000 -e4    |378.5  |||  252.7G|
+|[Human NA12878][na12878]|3Gb   |ONT x30 |-S2 -e2       |197.4  |||  244.9G|
+|[Axolotl][axosra]       |32Gb  |PB x32  |-L5000 -AS2   |3189.7 ||| 1593.6G|
+
+The E. coli and C. elegans datasets were assembled with 32 threads on a server
+with Xeon E5-2683 CPUs at 2GHz. The rest were assembled on a different machine.
 
 ## Limitations
 
