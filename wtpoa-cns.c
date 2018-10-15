@@ -212,9 +212,9 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 				if(mcns->g->seqs->nseq >= seqmax) continue;
 				ss = get_col_str(fr, 5);
 				sl = get_col_len(fr, 5);
-				if(UInt(sl) > POG_RDLEN_MAX){
-					sl = POG_RDLEN_MAX;
-				}
+				//if(UInt(sl) > POG_RDLEN_MAX){
+					//sl = POG_RDLEN_MAX;
+				//}
 				push_tripog(mcns->g, ss, sl);
 			}
 		} else if(state == 2){
