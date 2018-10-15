@@ -118,7 +118,11 @@ static inline void kswx_overlap_align_core(kswx_t *xs[2], u32list *cigars[2], in
 	int imax, mj2, gmax, gi;
 	if(xs[0]) *xs[0] = KSWX_NULL;
 	if(xs[1]) *xs[1] = KSWX_NULL;
-	if(qlen <= 0 || tlen <= 0){ return; }
+	if(qlen <= 0 || tlen <= 0){
+		if(xs[0]) clear_u32list(cigars[0]);
+		if(xs[1]) clear_u32list(cigars[1]);
+		return;
+	}
 	ql = qlen; tl = tlen;
 	n_col = tl;
 	encap_u8list(mem_cache, kswx_roundup8x((tl + 2) * sizeof(int)) + kswx_roundup8x((tl + 2) * sizeof(int)) + kswx_roundup8x(((long long)ql) * n_col));
