@@ -63,16 +63,17 @@ Please run `wtdbg2 --help` for a complete list of available options or consult
 The following table shows various command lines and their resource usage for
 the assembly step:
 
-|Dataset                 |Genome|Coverage|Asm options   |CPU asm|CPU cns|Real  |Peak RAM|
-|:-----------------------|-----:|-------:|:-------------|------:|------:|-----:|-------:|
-|[E. coli][pbcr]         |4.6Mb |PB x20  |-L5000        |    39s| 10m34s|   29s|   1.14G|
-|[C. elegans][ce]        |100Mb |PB x80  |-L5000 -e4    |  1h00m|  5h06m|16m16s|    9.5G|
-|[Human CHM1][chm1]      |3Gb   |PB x60  |-L5000 -e4    |378.5  |||  252.7G|
-|[Human NA12878][na12878]|3Gb   |ONT x30 |-S2 -e2       |197.4  |||  244.9G|
-|[Axolotl][axosra]       |32Gb  |PB x32  |-L5000 -AS2   |3189.7 ||| 1593.6G|
+|Dataset                 |Genome|Coverage|Asm options      |CPU asm |CPU cns |Real   |Peak RAM|
+|:-----------------------|-----:|-------:|:----------------|-------:|-------:|------:|-------:|
+|[E. coli][pbcr]         |4.6Mb |PB x20  |-t32 -L5000      |     39s|  10m34s|    29s|   1.14G|
+|[C. elegans][ce]        |100Mb |PB x80  |-t32 -L5000 -e4  |   1h00m|   5h06m| 16m16s|    9.5G|
+|[C. elegans][ce]        |100Mb |PB x80  |-t64 -L5000      |   1h46m|   5h27m| 14m17s|   10.1G|
+|[Human CHM1][chm1]      |3Gb   |PB x60  |-t64 -L10000     | 186h15m| 131h52m|  7h41m|  265.2G|
+|[Human NA12878][na12878]|3Gb   |ONT x30 |                 |        |        |       |        |
+|[Axolotl][axosra]       |32Gb  |PB x32  |-t96 -L5000 -AS2 |   3189h|        |       | 1593.6G|
 
-The E. coli and C. elegans datasets were assembled with 32 threads on a server
-with Xeon E5-2683 CPUs at 2GHz. The rest were assembled on a different machine.
+The first two datasets (E. coli and C. elegans) were assembled with 32 threads on a server
+with Xeon E5-2683 CPUs at 2GHz. The rest were assembled on a PowerPC with Xeon E7-8857 CPUs at 3GHz.
 
 ## Limitations
 
