@@ -69,7 +69,7 @@ the assembly step:
 |[C. elegans][ce]        |100Mb |PB x80  |-t32 -L5000 -e4    |   1h00m|   5h06m| 16m16s|    9.5G|
 |[C. elegans][ce]        |100Mb |PB x80  |-t64 -L5000        |   1h46m|   5h27m| 14m17s|   10.1G|
 |[Human CHM1][chm1]      |3Gb   |PB x60  |-t64 -L10000       | 186h15m| 131h52m|  7h41m|  265.2G|
-|[Human NA12878][na12878]|3Gb   |ONT x30 |-t64 -p19 -AS2 -e2 | 568h14m|        |       |  210.4G|
+|[Human NA12878][na12878]|3Gb   |ONT x30 |-t64 -p19 -AS2 -e2 | 568h14m| 115h40m| 14h08m|  210.4G|
 |[Axolotl][axosra]       |32Gb  |PB x32  |-t96 -L5000 -AS2   |   3189h|        |       | 1593.6G|
 
 The first two datasets (E. coli and C. elegans) were assembled with 32 threads on a server
