@@ -65,15 +65,19 @@ the assembly step:
 
 |Dataset                 |Genome|Coverage|Asm options        |CPU asm |CPU cns |Real   |Peak RAM|
 |:-----------------------|-----:|-------:|:------------------|-------:|-------:|------:|-------:|
-|[E. coli][pbcr]         |4.6Mb |PB x20  |-t32 -L5000        |     39s|  10m34s|    29s|   1.14G|
+|[E. coli][pbcr]         |4.6Mb |PB x20  |-t32 -L5000        |     39s|  10m34s|    29s|    1.1G|
 |[C. elegans][ce]        |100Mb |PB x80  |-t32 -L5000 -e4    |   1h00m|   5h06m| 16m16s|    9.5G|
+|[Human NA12878][na12878]|3Gb   |ONT x36 |-t36 -p19 -AS2 -e2 -L5000|822h28m|115h59m|27h42m|182.1G|
+|[Human NA19240][na19240]|3Gb   |ONT x35 |-t32 -p19 -AS2 -e2 | 706h30m| 114h45m| 27h33m|  177.5G|
 |[C. elegans][ce]        |100Mb |PB x80  |-t64 -L5000        |   1h46m|   5h27m| 14m17s|   10.1G|
 |[Human CHM1][chm1]      |3Gb   |PB x60  |-t64 -L10000       | 186h15m| 131h52m|  7h41m|  265.2G|
-|[Human NA12878][na12878]|3Gb   |ONT x30 |-t64 -p19 -AS2 -e2 | 568h14m|        |       |  210.4G|
 |[Axolotl][axosra]       |32Gb  |PB x32  |-t96 -L5000 -AS2   |   3189h|        |       | 1593.6G|
 
-The first two datasets (E. coli and C. elegans) were assembled with 32 threads on a server
-with Xeon E5-2683 CPUs at 2GHz. The rest were assembled on a PowerPC with Xeon E7-8857 CPUs at 3GHz.
+<--! |[Human NA12878][na12878]|3Gb   |ONT x30 |-t64 -p19 -AS2 -e2 | 568h14m|        |       |  210.4G| -->
+
+The first four lines were assembled with 32 threads on a server with Xeon
+E5-2683 CPUs at 2GHz. The rest were assembled on a server with Xeon E7-8857
+CPUs at 3GHz.
 
 ## Limitations
 
@@ -93,7 +97,8 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [falcon]: https://github.com/PacificBiosciences/FALCON
 [Axolotl]: https://www.nature.com/articles/nature25458
 [chm1]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA246220
-[na12878]: https://github.com/nanopore-wgs-consortium/NA12878
+[na12878]: https://github.com/nanopore-wgs-consortium/NA12878/blob/master/rel5.md
+[na19240]: https://www.ebi.ac.uk/ena/data/view/PRJEB26791
 [pbcr]: http://www.cbcb.umd.edu/software/PBcR/data/selfSampleData.tar.gz
 [ce]: https://github.com/PacificBiosciences/DevNet/wiki/C.-elegans-data-set
 [axosra]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA378970
