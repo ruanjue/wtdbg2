@@ -73,8 +73,6 @@ the assembly step:
 |[Human CHM1][chm1]      |3Gb   |PB x60  |-t64 -L10000       | 186h15m| 131h52m|  7h41m|  265.2G|
 |[Axolotl][axosra]       |32Gb  |PB x32  |-t96 -L5000 -AS2   |   3189h|        |       | 1593.6G|
 
-<--! |[Human NA12878][na12878]|3Gb   |ONT x30 |-t64 -p19 -AS2 -e2 | 568h14m|        |       |  210.4G| -->
-
 The first four lines were assembled with 32 threads on a server with Xeon
 E5-2683 CPUs at 2GHz. The rest were assembled on a server with Xeon E7-8857
 CPUs at 3GHz.
