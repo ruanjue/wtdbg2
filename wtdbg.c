@@ -6393,7 +6393,7 @@ int usage(int level){
 #endif
 	"Usage: wtdbg2 [options]\n"
 	"Options:\n"
-	" -i <string> Long reads sequences file (REQUIRED; can be multiple), []\n"
+	" -i <string> Long reads sequences file (REQUIRED; there can be multiple -i), []\n"
 	" -I <string> Error-free sequences file (can be multiple), []\n"
 	" -o <string> Prefix of output files (REQUIRED), []\n"
 	" -t <int>    Number of threads, 0 for all cores, [4]\n"
@@ -6713,6 +6713,8 @@ int main(int argc, char **argv){
 		}
 	}
 	if (optind == 1) return usage(0);
+	if (optind < argc)
+		fprintf(stderr, "WARNING: unused command-line arguments. For multiple input files, please apply multiple -i.\n");
 	if(prefix == NULL) {
 		fprintf(stderr, "ERROR: please specify the output prefix with -o\n");
 		return 1;
