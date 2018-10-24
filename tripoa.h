@@ -25,6 +25,7 @@
 
 typedef struct {
 	SeqBank *seqs;
+	u4i longest_idx;
 	int8_t matrix[16];
 	int fail_skip;
 	u1i ksize; // 11
@@ -35,6 +36,8 @@ typedef struct {
 	u2i winlen, winmin;
 	u2v *regs[2];
 	POG *pogs[3];
+	u4v *kidxs;
+	f4v *kords;
 	BaseBank *cns;
 	int is_tripog;
 } TriPOG;
@@ -44,6 +47,7 @@ static inline TriPOG* init_tripog(int winlen, int winmin, int fail_skip, int M, 
 	u4i i;
 	tp = malloc(sizeof(TriPOG));
 	tp->seqs = init_seqbank();
+	tp->longest_idx = 0;
 	tp->ksize = 11;
 	tp->kdup = 0.1;
 	tp->keqs = 0.2;
@@ -66,6 +70,8 @@ static inline TriPOG* init_tripog(int winlen, int winmin, int fail_skip, int M, 
 	tp->pogs[2] = init_pog(M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
 	//tp->pogs[1]->near_dialog = 1;
 	//tp->pogs[2]->near_dialog = 1;
+	tp->kidxs = init_u4v(32);
+	tp->kords = init_f4v(32);
 	tp->cns = init_basebank();
 	for(i=0;i<16;i++){
 		tp->matrix[i] = ((i / 4) == (i % 4))? M : X;
@@ -84,6 +90,8 @@ static inline void free_tripog(TriPOG *tp){
 	free_pog(tp->pogs[0]);
 	free_pog(tp->pogs[1]);
 	free_pog(tp->pogs[2]);
+	free_u4v(tp->kidxs);
+	free_f4v(tp->kords);
 	free_basebank(tp->cns);
 	free(tp);
 }
@@ -93,14 +101,17 @@ static inline void beg_tripog(TriPOG *tp){
 	if(tp->winlen == 0){
 		beg_pog(tp->pogs[0]);
 	}
+	tp->longest_idx = 0;
 	tp->is_tripog = 0;
 }
 
-static inline void push_tripog(TriPOG *tp, char *seq, u2i len){
+static inline void push_tripog(TriPOG *tp, char *seq, u4i len){
+	push_seqbank(tp->seqs, NULL, 0, seq, len);
+	if(tp->seqs->rdlens->buffer[tp->longest_idx] < len){
+		tp->longest_idx = tp->seqs->nseq - 1;
+	}
 	if(tp->winlen){
-		push_seqbank(tp->seqs, NULL, 0, seq, len);
 	} else {
-		push_seqbank(tp->seqs, NULL, 0, "", 0);
 		push_pog(tp->pogs[0], seq, len);
 	}
 }
@@ -118,15 +129,17 @@ static inline void direct_run_tripog(TriPOG *tp){
 		fwdbitpush_pog(g, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[ridx], tp->seqs->rdlens->buffer[ridx]);
 	}
 	end_pog(g);
-	fast_fwdbits2basebank(tp->cns, g->cns->bits, 0, g->cns->size);
+	if(g->cns->size == 0){
+		fast_fwdbits2basebank(tp->cns, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[tp->longest_idx], tp->seqs->rdlens->buffer[tp->longest_idx]);
+	} else {
+		fast_fwdbits2basebank(tp->cns, g->cns->bits, 0, g->cns->size);
+	}
 	tp->pogs[0]->W = 0;
 	tp->pogs[0]->rW = 0;
 	tp->pogs[0]->W_score = 0;
 }
 
-static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u1i ksize){
-	f4v *kords;
-	u4v *kidxs;
+static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u4v *kidxs, f4v *kords, u1i ksize){
 	uuhash_t *u;
 	u8i roff;
 	u4i ridx, i, kmer, kmask, rlen, khit;
@@ -149,8 +162,8 @@ static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u1i ksize){
 			}
 		}
 	}
-	kords = init_f4v(sb->nseq);
-	kidxs = init_u4v(sb->nseq);
+	clear_u4v(kidxs);
+	clear_f4v(kords);
 	for(ridx=0;ridx<sb->nseq;ridx++){
 		rlen = sb->rdlens->buffer[ridx];
 		kmer = 0;
@@ -173,14 +186,12 @@ static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u1i ksize){
 			fprintf(stderr, "SHUFFLE[%u] %u\t%0.4f\n", i, kidxs->buffer[i], kords->buffer[kidxs->buffer[i]]);
 		}
 	}
-	free_f4v(kords);
 	for(i=0;i<kidxs->size;i++){
 		push_u8v(sb->rdoffs, sb->rdoffs->buffer[kidxs->buffer[i]]);
 		push_u4v(sb->rdlens, sb->rdlens->buffer[kidxs->buffer[i]]);
 	}
 	remove_array_u8v(sb->rdoffs, 0, kidxs->size);
 	remove_array_u4v(sb->rdlens, 0, kidxs->size);
-	free_u4v(kidxs);
 }
 
 static inline void end_tripog(TriPOG *tp){
@@ -188,13 +199,23 @@ static inline void end_tripog(TriPOG *tp){
 	kswr_t R;
 	u4i ridx, rlen, b, e, failed;
 	if(tp->winlen == 0){
-		shuffle_reads_tripog(tp->pogs[0]->seqs, tp->khash, tp->ksize);
+		shuffle_reads_tripog(tp->pogs[0]->seqs, tp->khash, tp->kidxs, tp->kords, tp->ksize);
 		end_pog(tp->pogs[0]);
 		clear_basebank(tp->cns);
-		fast_fwdbits2basebank(tp->cns, tp->pogs[0]->cns->bits, 0, tp->pogs[0]->cns->size);
+		if(tp->pogs[0]->cns->size == 0){
+			fast_fwdbits2basebank(tp->cns, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[tp->longest_idx], tp->seqs->rdlens->buffer[tp->longest_idx]);
+		} else {
+			fast_fwdbits2basebank(tp->cns, tp->pogs[0]->cns->bits, 0, tp->pogs[0]->cns->size);
+		}
 		return;
 	}
-	shuffle_reads_tripog(tp->seqs, tp->khash, tp->ksize);
+	shuffle_reads_tripog(tp->seqs, tp->khash, tp->kidxs, tp->kords, tp->ksize);
+	tp->longest_idx = 0;
+	for(ridx=1;ridx<tp->seqs->nseq;ridx++){
+		if(tp->seqs->rdlens->buffer[ridx] > tp->seqs->rdlens->buffer[tp->longest_idx]){
+			tp->longest_idx = ridx;
+		}
+	}
 	if(tp->seqs->nseq < 2){
 		return direct_run_tripog(tp);
 	}

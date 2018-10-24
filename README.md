@@ -55,7 +55,8 @@ k-mers by their hashcodes. For data of relatively low coverage, you may
 increase this sampling rate by reducing `-S`. This will greatly increase the
 peak memory as a cost, though. Option `-e`, which defaults to 3, specifies the
 minimum read coverage of an edge in the assembly graph. You may adjust this
-option according to the overall sequencing depth, too. For PacBio data,
+option according to the overall sequencing depth, too. Option `-A` also helps
+relatively low coverage data at the cost of performance. For PacBio data,
 `-L5000` often leads to better assemblies emperically, so is recommended.
 Please run `wtdbg2 --help` for a complete list of available options or consult
 [README-ori.md](README-ori.md) for more help.
@@ -63,16 +64,19 @@ Please run `wtdbg2 --help` for a complete list of available options or consult
 The following table shows various command lines and their resource usage for
 the assembly step:
 
-|Dataset                 |Genome|Coverage|Asm options   |CPU asm|CPU cns|Real  |Peak RAM|
-|:-----------------------|-----:|-------:|:-------------|------:|------:|-----:|-------:|
-|[E. coli][pbcr]         |4.6Mb |PB x20  |-L5000        |    39s| 10m34s|   29s|   1.14G|
-|[C. elegans][ce]        |100Mb |PB x80  |-L5000 -e4    |  1h00m|  5h06m|16m16s|    9.5G|
-|[Human CHM1][chm1]      |3Gb   |PB x60  |-L5000 -e4    |378.5  |||  252.7G|
-|[Human NA12878][na12878]|3Gb   |ONT x30 |-S2 -e2       |197.4  |||  244.9G|
-|[Axolotl][axosra]       |32Gb  |PB x32  |-L5000 -AS2   |3189.7 ||| 1593.6G|
+|Dataset                 |GSize |Cov     |Asm options        |CPU asm |CPU cns |Real tot|     RAM|
+|:-----------------------|-----:|-------:|:------------------|-------:|-------:|-------:|-------:|
+|[E. coli][pbcr]         |4.6Mb |PB x20  |-t32 -L5000        |     39s|  10m34s|     29s|    1.1G|
+|[C. elegans][ce]        |100Mb |PB x80  |-t32 -L5000 -e4    |   1h00m|   5h06m|  16m16s|    9.5G|
+|[Human NA12878][na12878]|3Gb   |ONT x36 |-t36 -p19 -AS2 -e2<br/>-L5000|822h28m|115h59m|27h42m|182.1G|
+|[Human NA19240][na19240]|3Gb   |ONT x35 |-t32 -p19 -AS2 -e2 | 706h30m| 114h45m|  27h33m|  177.5G|
+|[C. elegans][ce]        |100Mb |PB x80  |-t64 -L5000        |   1h46m|   5h27m|  14m17s|   10.1G|
+|[Human CHM1][chm1]      |3Gb   |PB x60  |-t64 -L10000       | 186h15m| 131h52m|   7h41m|  265.2G|
+|[Axolotl][axosra]       |32Gb  |PB x32  |-t96 -L5000 -AS2   |3076h13m|1180h03m| 88h01m| 1626.7G|
 
-The E. coli and C. elegans datasets were assembled with 32 threads on a server
-with Xeon E5-2683 CPUs at 2GHz. The rest were assembled on a different machine.
+The timing was obtained on three local servers with different hardware
+configurations. There are also run-to-run fluctuations. Exact timing on your
+machines may differ.
 
 ## Limitations
 
@@ -92,7 +96,8 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [falcon]: https://github.com/PacificBiosciences/FALCON
 [Axolotl]: https://www.nature.com/articles/nature25458
 [chm1]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA246220
-[na12878]: https://github.com/nanopore-wgs-consortium/NA12878
+[na12878]: https://github.com/nanopore-wgs-consortium/NA12878/blob/master/rel5.md
+[na19240]: https://www.ebi.ac.uk/ena/data/view/PRJEB26791
 [pbcr]: http://www.cbcb.umd.edu/software/PBcR/data/selfSampleData.tar.gz
 [ce]: https://github.com/PacificBiosciences/DevNet/wiki/C.-elegans-data-set
 [axosra]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA378970

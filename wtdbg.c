@@ -6451,7 +6451,7 @@ int usage(int level){
 	"   See -F\n"
 	"   `wtdbg` uses a 4 Gbytes array to counting the occurence (0-3) of kmers in the way of counting-bloom-filter. It will reduce memory space largely\n"
 	"    Orphaned kmers won't appear in building kbm-index\n"
-	" --kmer-subampling <int>\n"
+	" --kmer-subsampling <int>\n"
 	"   See -S 1\n"
 	" --aln-kmer-sampling <int>\n"
 	"   Select no more than n seeds in a query bin, default: 256\n"

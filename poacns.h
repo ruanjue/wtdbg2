@@ -137,9 +137,11 @@ static inline void renew_pog(POG *g){
 	renew_pogedgev(g->edges, 16 * 1024);
 	renew_b2v(g->qprof, 4 * 1024);
 	renew_b2v(g->rows, 16 * 1024);
+	renew_u4v(g->rowr, 64);
 	renew_b2v(g->btds, 16 * 1024);
 	renew_u1v(g->btvs, 8 * 1024 * 1024);
 	renew_u4v(g->btxs, 16 * 1024);
+	renew_u4v(g->stack, 32);
 	renew_u1v(g->msa, 16 * 1024);
 	renew_u2v(g->bcnts[0], 4 * 1024);
 	renew_u2v(g->bcnts[1], 4 * 1024);
@@ -1054,20 +1056,23 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	return score;
 }
 
-static inline void push_pog(POG *g, char *seq, u2i len){
+static inline void push_pog(POG *g, char *seq, u4i len){
 	if(g->seqs->nseq < POG_RDCNT_MAX){
+		len = num_min(len, POG_RDLEN_MAX);
 		push_seqbank(g->seqs, NULL, 0, seq, len);
 	}
 }
 
-static inline void fwdbitpush_pog(POG *g, u8i *bits, u8i off, u2i len){
+static inline void fwdbitpush_pog(POG *g, u8i *bits, u8i off, u4i len){
 	if(g->seqs->nseq < POG_RDCNT_MAX){
+		len = num_min(len, POG_RDLEN_MAX);
 		fwdbitpush_seqbank(g->seqs, NULL, 0, bits, off, len);
 	}
 }
 
-static inline void revbitpush_pog(POG *g, u8i *bits, u8i off, u2i len){
+static inline void revbitpush_pog(POG *g, u8i *bits, u8i off, u4i len){
 	if(g->seqs->nseq < POG_RDCNT_MAX){
+		len = num_min(len, POG_RDLEN_MAX);
 		revbitpush_seqbank(g->seqs, NULL, 0, bits, off, len);
 	}
 }
