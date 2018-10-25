@@ -6713,8 +6713,16 @@ int main(int argc, char **argv){
 		}
 	}
 	if (optind == 1) return usage(0);
-	if (optind < argc)
+	if (optind < argc){
 		fprintf(stderr, "WARNING: unused command-line arguments. For multiple input files, please apply multiple -i.\n");
+		fprintf(stderr, "WARNING: try to recognize and add to input files list\n");
+		for(c=optind;c<argc;c++){
+			if(file_exists(argv[c])){
+				fprintf(stderr, " * \"%s\" exists, added.\n", argv[c]);
+				push_cplist(pbs, argv[c]);
+			}
+		}
+	}
 	if(prefix == NULL) {
 		fprintf(stderr, "ERROR: please specify the output prefix with -o\n");
 		return 1;
