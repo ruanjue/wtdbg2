@@ -441,7 +441,6 @@ int main(int argc, char **argv){
 	int c, ncpu, overwrite, reglen, ksize, Z, W, C, M, X, I, D, E, H, L, XX, OO, EE;
 	int candidate_mode, cns_model, corr_struct;
 	f4i pM, pX, pI, pD;
-	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	ncpu = 1;
 	reglen = 1000;
 	ksize = 15;
@@ -495,6 +494,7 @@ int main(int argc, char **argv){
 			default: return usage();
 		}
 	}
+	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	if(cns_model != MCNS_TASK_DBGCNS && cns_model != MCNS_TASK_DAGCNS){
 		return usage();
 	}

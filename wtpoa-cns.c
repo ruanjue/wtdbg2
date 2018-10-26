@@ -378,7 +378,6 @@ int main(int argc, char **argv){
 	int reglen, use_sse, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax;
 	float minfreq;
 	int c, ncpu, overwrite;
-	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	ncpu = 4;
 	use_sse = 2;
 	seqmax = 20;
@@ -424,6 +423,7 @@ int main(int argc, char **argv){
 			default: return usage();
 		}
 	}
+	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	if(winmin <= 0){
 		winmin = winlen * 0.5;
 	}
