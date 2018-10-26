@@ -23,7 +23,11 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#if defined(__APPLE__) && defined(__MACH__)
+#include <machine/endian.h>
+#else
 #include <endian.h>
+#endif
 #include <sys/stat.h>
 #include <sys/mman.h>
 //#include <sys/times.h>
