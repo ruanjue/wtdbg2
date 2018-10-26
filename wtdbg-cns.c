@@ -428,6 +428,7 @@ int usage(){
 	" -m <int>    1: DBG correction; 2: DAG correction, [1]\n"
 	" -S <int>    whether to correct structure before error correction, [1]\n"
 	" -v          Verbose\n"
+	" -V          Print version information and then exit\n"
 	"\n");
 	return 1;
 }
@@ -467,7 +468,7 @@ int main(int argc, char **argv){
 	infs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
-	while((c = getopt(argc, argv, "hvt:k:i:o:fj:Z:W:C:M:X:I:D:E:H:L:m:c:S:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:k:i:o:fj:Z:W:C:M:X:I:D:E:H:L:m:c:S:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
@@ -490,6 +491,7 @@ int main(int argc, char **argv){
 			case 'c': candidate_mode = atoi(optarg); break;
 			case 'S': corr_struct = atoi(optarg); break;
 			case 'v': cns_debug ++; break;
+			case 'V': fprintf(stdout, "wtpoa-cns 1.1\n"); return 0;
 			default: return usage();
 		}
 	}
