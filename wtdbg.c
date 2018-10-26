@@ -22,33 +22,36 @@
 #include <getopt.h>
 #include <regex.h>
 
-#define WT_MAX_RD			0x03FFFFFF
-#define WT_MAX_RDLEN		0x0003FFFF
+#define WT_MAX_RDLEN_BIT    18
+
+#define WT_MAX_RD_BIT       (64 - 2 - WT_MAX_RDLEN_BIT - WT_MAX_RDLEN_BIT)
+#define WT_MAX_RD			((1 << WT_MAX_RD_BIT) - 1)
+#define WT_MAX_RDLEN		((1 << WT_MAX_RDLEN_BIT) - 1)
 #define WT_MAX_NODE			0x000000FFFFFFFFFFLLU
 #define WT_MAX_EDGE			0x000000FFFFFFFFFFLLU
 #define WT_MAX_NODE_EDGES	0xFFFF
 #define WT_MAX_EDGE_COV		0x7FFF
 
 typedef struct {
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:WT_MAX_RD_BIT, dir:1, beg:WT_MAX_RDLEN_BIT, end:WT_MAX_RDLEN_BIT, closed:1;
 } rd_frg_t;
 define_list(rdfrgv, rd_frg_t);
 
 typedef struct {
 	u8i node;
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:WT_MAX_RD_BIT, dir:1, beg:WT_MAX_RDLEN_BIT, end:WT_MAX_RDLEN_BIT, closed:1;
 } rd_reg_t;
 define_list(rdregv, rd_reg_t);
 
 typedef struct {
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:WT_MAX_RD_BIT, dir:1, beg:WT_MAX_RDLEN_BIT, end:WT_MAX_RDLEN_BIT, closed:1;
 	u8i read_link;
 } rd_rep_t;
 define_list(rdrepv, rd_rep_t);
 
 typedef struct {
 	u8i node;
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:WT_MAX_RD_BIT, dir:1, beg:WT_MAX_RDLEN_BIT, end:WT_MAX_RDLEN_BIT, closed:1;
 	u8i read_link;
 } reg_t;
 define_list(regv, reg_t);
@@ -5709,7 +5712,7 @@ int gen_seq_traces_graph(Graph *g, tracev *path, String *seq){
 }
 
 typedef struct {
-	uint64_t rid:26, dir:1, beg:18, end:18, view:1;
+	uint64_t rid:WT_MAX_RD_BIT, dir:1, beg:WT_MAX_RDLEN_BIT, end:WT_MAX_RDLEN_BIT, view:1;
 } lay_reg_t;
 define_list(layregv, lay_reg_t);
 
