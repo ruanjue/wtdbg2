@@ -39,4 +39,4 @@ clear:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out
 
 install: $(PROGS)
-	cp -fvu $(PROGS) $(BIN)
+	mkdir -p $(BIN) && cp -fvu $(PROGS) $(BIN)
