@@ -491,7 +491,7 @@ int main(int argc, char **argv){
 			case 'c': candidate_mode = atoi(optarg); break;
 			case 'S': corr_struct = atoi(optarg); break;
 			case 'v': cns_debug ++; break;
-			case 'V': fprintf(stdout, "wtpoa-cns 1.1\n"); return 0;
+			case 'V': fprintf(stdout, "wtdbg-cns 1.1\n"); return 0;
 			default: return usage();
 		}
 	}

@@ -24,7 +24,7 @@ int kbm_usage(){
 	fprintf(stdout, "         it maps query sequence against reference by kmer matching\n");
 	fprintf(stdout, "         matched kmer-pairs are bined (256bp) and counted in a matrix\n");
 	fprintf(stdout, "         dynamic programming is used to search the best path\n");
-	fprintf(stdout, "Version: 1.2.8 r1 (20171129)\n");
+	fprintf(stdout, "Version: 2.1\n");
 	fprintf(stdout, "Author: Jue Ruan <ruanjue@gmail.com>\n");
 	fprintf(stdout, "Usage: kbm <options> [start|list|stop]\n");
 	fprintf(stdout, "Options:\n");
@@ -69,6 +69,7 @@ int kbm_usage(){
 	fprintf(stdout, " -W <string> Dump kbm index to file, [NULL]\n");
 	fprintf(stdout, " -R <string> Load kbm index from file, [NULL]\n");
 	fprintf(stdout, " -q          Quiet\n");
+	fprintf(stdout, " -V          Print version information and then exit\n");
 #if __DEBUG__
 	fprintf(stdout, " -v          Verbose, +\n");
 #endif
@@ -170,7 +171,7 @@ int kbm_main(int argc, char **argv){
 	server = 0;
 	tree_maxcnt = 10;
 	opt_flags = 0;
-	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:cCT:W:R:qv")) != -1){
+	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:cCT:W:R:qvV")) != -1){
 		switch(c){
 			case 'h': return kbm_usage();
 			case 'i': push_cplist(qrys, optarg); break;
@@ -210,6 +211,7 @@ int kbm_main(int argc, char **argv){
 			case 'R': loadf = optarg; break;
 			case 'q': quiet = 1; break;
 			case 'v': KBM_LOG ++; break;
+			case 'V': fprintf(stdout, "kbm 2.1\n"); return 0;
 			default: return kbm_usage();
 		}
 	}
