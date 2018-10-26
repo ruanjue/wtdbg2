@@ -398,7 +398,7 @@ int main(int argc, char **argv){
 	infs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
-	while((c = getopt(argc, argv, "hvt:i:o:fS:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:i:o:fS:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
