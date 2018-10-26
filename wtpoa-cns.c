@@ -365,6 +365,7 @@ int usage(){
 	" -N <int>    Max number of reads in PO-MSA [20]\n"
 	"             Keep in mind that I am not going to generate high accurate consensus sequences here\n"
 	" -v          Verbose\n"
+	" -V          Print version information and then exit\n"
 	"\n");
 	return 1;
 }
@@ -419,6 +420,7 @@ int main(int argc, char **argv){
 			case 'F': minfreq = atof(optarg); break;
 			case 'N': seqmax = atoi(optarg); break;
 			case 'v': cns_debug ++; break;
+			case 'V': fprintf(stdout, "wtpoa-cns 1.1\n"); return 0;
 			default: return usage();
 		}
 	}
