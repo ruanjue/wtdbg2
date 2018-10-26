@@ -6380,6 +6380,7 @@ static struct option prog_opts[] = {
 	{"node-matched-bins",                1, 0, 1031},
 	{"rescue-low-cov-edges",             0, 0, 1032},
 	{"drop-low-cov-edges",               0, 0, 1033},
+	{"version",                          0, 0, 1034},
 	{0, 0, 0, 0}
 };
 
@@ -6421,6 +6422,7 @@ int usage(int level){
 	" -e <int>    Min read depth of a valid edge, [3]\n"
 	" -q          Quiet\n"
 	" -v          Verbose (can be multiple)\n"
+	" --version   Print version information and then exit\n"
 	" --help      Show more options\n"
 #ifdef TIMESTAMP
 	, TOSTR(TIMESTAMP)
@@ -6560,7 +6562,7 @@ int usage(int level){
 	"\n"
 		);
 	}
-	return 1;
+	return (level < 0)? 1 : 0;
 }
 
 int main(int argc, char **argv){
@@ -6709,10 +6711,11 @@ int main(int argc, char **argv){
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
-			default: return usage(0);
+			case 1034: fprintf(stdout, "wtdbg2 2.1\n"); return 0;
+			default: return usage(-1);
 		}
 	}
-	if (optind == 1) return usage(0);
+	if (optind == 1) return usage(-1);
 	if (optind < argc){
 		fprintf(stderr, "WARNING: unused command-line arguments. For multiple input files, please apply multiple -i.\n");
 		fprintf(stderr, "WARNING: try to recognize and add to input files list\n");
@@ -6738,7 +6741,7 @@ int main(int argc, char **argv){
 	if(node_cov == 0) node_cov = edge_cov;
 	if(!overwrite && file_exists(prefix)){
 		fprintf(stderr, "File exists! '%s'\n\n", prefix);
-		return usage(0);
+		return usage(-1);
 	}
 	if(max_idx_bp == 0) max_idx_bp = 0xFFFFFFFFFFFFFFFFLLU;
 	if(par->ksize + par->psize > 25){
