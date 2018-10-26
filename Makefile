@@ -38,5 +38,5 @@ clean:
 clear:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out
 
-install:
+install: $(PROGS)
 	cp -fvu $(PROGS) $(BIN)
