@@ -740,7 +740,7 @@ if(midx->task == 1){
 				mx->bidx = bidx;
 				mx->dir  = i;
 				mx->koff = f->off;
-				if(kidxs[f->kidx]->size >= 64){
+				if(kidxs[f->kidx]->size == 64){
 					push_u4v(chgs, f->kidx);
 				}
 			}
