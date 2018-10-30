@@ -14,9 +14,9 @@ CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DTIMESTAMP="$(TIMESTAMP)" 
 endif
 
 GLIBS=-lm -lrt -lpthread
-GENERIC_SRC=mem_share.h string.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h sort.h list.h dna.h thread.h
+GENERIC_SRC=mem_share.h string.h sort.h list.h pgzf.h  sort.h list.h dna.h thread.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h
 
-PROGS=kbm wtdbg2 wtdbg-cns wtpoa-cns
+PROGS=kbm wtdbg2 wtdbg-cns wtpoa-cns pgzf
 
 all: $(PROGS)
 
@@ -31,6 +31,9 @@ wtdbg-cns: $(GENERIC_SRC) wtdbg-cns.c kswx.h ksw.h ksw.c dbgcns.h dagcns.h queue
 
 wtpoa-cns: $(GENERIC_SRC) wtpoa-cns.c poacns.h tripoa.h ksw.h ksw.c
 	$(CC) $(CFLAGS) -o $@ wtpoa-cns.c ksw.c $(GLIBS)
+
+pgzf: mem_share.h sort.h list.h thread.h pgzf.h
+	$(CC) $(CFLAGS) -o $@ pgzf.c $(GLIBS)
 
 clean:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out $(PROGS)
