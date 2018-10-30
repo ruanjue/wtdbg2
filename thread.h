@@ -59,6 +59,8 @@ if(sizeof(*location) == 1){	\
 _result;	\
 })
 
+#define thread_typeof(tname) (struct tname##_struct)
+
 #define thread_begin_def(tname)	\
 struct tname##_struct {		\
 	struct tname##_struct *tname##_params;	\
@@ -73,6 +75,16 @@ struct tname##_struct {		\
 	pthread_mutex_t _COND_LOCK;	\
 	pthread_cond_t _COND
 #define thread_end_def(tname) }
+
+#define thread_def_shared_vars(tname)	\
+	struct tname##_struct *tname##_params;	\
+	pthread_t *tname##_pids;	\
+	pthread_mutex_t *tname##_mlock;	\
+	pthread_rwlock_t *tname##_rwlock;	\
+	struct tname##_struct *tname;	\
+	int tname##_i;	\
+	int tname##_j;	\
+	int tname##_var_next
 
 #define thread_beg_def(tname) thread_begin_def(tname)
 
@@ -129,22 +141,29 @@ struct tname##_struct {		\
 	pthread_mutex_unlock(&tname->_COND_LOCK)
 #define thread_end_func(tname) return NULL; }
 
-#define thread_preprocess(tname) struct tname##_struct * tname##_params = NULL;\
-	struct tname##_struct * tname = NULL;\
-	pthread_mutex_t tname##_mlock = PTHREAD_MUTEX_INITIALIZER;\
-	pthread_rwlock_t tname##_rwlock = PTHREAD_RWLOCK_INITIALIZER; \
-	pthread_t * tname##_pids = NULL;\
-	int tname##_i = 0;	\
-	int tname##_j = 0;\
-	int tname##_var_next = 0
+#define thread_preprocess(tname)		\
+	thread_def_shared_vars(tname);	\
+	(void)(tname##_params);	\
+	(void)(tname##_pids);	\
+	(void)(tname##_mlock);	\
+	(void)(tname##_rwlock);	\
+	(void)(tname);	\
+	(void)(tname##_i);	\
+	(void)(tname##_j);	\
+	(void)(tname##_var_next)
+
 #define thread_prepare(tname) thread_preprocess(tname)
 #define thread_begin_init(tname, n_thread) assert(n_thread > 0);\
 	tname##_params = (struct tname##_struct *)malloc(sizeof(struct tname##_struct) * n_thread);\
 	tname##_pids = (pthread_t *)malloc(sizeof(pthread_t) * n_thread); \
+	tname##_mlock = calloc(1, sizeof(pthread_mutex_t));	\
+	*tname##_mlock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;	\
+	tname##_rwlock = calloc(1, sizeof(pthread_rwlock_t));	\
+	*tname##_rwlock = (pthread_rwlock_t)PTHREAD_RWLOCK_INITIALIZER;	\
 	for(tname##_i=0,tname##_j=0;tname##_i<(int)(n_thread);tname##_i++){ \
 		tname = tname##_params + tname##_i;\
-		tname->mutex_lock = &tname##_mlock;\
-		tname->rw_lock = &tname##_rwlock;\
+		tname->mutex_lock = tname##_mlock;\
+		tname->rw_lock = tname##_rwlock;\
 		tname->_COND_LOCK = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;	\
 		tname->_COND = (pthread_cond_t)PTHREAD_COND_INITIALIZER;	\
 		tname->n_cpu      = n_thread;\
@@ -177,8 +196,36 @@ struct tname##_struct {		\
 			if(_stop) break;	\
 		}	\
 	}\
-	if(tname##_var_next) tname##_var_next = 0;	\
-	if(tname##_j) tname##_j = 0
+	tname = tname##_params + 0;	\
+	tname##_var_next = 0;	\
+	tname##_i = 0;	\
+	tname##_j = 0
+
+#define thread_export_core(tname, params, pids, mlock, rwlock, i, j, next)	\
+do {	\
+	params = tname##_params;	\
+	pids   = tname##_pids;	\
+	mlock  = tname##_mlock;	\
+	rwlock = tname##_rwlock;	\
+	i      = tname##_i;	\
+	j      = tname##_j;	\
+	next   = tname##_var_next;	\
+} while(0)
+
+#define thread_export(tname, obj) thread_export_core(tname, (obj)->tname##_params, (obj)->tname##_pids, (obj)->tname##_mlock, (obj)->tname##_rwlock, (obj)->tname##_i, (obj)->tname##_j, (obj)->tname##_var_next)
+
+#define thread_import_core(tname, params, pids, mlock, rwlock, i, j, next)	\
+do {	\
+	tname##_params = params;	\
+	tname##_pids   = pids;	\
+	tname##_mlock  = mlock;	\
+	tname##_rwlock = rwlock;	\
+	tname##_i      = i;	\
+	tname##_j      = j;	\
+	tname##_var_next   = next;	\
+} while(0)
+
+#define thread_import(tname, obj) thread_import_core(tname, (obj)->tname##_params, (obj)->tname##_pids, (obj)->tname##_mlock, (obj)->tname##_rwlock, (obj)->tname##_i, (obj)->tname##_j, (obj)->tname##_var_next)
 
 #define thread_begin_operate(tname, idx) tname = tname##_params + idx
 #define thread_beg_operate(tname, idx) thread_begin_operate(tname, idx)
@@ -260,7 +307,7 @@ while(1){	\
 		thread_wait(tname);\
 		pthread_join(tname##_pids[tname##_i], NULL)
 #define thread_beg_close(tname) thread_begin_close(tname)
-#define thread_end_close(tname) }  free((void*)tname##_params); free(tname##_pids)
+#define thread_end_close(tname) }  free((void*)tname##_params); free(tname##_pids); free(tname##_mlock); free(tname##_rwlock)
 
 #define thread_run(tname, ncpu, vars_expr, init_expr, free_expr, pre_expr, loop_expr, post_expr, invoke_expr)	\
 {	\
