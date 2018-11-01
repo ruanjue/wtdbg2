@@ -397,13 +397,14 @@ int main(int argc, char **argv){
 	infs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
-	while((c = getopt(argc, argv, "hvVt:i:o:fS:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:i:o:fj:S:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(infs, optarg); break;
 			case 'o': outf = optarg; break;
 			case 'f': overwrite = 1; break;
+			case 'j': reglen = atoi(optarg); break;
 			case 'S': use_sse = atoi(optarg); break;
 			case 'B': bandwidth = atoi(optarg); break;
 			case 'W': winlen = atoi(optarg); break;
