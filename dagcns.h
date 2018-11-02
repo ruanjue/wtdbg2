@@ -18,7 +18,7 @@
  */
 
 #include "dna.h"
-#include "string.h"
+#include "chararray.h"
 #include "list.h"
 #include "queue.h"
 #include "hashset.h"

@@ -24,7 +24,7 @@ int kbm_usage(){
 	fprintf(stdout, "         it maps query sequence against reference by kmer matching\n");
 	fprintf(stdout, "         matched kmer-pairs are bined (256bp) and counted in a matrix\n");
 	fprintf(stdout, "         dynamic programming is used to search the best path\n");
-	fprintf(stdout, "Version: 2.1\n");
+	fprintf(stdout, "Version: 2.2\n");
 	fprintf(stdout, "Author: Jue Ruan <ruanjue@gmail.com>\n");
 	fprintf(stdout, "Usage: kbm <options> [start|list|stop]\n");
 	fprintf(stdout, "Options:\n");
@@ -44,10 +44,10 @@ int kbm_usage(){
 	fprintf(stdout, " -E <int>    Min kmer frequency, [1]\n");
 	fprintf(stdout, " -F          Filter low frequency kmers by a 4G-bytes array (max_occ=3 2-bits). Here, -E must greater than 1\n");
 	fprintf(stdout, " -O <int>    Filter low complexity bins (#indexed_kmer less than <-O>), [2]\n");
-	fprintf(stdout, " -S <int>    Subsampling kmers, 1/(<-S>) kmers are indexed, [4]\n");
+	fprintf(stdout, " -S <float>  Subsampling kmers, 1/(<-S>) kmers are indexed, [4.00]\n");
 	fprintf(stdout, "             -S is very useful in saving memeory and speeding up\n");
 	fprintf(stdout, "             please note that subsampling kmers will have less matched length\n");
-	fprintf(stdout, " -B <int>    Select no more than n seeds in a query bin, [32]\n");
+	fprintf(stdout, " -B <int>    Select no more than n seeds in a query bin, [256]\n");
 	// Obsolete
 	//fprintf(stdout, " -G <int>    Recognize error kmers in a bin when be aligned >= <-G> times, [0]\n");
 	fprintf(stdout, "             If you are using shared kbmidx by other process using -D too, it will bring wrong behavior\n");
@@ -59,7 +59,8 @@ int kbm_usage(){
 	fprintf(stdout, " -y <int>    penalty for BIN deviation, [-21]\n");
 	fprintf(stdout, " -l <int>    Min alignment length, [2048]\n");
 	fprintf(stdout, " -m <int>    Min matched length, [200]\n");
-	fprintf(stdout, " -s <float>  Max length variation of two aligned fragments, [0.2]\n");
+	fprintf(stdout, " -s <float>  Max length variation of two aligned fragments, [0.05]\n");
+	fprintf(stdout, " -r <float>  Max length variation of two aligned fragments, [0.2]\n");
 	fprintf(stdout, " -c          Insist to query contained reads against all\n");
 	fprintf(stdout, " -C          Chainning alignments\n");
 	fprintf(stdout, " -n <int>    Max hits per query, [1000]\n");
@@ -171,7 +172,7 @@ int kbm_main(int argc, char **argv){
 	server = 0;
 	tree_maxcnt = 10;
 	opt_flags = 0;
-	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:cCT:W:R:qvV")) != -1){
+	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:r:cCT:W:R:qvV")) != -1){
 		switch(c){
 			case 'h': return kbm_usage();
 			case 'i': push_cplist(qrys, optarg); break;
@@ -189,7 +190,7 @@ int kbm_main(int argc, char **argv){
 			case 'E': par->kmin = atoi(optarg); break;
 			case 'F': par->use_kf = 1; break;
 			case 'O': par->min_bin_degree = atoi(optarg); break;
-			case 'S': par->kmer_mod = atoi(optarg) * KBM_N_HASH; opt_flags |= (1 << 2); break;
+			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2); break;
 			case 'B': par->ksampling = atoi(optarg); break;
 			case 'G': solid_kmer = atoi(optarg); break;
 			case 'D': par->strand_mask = atoi(optarg); break;
@@ -201,7 +202,8 @@ int kbm_main(int argc, char **argv){
 			case 'l': par->min_aln = atoi(optarg); break;
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 'n': par->max_hit = atoi(optarg); break;
-			case 's': par->aln_var = atof(optarg); break;
+			case 's': par->min_sim = atof(optarg); break;
+			case 'r': par->aln_var = atof(optarg); break;
 			case 'c': skip_ctn = 0; break;
 			case 'C': chainning = 1; break;
 #ifdef TEST_MODE
@@ -211,7 +213,7 @@ int kbm_main(int argc, char **argv){
 			case 'R': loadf = optarg; break;
 			case 'q': quiet = 1; break;
 			case 'v': KBM_LOG ++; break;
-			case 'V': fprintf(stdout, "kbm 2.1\n"); return 0;
+			case 'V': fprintf(stdout, "kbm 2.2\n"); return 0;
 			default: return kbm_usage();
 		}
 	}
@@ -328,7 +330,7 @@ int kbm_main(int argc, char **argv){
 		ready_kbm(kbm);
 		fprintf(KBM_LOGF, "[%s] %u sequences, %llu bp, %u bins\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, (u4i)kbm->bins->size);
 		fprintf(KBM_LOGF, "[%s] indexing, %d threads\n", date(), ncpu);
-		index_kbm(kbm, 0, kbm->bins->size, ncpu);
+		index_kbm(kbm, 0, kbm->bins->size, ncpu, NULL);
 		if(dumpf){
 			u8i size;
 			dump = open_file_for_write(dumpf, NULL, 1);

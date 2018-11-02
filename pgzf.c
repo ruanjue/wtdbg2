@@ -28,8 +28,9 @@ int usage(int ret){
 	"Options:\n"
 	" -d          Decompress mode\n"
 	" -t <int>    Number of threads, [8]\n"
-	" -o <string> Output file name\n"
 	" -f          Force to overwrite\n"
+	" -o <string> Output file name\n"
+	" -x          Delete input files after done, need to specify `-o` or/and `-f`\n"
 	" -b <int>    Block size in MB, 1 ~ 256 [16]\n"
 	" -l <int>    Compress level, 1-9, see gzip, [6]\n"
 	" -h          Show this document\n"
@@ -53,14 +54,15 @@ int main(int argc, char **argv){
 	FILE *in, *out;
 	void *buff;
 	u4i bufsize, nbyte;
-	int c, rw, ncpu, level, overwrite;
+	int c, rw, ncpu, level, overwrite, del;
 	rw = PGZF_MODE_W;
 	ncpu = 8;
 	bufsize = PGZF_DEFAULT_BUFF_SIZE;
 	level = 6;
 	overwrite = 0;
+	del = 0;
 	outf = NULL;
-	while((c = getopt(argc, argv, "hdft:b:l:o:V")) != -1){
+	while((c = getopt(argc, argv, "hdxft:b:l:o:V")) != -1){
 		switch(c){
 			case 'h': return usage(0);
 			case 'd': rw = PGZF_MODE_R; break;
@@ -69,11 +71,26 @@ int main(int argc, char **argv){
 			case 'l': level = atoi(optarg); break;
 			case 'f': overwrite = 1; break;
 			case 'o': outf = optarg; break;
+			case 'x': del = 1; break;
 			case 'V': fprintf(stdout, "pgzf 1.0\n"); return 0;
 			default: return usage(1);
 		}
 	}
+	if(del){
+		if(outf == NULL && overwrite == 0){
+			if(optind < argc){
+				fprintf(stderr, " ** WARNNING: won't delete input files. To force delete input files, please specify -o or/and -f\n");
+			}
+			del = 0;
+		}
+	}
 	if(outf){
+		for(c=optind;c<argc;c++){
+			if(strcmp(outf, argv[c]) == 0){
+				fprintf(stderr, " ** ERROR: The same file in INPUT and OUTPUT, '%s'\n", outf);
+				return 1;
+			}
+		}
 		out = open_file_for_write(outf, NULL, overwrite);
 	} else {
 		out = stdout;
@@ -83,7 +100,6 @@ int main(int argc, char **argv){
 		do {
 			if(optind < argc){
 				in = open_file_for_read(argv[optind], NULL);
-				optind ++;
 			} else {
 				in = stdin;
 			}
@@ -92,21 +108,32 @@ int main(int argc, char **argv){
 				fwrite(buff, 1, nbyte, out);
 			}
 			close_pgzf(pz);
-			if(in != stdin) fclose(in);
+			if(in != stdin){
+				fclose(in);
+				if(del){
+					unlink(argv[optind]);
+				}
+			}
+			optind ++;
 		} while(optind < argc);
 	} else {
 		pz = open_pgzf_writer(out, bufsize, ncpu, level);
 		do {
 			if(optind < argc){
 				in = open_file_for_read(argv[optind], NULL);
-				optind ++;
 			} else {
 				in = stdin;
 			}
 			while((nbyte = fread(buff, 1, bufsize, in))){
 				write_pgzf(pz, buff, nbyte);
 			}
-			if(in != stdin) fclose(in);
+			if(in != stdin){
+				fclose(in);
+				if(del){
+					unlink(argv[optind]);
+				}
+			}
+			optind ++;
 		} while(optind < argc);
 		close_pgzf(pz);
 	}

@@ -22,13 +22,23 @@
 
 #include "mem_share.h"
 #include "thread.h"
+#include "pgzf.h"
+
+typedef size_t (*write_data_func)(void *obj, void *dat, size_t len);
+typedef void (*close_output_func)(void *obj);
+
+static inline size_t _write_data_file(void *obj, void *dat, size_t len){ return fwrite(dat, 1, len, (FILE*)obj); }
+static inline void _close_output_file(void *obj){ if(obj) fclose((FILE*)obj); }
 
 /**
  * BufferedWriter
  */
 typedef struct {
 	FILE *bios[2];
-	FILE *out, *_out_;
+	FILE *out;
+	void *_file;
+	write_data_func _write;
+	close_output_func _close;
 	int bidx;
 	size_t buf_size;
 	char *buffs[2];
@@ -59,7 +69,7 @@ static inline void* _buffered_writer_thread_func(void *obj){
 		}
 		if(bsize[!bidx]){
 			fflush(bw->bios[!bidx]);
-			fwrite(bw->buffs[!bidx], 1, bsize[!bidx], bw->_out_);
+			bw->_write(bw->_file, bw->buffs[!bidx], bsize[!bidx]);
 			bw->nbytes += bsize[!bidx];
 			fseek(bw->bios[!bidx], 0, SEEK_SET);
 		}
@@ -87,21 +97,23 @@ static inline void* _buffered_writer_thread_func(void *obj){
 		fflush(bw->bios[1]);
 		bidx = bw->bidx;
 		if(bsize[!bidx]){
-			fwrite(bw->buffs[!bidx], 1, bsize[!bidx], bw->_out_);
+			bw->_write(bw->_file, bw->buffs[!bidx], bsize[!bidx]);
 			bw->nbytes += bsize[!bidx];
 		}
 		if(bsize[bidx]){
-			fwrite(bw->buffs[bidx], 1, bsize[bidx], bw->_out_);
+			bw->_write(bw->_file, bw->buffs[bidx], bsize[bidx]);
 			bw->nbytes += bsize[bidx];
 		}
 	}
 	return NULL;
 }
 
-static inline BufferedWriter* open_bufferedwriter(FILE *out, size_t buf_size){
+static inline BufferedWriter* open2_bufferedwriter(void *obj, write_data_func _write, close_output_func _close, size_t buf_size){
 	BufferedWriter *bw;
 	bw = malloc(sizeof(BufferedWriter));
-	bw->_out_ = out;
+	bw->_file = obj;
+	bw->_write = _write;
+	bw->_close = _close;
 	bw->buffs[0] = NULL;
 	bw->buffs[1] = NULL;
 	bw->blens[0] = 0;
@@ -122,33 +134,52 @@ static inline BufferedWriter* open_bufferedwriter(FILE *out, size_t buf_size){
 	return bw;
 }
 
-static inline void beg_bufferedwriter(BufferedWriter *bw){
+static inline BufferedWriter* open_bufferedwriter(FILE *out, size_t buf_size){
+	return open2_bufferedwriter(out, _write_data_file, NULL, buf_size);
+}
+
+static inline BufferedWriter* zopen_bufferedwriter(FILE *out, size_t buf_size, int ncpu, int level){
+	PGZF *pz;
+	pz = open_pgzf_writer(out, buf_size, ncpu, level);
+	return open2_bufferedwriter(pz, write_pgzf4filewriter, close_pgzf4filewriter, pz->bufsize);
+}
+
+static inline int beg_bufferedwriter(BufferedWriter *bw){
 	if(bw->pid){
 		while(bw->flush){ nano_sleep(1); }
 		pthread_mutex_lock(&bw->lock);
 		bw->out = bw->bios[bw->bidx];
+		return 0;
 	} else {
-		bw->out = bw->_out_;
+		bw->out = NULL;
+		return 1; // error
 	}
 }
 
-static inline void end_bufferedwriter(BufferedWriter *bw){
+static inline int end_bufferedwriter(BufferedWriter *bw){
 	if(bw->pid){
 		pthread_mutex_unlock(&bw->lock);
 	}
 	bw->out = NULL;
+	return 0;
 }
 
 static inline size_t flush_bufferedwriter(BufferedWriter *bw){
 	size_t ret;
-	bw->flush = 1;
-	while(bw->flush == 1){
-		nano_sleep(1);
+	if(bw->pid){
+		pthread_mutex_unlock(&bw->lock);
+		while(bw->flush == 1){ nano_sleep(1); }
+		bw->flush = 1;
+		while(bw->flush == 1){
+			nano_sleep(1);
+		}
+		pthread_mutex_lock(&bw->lock);
+		bw->flush = 0;
+		bw->out = bw->bios[bw->bidx];
+		ret = bw->nbytes;
+	} else {
+		ret = 0;
 	}
-	pthread_mutex_lock(&bw->lock);
-	bw->flush = 0;
-	ret = bw->nbytes;
-	pthread_mutex_unlock(&bw->lock);
 	return ret;
 }
 
@@ -162,6 +193,9 @@ static inline size_t close_bufferedwriter(BufferedWriter *bw){
 	fclose(bw->bios[1]);
 	if(bw->blens[0]) free(bw->buffs[0]);
 	if(bw->blens[1]) free(bw->buffs[1]);
+	if(bw->_close){
+		bw->_close(bw->_file);
+	}
 	ret = bw->nbytes;
 	free(bw);
 	return ret;

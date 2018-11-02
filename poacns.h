@@ -22,7 +22,7 @@
 
 #include "bit2vec.h"
 #include "dna.h"
-#include "string.h"
+#include "chararray.h"
 #include "list.h"
 #include "hashset.h"
 #include <emmintrin.h>

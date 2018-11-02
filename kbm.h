@@ -28,6 +28,7 @@
 #include "bitsvec.h"
 #include "bit2vec.h"
 #include "thread.h"
+#include "txtplot.h"
 
 //#define __DEBUG__	1
 #define TEST_MODE
@@ -158,7 +159,7 @@ typedef struct {
 	int use_kf; // 0
 	int min_bin_degree; // 2
 	u4i ksize, psize; // 0, 21
-	u4i kmax, kmin, kmer_mod, ksampling; // 1000, 1, 4 * KBM_N_HASH, KBM_BSIZE
+	u4i kmax, kmin, kmer_mod, ksampling; // 1000, 1, 4.0 * KBM_N_HASH, KBM_BSIZE
 	float ktop; // 0.05
 	// runtime
 	u4i strand_mask; // 3. 1: forward; 2: reverse; 3: both
@@ -172,13 +173,14 @@ typedef struct {
 	u4i max_hit; // 1000
 	int min_aln, min_mat; // 2048, 200
 	float aln_var; // 0.2
+	float min_sim; // kmer similarity: 0.05
 	int test_mode; // see codes
 } KBMPar;
 
 static const obj_desc_t kbmpar_obj_desc = {"kbmpar_obj_desc", sizeof(KBMPar), 0, {}, {}, {}, NULL, NULL};
 
 typedef struct {
-	u8i      flags; // 64 bits, 0: mem_load, 1-63: unused
+	u8i      flags; // 64 bits, 0: mem_load all, 1: mem_load rdseqs+reads; 2-63: unused
 	KBMPar   *par;
 	BaseBank *rdseqs;
 	kbmreadv *reads;
@@ -284,6 +286,7 @@ static inline KBMPar* init_kbmpar(){
 	par->max_hit = 1000;
 	par->min_aln = 2048;
 	par->min_mat = 200;
+	par->min_sim = 0.05;
 	par->aln_var = 0.2;
 	par->test_mode = 0;
 	return par;
@@ -313,9 +316,13 @@ static inline KBM* init_kbm(KBMPar *par){
 
 static inline void free_kbm(KBM *kbm){
 	u4i i;
-	free_basebank(kbm->rdseqs);
-	for(i=0;i<kbm->reads->size;i++) free(kbm->reads->buffer[i].tag);
-	free_kbmreadv(kbm->reads);
+	if(kbm->flags & 0x1) return;
+	if(kbm->flags & 0x2){
+	} else {
+		free_basebank(kbm->rdseqs);
+		for(i=0;i<kbm->reads->size;i++) free(kbm->reads->buffer[i].tag);
+		free_kbmreadv(kbm->reads);
+	}
 	free_cuhash(kbm->tag2idx);
 	free_kbmbinv(kbm->bins);
 	free_bitvec(kbm->binmarks);
@@ -376,23 +383,38 @@ static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, int seql
 static inline void ready_kbm(KBM *kbm){
 	kbm_read_t *rd;
 	u4i i, j;
-	if(kbm->par->rd_len_order){
-		sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.rdlen, a.rdlen));
+	if((kbm->flags & 0x2) == 0){
+		if(kbm->par->rd_len_order){
+			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.rdlen, a.rdlen));
+		}
+		encap_basebank(kbm->rdseqs, KBM_BSIZE);
 	}
-	encap_basebank(kbm->rdseqs, KBM_BSIZE);
 	clear_kbmbinv(kbm->bins);
 	for(i=0;i<kbm->reads->size;i++){
 		rd = ref_kbmreadv(kbm->reads, i);
 		if(rd->tag) put_cuhash(kbm->tag2idx, (cuhash_t){rd->tag, i});
-		rd->binoff = kbm->bins->size;
+		if((kbm->flags & 0x2) == 0) rd->binoff = kbm->bins->size;
 		for(j=0;j+KBM_BIN_SIZE<=rd->rdlen;j+=KBM_BIN_SIZE){
 			push_kbmbinv(kbm->bins, (kbm_bin_t){i, j / KBM_BIN_SIZE, 0, 0});
 		}
-		rd->bincnt = j / KBM_BIN_SIZE;
+		if((kbm->flags & 0x2) == 0) rd->bincnt = j / KBM_BIN_SIZE;
 	}
 	clear_bitvec(kbm->binmarks);
 	encap_bitvec(kbm->binmarks, kbm->bins->size);
 	kbm->binmarks->n_bit = kbm->bins->size;
+}
+
+// Share seqs, reads
+static inline KBM* clone_seqs_kbm(KBM *src, KBMPar *par){
+	KBM *dst;
+	dst = init_kbm(par);
+	free_basebank(dst->rdseqs);
+	free_kbmreadv(dst->reads);
+	dst->rdseqs = src->rdseqs;
+	dst->reads  = src->reads;
+	dst->flags  = 1LLU << 1;
+	ready_kbm(dst); // Notice encap_basebank in ready_kbm
+	return dst;
 }
 
 // rs[0]->n_head MUST >= 1
@@ -663,32 +685,26 @@ if(midx->task == 1){
 	}
 } else if(midx->task == 2){
 	// delete low freq kmers
-	midx->none = 0;
 	for(i=tidx;i<KBM_N_HASH;i+=ncpu){
 		reset_iter_kbmhash(kbm->hashs[i]);
 		while((u = ref_iter_kbmhash(kbm->hashs[i]))){
 			if(u->tot < kbm->par->kmin){
 				delete_kbmhash(kbm->hashs[i], u);
-				midx->none ++;
 			}
 		}
 	}
 } else if(midx->task == 3){
 	// stat kmer counts
-	midx->ktot = midx->none = 0;
+	memset(midx->cnts, 0, midx->n_cnt * sizeof(u8i));
 	for(i=tidx;i<KBM_N_HASH;i+=ncpu){
 		reset_iter_kbmhash(kbm->hashs[i]);
 		while((u = ref_iter_kbmhash(kbm->hashs[i]))){
-			midx->ktot += u->tot;
-			midx->cnts[num_min(midx->n_cnt - 1, u->tot)] ++;
-			if(u->tot > 100) midx->none ++;
+			midx->cnts[num_min(midx->n_cnt, u->tot) - 1] ++;
 		}
 	}
 } else if(midx->task == 4){
-	// stat valid kmers
+	// stat counts
 	midx->offset = 0;
-	//midx->none = 0;
-	midx->ktot = midx->nrem = midx->Nrem = midx->nflt = 0;
 	for(i=tidx;i<KBM_N_HASH;i+=ncpu){
 		reset_iter_kbmhash(kbm->hashs[i]);
 		while((u = ref_iter_kbmhash(kbm->hashs[i]))){
@@ -698,15 +714,10 @@ if(midx->task == 1){
 			midx->ktot += u->tot;
 			if(u->tot < kbm->par->kmin){
 				u->flt = 1;
-				midx->none ++;
 			} else if(u->tot > kbm->par->kmax){
-				//u->tot = 0;
 				u->flt = 1;
-				midx->nflt ++;
 			} else {
 				midx->offset += u->tot;
-				midx->nrem ++;
-				midx->Nrem += u->tot;
 			}
 		}
 	}
@@ -848,24 +859,23 @@ free(kidxs);
 free_tmpbmerv(bms);
 thread_end_func(midx);
 
-static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
+static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu, FILE *kmstat){
 	u8i ktyp, nflt, nrem, Nrem, none, ktot, srem, Srem, off, cnt, *kcnts, MAX;
-	u4i kavg, i, b, e, batch_size, n;
+	u4i kavg, i, j, b, e, batch_size, n;
 	pthread_mutex_t *hash_locks;
 	thread_preprocess(midx);
 	batch_size = 10000;
 	clear_kbmbmerv(kbm->seeds);
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmhash(kbm->hashs[i]);
-	MAX = 10000;
+	kcnts = NULL;
+	MAX = KBM_MAX_KCNT;
 	if(kbm->kfs){
 		free(kbm->kfs);
 		kbm->kfs = NULL;
 	}
 	if(kbm->par->kmin <= 1) kbm->par->use_kf = 0;
 	kbm->kfs = kbm->par->use_kf? calloc(KBM_KF_SIZE / 4 / 8, 8) : NULL;
-	if(1){
-		hash_locks = calloc(KBM_N_HASH, sizeof(pthread_mutex_t));
-	}
+	hash_locks = calloc(KBM_N_HASH, sizeof(pthread_mutex_t));
 	thread_beg_init(midx, ncpu);
 	midx->kbm = kbm;
 	midx->beg  = beg;
@@ -874,20 +884,75 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
 	midx->n_cnt = MAX;
 	midx->task = 0;
 	midx->cal_degree = 0;
-	if(1){
-		midx->locks = hash_locks;
-	}
+	midx->locks = hash_locks;
 	thread_end_init(midx);
-	fprintf(KBM_LOGF, "[%s] - scanning kmers (K%dP%d subsampling 1/%d) from %u bins\n", date(), kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod / KBM_N_HASH, end - beg);
+	fprintf(KBM_LOGF, "[%s] - scanning kmers (K%dP%dS%0.2f) from %u bins\n", date(), kbm->par->ksize, kbm->par->psize, 1.0 * kbm->par->kmer_mod / KBM_N_HASH, end - beg);
 	b = e = beg;
 	thread_apply_all(midx, midx->task = 1);
 	if(KBM_LOG == 0){ fprintf(KBM_LOGF, "\r%u bins\n", end - beg); fflush(KBM_LOGF); }
+	kcnts = calloc(MAX, sizeof(u8i));
+	thread_beg_iter(midx);
+	midx->cnts = calloc(MAX, sizeof(u8i));
+	midx->task = 3; // counting raw kmers
+	thread_wake(midx);
+	thread_end_iter(midx);
+	thread_beg_iter(midx);
+	thread_wait(midx);
+	for(i=0;i<MAX;i++) kcnts[i] += midx->cnts[i];
+	thread_end_iter(midx);
+	if(kmstat){
+		fprintf(kmstat, "#Reads: %llu\n", (u8i)kbm->reads->size);
+		fprintf(kmstat, "#Bases: %llu bp\n", (u8i)kbm->rdseqs->size);
+		fprintf(kmstat, "#K%dP%dS%0.2f\n", kbm->par->ksize, kbm->par->psize, 1.0 * kbm->par->kmer_mod / KBM_N_HASH);
+		for(i=0;i+1<MAX;i++){
+			fprintf(kmstat, "%u\t%llu\t%llu\n", i + 1, kcnts[i], (i + 1) * kcnts[i]);
+		}
+		fflush(kmstat);
+	}
+	if(kmstat){
+		u8i *_kcnts;
+		_kcnts = malloc(200 * sizeof(u8i));
+		for(i=0;i<200;i++){
+			_kcnts[i] = (i + 1) * kcnts[i];
+		}
+		char *txt = barplot_txt_u8_simple(100, 30, _kcnts, 200, 0);
+		fprintf(KBM_LOGF, "********************** Kmer Frequency **********************\n");
+		fputs(txt, KBM_LOGF);
+		fprintf(KBM_LOGF, "**********************     1 - 201    **********************\n");
+		ktyp = 0;
+		for(i=0;i<MAX;i++){
+			ktyp += (i + 1) * kcnts[i];
+		}
+		_kcnts[0] = 0.10 * ktyp;
+		_kcnts[1] = 0.20 * ktyp;
+		_kcnts[2] = 0.30 * ktyp;
+		_kcnts[3] = 0.40 * ktyp;
+		_kcnts[4] = 0.50 * ktyp;
+		_kcnts[5] = 0.60 * ktyp;
+		_kcnts[6] = 0.70 * ktyp;
+		_kcnts[7] = 0.80 * ktyp;
+		_kcnts[8] = 0.90 * ktyp;
+		_kcnts[9] = 0.95 * ktyp;
+		fprintf(KBM_LOGF, "Quatiles:\n");
+		fprintf(KBM_LOGF, "   10%%   20%%   30%%   40%%   50%%   60%%   70%%   80%%   90%%   95%%\n");
+		off = 0;
+		for(i=j=0;j<10;j++){
+			while(off < _kcnts[j] && i < MAX){
+				off += kcnts[i] * (i + 1);
+				i ++;
+			}
+			fprintf(KBM_LOGF, "%6u", i);
+		}
+		fprintf(KBM_LOGF, "\n");
+		fprintf(KBM_LOGF,
+			"# If the kmer distribution is not good, please kill me and adjust -k, -p\n"
+			"# Cannot get a good distribution anyway, should adjust -S -s, also -A -e in assembly\n"
+		);
+		free(_kcnts);
+		free(txt);
+	}
 	// delete low freq kmer from hash
 	thread_apply_all(midx, midx->task = 2);
-	none = 0;
-	thread_beg_iter(midx);
-	none += midx->none;
-	thread_end_iter(midx);
 	// freeze hash to save memory and speed up the query
 	for(i=0;i<KBM_N_HASH;i++){
 		if(0){
@@ -902,41 +967,34 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
 		kbm->kauxs[i]->size = kbm->hashs[i]->count;
 	}
 	print_proc_stat_info(0);
+	ktot = nrem = Nrem = none = nflt = ktyp = 0;
+	for(i=0;i+1<MAX;i++){
+		ktot += kcnts[i];
+		if(i + 1 < kbm->par->kmin){
+			none += kcnts[i];
+		} else {
+			ktyp += kcnts[i] * (i + 1);
+		}
+	}
 	if(kbm->par->kmax < 2){
-		kcnts = calloc(MAX, sizeof(u8i));
-		ktot = ktyp = 0;
-		thread_beg_iter(midx);
-		midx->cnts = calloc(MAX, sizeof(u8i));
-		midx->task = 3;
-		thread_wake(midx);
-		thread_end_iter(midx);
-		thread_beg_iter(midx);
-		thread_wait(midx);
-		ktot += midx->ktot;
-		ktyp += midx->none;
-		for(i=0;i<MAX;i++) kcnts[i] += midx->cnts[i];
-		free(midx->cnts);
-		midx->cnts = NULL;
-		thread_end_iter(midx);
-		ktyp = ktyp * kbm->par->ktop;
-		for(i=MAX;i>0;i--){
-			if(kcnts[i-1] < ktyp){
-				ktyp -= kcnts[i-1];
-			} else break;
+		off = 0;
+		for(i=MAX;i>kbm->par->kmin;i--){
+			off += kcnts[i-1] * i;
+			if(off >= (ktyp * kbm->par->ktop)) break;
 		}
 		kbm->par->kmax = i;
-		free(kcnts);
 		fprintf(KBM_LOGF, "[%s] - high frequency kmer depth is set to %d\n", date(), kbm->par->kmax);
 	}
-	ktot = nrem = Nrem = none = nflt = ktyp = 0;
+	for(i=kbm->par->kmin? kbm->par->kmin - 1 : 0;i<kbm->par->kmax;i++){
+		nrem += kcnts[i];
+		Nrem += kcnts[i] * (i + 1);
+	}
+	for(i=kbm->par->kmax;i+1<MAX;i++){
+		nflt += kcnts[i];
+	}
 	off = 0;
 	thread_apply_all(midx, midx->task = 4);
 	thread_beg_iter(midx);
-	ktot += midx->ktot;
-	nrem += midx->nrem;
-	Nrem += midx->Nrem;
-	none += midx->none;
-	nflt += midx->nflt;
 	cnt = midx->offset;
 	midx->offset = off;
 	off += cnt;
@@ -944,16 +1002,13 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
 	thread_wake(midx);
 	thread_end_iter(midx);
 	thread_wait_all(midx);
-	for(i=0;i<KBM_N_HASH;i++){
-		ktyp += kbm->hashs[i]->count; 
-	}
 	clear_and_encap_kbmbmerv(kbm->seeds, off + 1);
 	kbm->seeds->size = off;
 	free_kbmbauxv(kbm->sauxs);
 	kbm->sauxs = init_kbmbauxv(off + 1);
 	kbm->sauxs->size = off;
-	kavg = ktot / (ktyp + 1);
-	fprintf(KBM_LOGF, "[%s] - Total kmers = %llu\n", date(), ktyp);
+	kavg = Nrem / nrem;
+	fprintf(KBM_LOGF, "[%s] - Total kmers = %llu\n", date(), ktot);
 	fprintf(KBM_LOGF, "[%s] - average kmer depth = %d\n", date(), kavg);
 	fprintf(KBM_LOGF, "[%s] - %llu low frequency kmers (<%d)\n", date(), none, kbm->par->kmin);
 	fprintf(KBM_LOGF, "[%s] - %llu high frequency kmers (>%d)\n", date(), nflt, kbm->par->kmax);
@@ -981,7 +1036,9 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu){
 	}
 	fprintf(KBM_LOGF, "[%s] - sorting\n", date());
 	thread_apply_all(midx, midx->task = 8);
+	if(kcnts) free(kcnts);
 	thread_beg_close(midx);
+	if(midx->cnts) free(midx->cnts);
 	thread_end_close(midx);
 	if(1){
 		free(hash_locks);
@@ -1529,7 +1586,7 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 		}
 	}
 	cglen = aux->cigars->size - cgoff;
-	if(mat < (u4i)aux->par->min_mat
+	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * KBM_BSIZE * aux->par->min_sim)
 		|| gap > (u4i)(hit->aln * aux->par->max_gap)
 		|| hit->aln * KBM_BSIZE < (int)aux->par->min_aln
 		|| num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(aux->par->aln_var * hit->aln, 1.0)){

@@ -25,7 +25,7 @@
 #include "hashset.h"
 #include "thread.h"
 #include "ksw.h"
-#include "string.h"
+#include "chararray.h"
 
 /*
 #ifndef DBGCNS_DEBUG

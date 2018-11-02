@@ -22,7 +22,7 @@
 
 #include "ksw.h"
 #include "dna.h"
-#include "string.h"
+#include "chararray.h"
 #include "list.h"
 #include <math.h>
 #include <float.h>

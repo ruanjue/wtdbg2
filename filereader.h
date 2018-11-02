@@ -27,10 +27,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
-#include "string.h"
+#include "chararray.h"
 #include "mem_share.h"
 #include "list.h"
 #include "thread.h"
+#include "pgzf.h"
 
 #define BIOSEQ_ATTR_NULL	0
 #define BIOSEQ_ATTR_TAG		1
@@ -53,11 +54,21 @@ typedef struct {
 #define FILEREADER_ATTR_STDIN	2
 #define FILEREADER_ATTR_PROC	3
 #define FILEREADER_ATTR_TEXT	4
+#define FILEREADER_ATTR_USER	5 // defined by user
+
+typedef size_t (*read_data_func)(void *obj, void *dat, size_t len);
+typedef void (*close_input_func)(void *obj);
+
+static inline size_t _read_data_file(void *obj, void *dat, size_t len){ return fread(dat, 1, len, (FILE*)obj); }
+static inline void _close_input_file(void *obj){ if(obj) fclose((FILE*)obj); }
+static inline void _close_input_proc(void *obj){ if(obj) pclose((FILE*)obj); }
 
 typedef struct {
 	int file_attr;
-	FILE *file;
 	char *filename;
+	void *_file;
+	read_data_func _read;
+	close_input_func _close;
 } file_src_t;
 define_list_core(filesrcv, file_src_t, int, 0xFF);
 
@@ -113,7 +124,9 @@ static inline void free_biosequence(BioSequence *seq){
 static inline void* file_src_thread_func(void *obj){
 	FileReader *fr;
 	file_src_t *fc;
-	FILE *file;
+	void *_file;
+	read_data_func _read;
+	close_input_func _close;
 	size_t off, cnt, len;
 	fr = (FileReader*)obj;
 	while(fr->running){
@@ -123,7 +136,9 @@ static inline void* file_src_thread_func(void *obj){
 		} else {
 			fr->eof = 0;
 			fc = ref_filesrcv(fr->files, fr->fidx);
-			file = NULL;
+			_file = NULL;
+			_read = NULL;
+			_close = NULL;
 			switch(fc->file_attr){
 				case FILEREADER_ATTR_TEXT:
 					len = strlen(fc->filename);
@@ -139,11 +154,29 @@ static inline void* file_src_thread_func(void *obj){
 					}
 					break;
 				case FILEREADER_ATTR_STDIN:
-					if(file == NULL) file = stdin;
+					if(_file == NULL){
+						_file = fc->_file = stdin;
+						_read = fc->_read = _read_data_file;
+						_close = fc->_close = NULL;
+					}
 				case FILEREADER_ATTR_PROC:
-					if(file == NULL) file = popen(fc->filename, "r");
+					if(_file == NULL){
+						_file = fc->_file = popen(fc->filename, "r");
+						_read = fc->_read = _read_data_file;
+						_close = fc->_close = _close_input_proc;
+					}
+				case FILEREADER_ATTR_USER:
+					if(_file == NULL){
+						_file = fc->_file;
+						_read = fc->_read;
+						_close = fc->_close;
+					}
 				default:
-					if(file == NULL) file = open_file_for_read(fc->filename, NULL);
+					if(_file == NULL){
+						_file = fc->_file = open_file_for_read(fc->filename, NULL);
+						_read = fc->_read = _read_data_file;
+						_close = fc->_close = _close_input_file;
+					}
 					while(fr->running){
 						while(fr->flag == 1){
 							nano_sleep(1);
@@ -152,15 +185,14 @@ static inline void* file_src_thread_func(void *obj){
 							}
 						}
 						if(fr->flag == 1) break;
-						fr->bufcnt[fr->widx] = fread(fr->buffer[fr->widx], 1, fr->bufmax, file);
+						fr->bufcnt[fr->widx] = _read(_file, fr->buffer[fr->widx], fr->bufmax);
 						fr->widx = !fr->widx;
 						fr->flag = 1;
 						if(fr->bufcnt[!fr->widx] == 0) break;
 					}
 			}
-			switch(fc->file_attr){
-				case FILEREADER_ATTR_PROC: pclose(file); break;
-				case FILEREADER_ATTR_NORMAL: fclose(file); break;
+			if(_file && _close){
+				_close(_file);
 			}
 			fr->fidx ++;
 		}
@@ -269,7 +301,9 @@ static inline int push_filereader(FileReader *fr, char *filename){
 	file_src_t *f;
 	int len;
 	f = next_ref_filesrcv(fr->files);
-	f->file = NULL;
+	f->_file = NULL;
+	f->_read = NULL;
+	f->_close = NULL;
 	len = filename? strlen(filename) : 0;
 	while(len && filename[len-1] == ' ') len --;
 	if(len == 0 || strcmp(filename, "-") == 0){
@@ -280,9 +314,20 @@ static inline int push_filereader(FileReader *fr, char *filename){
 		strncpy(f->filename, filename, len - 1);
 		f->file_attr = FILEREADER_ATTR_PROC;
 	} else if(len > 3 && strcmp(filename + len - 3, ".gz") == 0){
-		f->filename = malloc(len + 20);
-		sprintf(f->filename, "gzip -dc %s", filename);
-		f->file_attr = FILEREADER_ATTR_PROC;
+		//f->filename = malloc(len + 20);
+		//sprintf(f->filename, "gzip -dc %s", filename);
+		//f->file_attr = FILEREADER_ATTR_PROC;
+		f->filename = strdup(filename);
+		f->file_attr = FILEREADER_ATTR_USER;
+		f->_file = open_pgzf_reader(open_file_for_read(f->filename, NULL), 0, 4);
+		f->_read = read_pgzf4filereader;
+		f->_close = close_pgzf4filereader;
+	} else if(len > 5 && strcmp(filename + len - 5, ".pgzf") == 0){
+		f->filename = strdup(filename);
+		f->file_attr = FILEREADER_ATTR_USER;
+		f->_file = open_pgzf_reader(open_file_for_read(f->filename, NULL), 0, 4);
+		f->_read = read_pgzf4filereader;
+		f->_close = close_pgzf4filereader;
 	} else {
 		f->filename = strdup(filename);
 		f->file_attr = FILEREADER_ATTR_NORMAL;
@@ -294,9 +339,22 @@ static inline int push_text_filereader(FileReader *fr, char *str, size_t len){
 	file_src_t *f;
 	UNUSED(len);
 	f = next_ref_filesrcv(fr->files);
-	f->file = NULL;
+	f->_file = NULL;
+	f->_read = NULL;
+	f->_close = NULL;
 	f->filename = str;
 	f->file_attr = FILEREADER_ATTR_TEXT;
+	return f->file_attr;
+}
+
+static inline int push_user_filereader(FileReader *fr, void *_file, read_data_func _read, close_input_func _close){
+	file_src_t *f;
+	f = next_ref_filesrcv(fr->files);
+	f->_file = _file;
+	f->_read = _read;
+	f->_close = _close;
+	f->filename = NULL;
+	f->file_attr = FILEREADER_ATTR_USER;
 	return f->file_attr;
 }
 
@@ -384,6 +442,9 @@ static inline int asyn_readline_filereader(FileReader *fr, String *line){
 
 static inline int directed_readline_filereader(FileReader *fr, String *line){
 	file_src_t *fc;
+	void *_file;
+	read_data_func _read;
+	close_input_func _close;
 	u8i i, nc;
 	int ch;
 	int ret;
@@ -396,23 +457,41 @@ static inline int directed_readline_filereader(FileReader *fr, String *line){
 	nc = fr->n_char;
 	while(fr->fidx < fr->files->size){
 		fc = ref_filesrcv(fr->files, fr->fidx);
+		_file = NULL;
+		_read = NULL;
+		_close = NULL;
 		if(fr->flag == 0){
 			switch(fc->file_attr){
 				case FILEREADER_ATTR_TEXT:
 					break;
 				case FILEREADER_ATTR_STDIN:
-					fc->file = stdin;
+					_file = fc->_file = stdin;
+					_read = fc->_read = _read_data_file;
+					_close = fc->_close = NULL;
 					break;
 				case FILEREADER_ATTR_PROC:
-					fc->file = popen(fc->filename, "r");
+					_file = fc->_file = popen(fc->filename, "r");
+					_read = fc->_read = _read_data_file;
+					_close = fc->_close = _close_input_proc;
+					break;
+				case FILEREADER_ATTR_USER:
+					_file = fc->_file;
+					_read = fc->_read;
+					_close = fc->_close;
 					break;
 				default:
-					fc->file = open_file_for_read(fc->filename, NULL);
+					_file = fc->_file = open_file_for_read(fc->filename, NULL);
+					_read = fc->_read = _read_data_file;
+					_close = fc->_close = _close_input_file;
 					break;
 			}
 			fr->flag = 1;
 			fr->bufoff = 0;
 			fr->bufcnt[0] = fr->bufcnt[1] = 0;
+		} else {
+			_file = fc->_file;
+			_read = fc->_read;
+			_close = fc->_close;
 		}
 		switch(fc->file_attr){
 			case FILEREADER_ATTR_TEXT:
@@ -444,7 +523,7 @@ static inline int directed_readline_filereader(FileReader *fr, String *line){
 				while(1){
 					if(fr->bufoff >= fr->bufcnt[0]){
 						fr->bufoff = 0;
-						fr->bufcnt[0] = fread(fr->buffer[0], 1, fr->bufmax, fc->file);
+						fr->bufcnt[0] = _read(_file, fr->buffer[0], fr->bufmax);
 						if(fr->bufcnt[0] == 0) break;
 					}
 					ret = 0;
@@ -467,9 +546,8 @@ static inline int directed_readline_filereader(FileReader *fr, String *line){
 		if(fr->n_char > nc){
 			return fr->n_char - nc;
 		} else {
-			switch(fc->file_attr){
-				case FILEREADER_ATTR_PROC: pclose(fc->file); break;
-				case FILEREADER_ATTR_NORMAL: fclose(fc->file); break;
+			if(_file && _close){
+				_close(_file);
 			}
 			fr->flag = 0;
 			fr->fidx ++;

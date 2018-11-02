@@ -523,7 +523,7 @@ static inline PGZF* open_pgzf_writer(FILE *out, u4i buffer_size, int ncpu, int l
 	return pz;
 }
 
-static inline void write_pgzf(PGZF *pz, void *dat, size_t len){
+static inline size_t write_pgzf(PGZF *pz, void *dat, size_t len){
 	size_t off, cnt;
 	thread_prepare(pgz);
 	thread_import(pgz, pz);
@@ -549,6 +549,7 @@ static inline void write_pgzf(PGZF *pz, void *dat, size_t len){
 		}
 	}
 	thread_export(pgz, pz);
+	return len;
 }
 
 static inline void _end_pgzf_writer(PGZF *pz){
@@ -730,6 +731,13 @@ static inline void close_pgzf4filereader(void *obj){
 	if(pz->file != stdin){
 		fclose(pz->file);
 	}
+	return close_pgzf(pz);
+}
+
+static inline size_t write_pgzf4filewriter(void *obj, void *dat, size_t len){ return write_pgzf((PGZF*)obj, dat, len); }
+static inline void close_pgzf4filewriter(void *obj){
+	PGZF *pz;
+	pz = (PGZF*)obj;
 	return close_pgzf(pz);
 }
 

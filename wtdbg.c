@@ -19,6 +19,7 @@
 
 #include "kbm.h"
 #include "filewriter.h"
+#include "pgzf.h"
 #include <getopt.h>
 #include <regex.h>
 
@@ -1174,6 +1175,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			if(hit->mat < g->par->min_mat) continue;
 			hit->aln = atoi(get_col_str(pws, 11));
 			if(hit->aln < g->par->min_aln) continue;
+			if(hit->mat < hit->aln * g->par->min_sim) continue;
 			hit->cnt = atoi(get_col_str(pws, 12));
 			hit->gap = atoi(get_col_str(pws, 13));
 			hit->cgoff = g->cigars->size;
@@ -1234,8 +1236,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			if(max_node_cov < 10) max_node_cov = 10;
 		} else max_node_cov = g->max_node_cov;
 		round = 0;
-		alno   = open_file_for_write(prefix, ".alignments", 1);
-		bw = open_bufferedwriter(alno, 1024 * 1024);
+		alno   = open_file_for_write(prefix, ".alignments.gz", 1);
+		bw = zopen_bufferedwriter(alno, 1024 * 1024, ncpu, 0);
 		rdflags = g->par->skip_contained? init_bitvec(g->kbm->reads->size) : NULL;
 		thread_beg_init(mdbg, n_cpu);
 		mdbg->g = g;
@@ -1262,7 +1264,16 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			} else {
 				reset_index_kbm(g->kbm);
 				fprintf(KBM_LOGF, "[%s] indexing bins[%u,%u] (%llu bp), %d threads\n", date(), ib, ie, nbp, ncpu); fflush(KBM_LOGF);
-				index_kbm(g->kbm, ib, ie, ncpu);
+				if(round == 1){
+					kmlog = open_file_for_write(prefix, ".kmerdep", 1);
+				} else {
+					kmlog = NULL;
+				}
+				index_kbm(g->kbm, ib, ie, ncpu, kmlog);
+				if(kmlog){
+					fclose(kmlog);
+					kmlog = NULL;
+				}
 				reset_kbm = 1;
 				fprintf(KBM_LOGF, "[%s] Done\n", date()); fflush(KBM_LOGF);
 				if(round == 1 && dump_kbm){
@@ -1277,28 +1288,13 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			ib = ie;
 			if(round == 1) fix_node = 0;
 			if(round == 1){
-				kbm_kmer_t *u;
-				size_t iter_ptr;
 				u4i *deps, hidx;
-				deps = calloc(KBM_MAX_KCNT + 1, 4);
-				kmlog = open_file_for_write(prefix, ".kmerdep", 1);
-				for(hidx=0;hidx<KBM_N_HASH;hidx++){
-					iter_ptr = 0;
-					while((u = ref_iter2_kbmhash(g->kbm->hashs[hidx], &iter_ptr))){
-						deps[u->tot] ++;
-					}
-				}
-				for(hidx=0;hidx<=KBM_MAX_KCNT;hidx++){
-					fprintf(kmlog, "%u\t%u\n", hidx, deps[hidx]);
-				}
-				fclose(kmlog);
-				free(deps);
 				kmlog = open_file_for_write(prefix, ".binkmer", 1);
 				deps = calloc(KBM_BIN_SIZE + 1, 4);
 				for(hidx=0;hidx<g->kbm->bins->size;hidx++){
 					deps[g->kbm->bins->buffer[hidx].degree] ++;
 				}
-				for(hidx=0;hidx<256;hidx++){
+				for(hidx=0;hidx<KBM_BIN_SIZE;hidx++){
 					fprintf(kmlog, "%u\n", deps[hidx]);
 				}
 				fclose(kmlog);
@@ -5795,7 +5791,7 @@ u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *la
 	u4i j, c, len;
 	thread_preprocess(mlay);
 	o_lay = open_file_for_write(prefix, lay_suffix, 1);
-	bw = open_bufferedwriter(o_lay, 8 * 1024 * 1024);
+	bw = zopen_bufferedwriter(o_lay, 1024 * 1024, ncpu, 0);
 	lays = init_layv(32);
 	thread_beg_init(mlay, ncpu);
 	mlay->g = g;
@@ -5819,8 +5815,7 @@ u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *la
 			if(log) fprintf(log, "OUTPUT_CTG\tctg%d -> ctg%d nodes=%llu len=%u\n", (int)i, (int)uid, (u8i)path->size + 1, len);
 			for(j=0;j<lays->size;j++){
 				if((j % 100) == 0){
-					end_bufferedwriter(bw);
-					beg_bufferedwriter(bw);
+					flush_bufferedwriter(bw);
 				}
 				lay = ref_layv(lays, j);
 				if(lay->rcnt == 0) continue;
@@ -6079,15 +6074,19 @@ uint64_t print_local_dot_graph(Graph *g, FILE *out){
 }
 
 uint64_t print_dot_full_graph(Graph *g, FILE *out){
+	BufferedWriter *bw;
 	node_t *n;
 	reg_t *r, *rr;
 	edge_ref_t *f;
 	edge_t *e;
 	unsigned long long i, idx;
 	uint32_t j, k, max;
-	fprintf(out, "digraph {\n");
-	fprintf(out, "node [shape=record]\n");
+	bw = zopen_bufferedwriter(out, 1024 * 1024, 8, 0);
+	beg_bufferedwriter(bw);
+	fprintf(bw->out, "digraph {\n");
+	fprintf(bw->out, "node [shape=record]\n");
 	for(i=0;i<g->nodes->size;i++){
+		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		n = ref_nodev(g->nodes, i);
 		//if(n->closed) continue;
 		r = NULL; max = 0;
@@ -6099,9 +6098,10 @@ uint64_t print_dot_full_graph(Graph *g, FILE *out){
 			}
 		}
 		if(r == NULL) continue;
-		fprintf(out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
+		fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
 	}
 	for(i=0;i<g->nodes->size;i++){
+		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		n = ref_nodev(g->nodes, i);
 		//if(n->closed) continue;
 		for(k=0;k<2;k++){
@@ -6112,27 +6112,33 @@ uint64_t print_dot_full_graph(Graph *g, FILE *out){
 				e = g->edges->buffer + f->idx;
 				//if(e->closed) continue;
 				if(f->flg){
-					fprintf(out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s%s]\n", i, (unsigned long long)e->node1, "+-"[k], "+-"[!e->dir1], e->cov, e->off, colors[k][!e->dir1], e->closed? " style=dashed" : "");
+					fprintf(bw->out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s%s]\n", i, (unsigned long long)e->node1, "+-"[k], "+-"[!e->dir1], e->cov, e->off, colors[k][!e->dir1], e->closed? " style=dashed" : "");
 				} else {
-					fprintf(out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s%s]\n", i, (unsigned long long)e->node2, "+-"[k], "+-"[e->dir2], e->cov, e->off, colors[k][e->dir2], e->closed? " style=dashed" : "");
+					fprintf(bw->out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s%s]\n", i, (unsigned long long)e->node2, "+-"[k], "+-"[e->dir2], e->cov, e->off, colors[k][e->dir2], e->closed? " style=dashed" : "");
 				}
 			}
 		}
 	}
-	fprintf(out, "}\n");
+	fprintf(bw->out, "}\n");
+	end_bufferedwriter(bw);
+	close_bufferedwriter(bw);
 	return 0;
 }
 
 uint64_t print_dot_graph(Graph *g, FILE *out){
+	BufferedWriter *bw;
 	node_t *n;
 	reg_t *r, *rr;
 	edge_ref_t *f;
 	edge_t *e;
 	unsigned long long i, idx;
 	uint32_t j, k, max;
-	fprintf(out, "digraph {\n");
-	fprintf(out, "node [shape=record]\n");
+	bw = zopen_bufferedwriter(out, 1024 * 1024, 8, 0);
+	beg_bufferedwriter(bw);
+	fprintf(bw->out, "digraph {\n");
+	fprintf(bw->out, "node [shape=record]\n");
 	for(i=0;i<g->nodes->size;i++){
+		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		n = ref_nodev(g->nodes, i);
 		if(n->closed) continue;
 		r = NULL; max = 0;
@@ -6144,9 +6150,10 @@ uint64_t print_dot_graph(Graph *g, FILE *out){
 			}
 		}
 		if(r == NULL) continue;
-		fprintf(out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
+		fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
 	}
 	for(i=0;i<g->nodes->size;i++){
+		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		n = ref_nodev(g->nodes, i);
 		if(n->closed) continue;
 		for(k=0;k<2;k++){
@@ -6157,14 +6164,16 @@ uint64_t print_dot_graph(Graph *g, FILE *out){
 				e = g->edges->buffer + f->idx;
 				if(e->closed) continue;
 				if(f->flg){
-					fprintf(out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s]\n", i, (unsigned long long)e->node1, "+-"[k], "+-"[!e->dir1], e->cov, e->off, colors[k][!e->dir1]);
+					fprintf(bw->out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s]\n", i, (unsigned long long)e->node1, "+-"[k], "+-"[!e->dir1], e->cov, e->off, colors[k][!e->dir1]);
 				} else {
-					fprintf(out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s]\n", i, (unsigned long long)e->node2, "+-"[k], "+-"[e->dir2], e->cov, e->off, colors[k][e->dir2]);
+					fprintf(bw->out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s]\n", i, (unsigned long long)e->node2, "+-"[k], "+-"[e->dir2], e->cov, e->off, colors[k][e->dir2]);
 				}
 			}
 		}
 	}
-	fprintf(out, "}\n");
+	fprintf(bw->out, "}\n");
+	end_bufferedwriter(bw);
+	close_bufferedwriter(bw);
 	return 0;
 }
 
@@ -6236,7 +6245,9 @@ uint64_t print_frgs_nodes_graph(Graph *g, FILE *out){
 	return i;
 }
 
-uint64_t print_frgs_dot_graph(Graph *g, FILE *out){
+uint64_t print_frgs_dot_graph(Graph *g, FILE *_out){
+	BufferedWriter *bw;
+	FILE *out;
 	frg_t *frg;
 	trace_t *t1, *t2;
 	node_t *n1, *n2;
@@ -6245,9 +6256,13 @@ uint64_t print_frgs_dot_graph(Graph *g, FILE *out){
 	lnk_t *e;
 	unsigned long long i, idx;
 	uint32_t j, k, max;
+	bw = zopen_bufferedwriter(_out, 1024 * 1024, 8, 0);
+	beg_bufferedwriter(bw);
+	out = bw->out;
 	fprintf(out, "digraph {\n");
 	fprintf(out, "node [shape=record]\n");
 	for(i=0;i<g->frgs->size;i++){
+		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		frg = ref_frgv(g->frgs, i);
 		if(frg->closed) continue;
 		//if(frg->ty - frg->tx < (u4i)g->min_ctg_nds) continue;
@@ -6278,6 +6293,7 @@ uint64_t print_frgs_dot_graph(Graph *g, FILE *out){
 			t2->node, "+-"[t2->dir], g->kbm->reads->buffer[r2->rid].tag, "FR"[r2->dir], r2->beg, r2->end - r2->beg);
 	}
 	for(i=0;i<g->frgs->size;i++){
+		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		frg = ref_frgv(g->frgs, i);
 		if(frg->closed) continue;
 		//if(frg->ty - frg->tx < (u4i)g->min_ctg_nds) continue;
@@ -6299,6 +6315,8 @@ uint64_t print_frgs_dot_graph(Graph *g, FILE *out){
 		}
 	}
 	fprintf(out, "}\n");
+	end_bufferedwriter(bw);
+	close_bufferedwriter(bw);
 	return 0;
 }
 
@@ -6339,7 +6357,8 @@ static struct option prog_opts[] = {
 	{"dp-penalty-var",                   1, 0, 'y'},
 	{"aln-min-length",                   1, 0, 'l'},
 	{"aln-min-match",                    1, 0, 'm'},
-	{"aln-max-var",                      1, 0, 's'},
+	{"aln-min-similarity",               1, 0, 's'},
+	{"aln-max-var",                      1, 0, 2004},
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
 	{"help",                             0, 0, 1000}, // detailed document
@@ -6356,6 +6375,7 @@ static struct option prog_opts[] = {
 	{"ttr-cutoff-depth",                 1, 0, 1009},
 	{"ttr-cutoff-ratio",                 1, 0, 1010},
 	{"dump-kbm",                         1, 0, 1011},
+	{"load-seqs",                        1, 0, 2002},
 	{"load-kbm",                         1, 0, 1012},
 	{"load-alignments",                  1, 0, 1013},
 	{"load-nodes",                       1, 0, 2000},
@@ -6388,14 +6408,14 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 2.1 (20181007)\n"
+	"Version: 2.2 (20181101)\n"
 #ifdef TIMESTAMP
 	"Compiled: %s\n"
 #endif
 	"Usage: wtdbg2 [options]\n"
 	"Options:\n"
 	" -i <string> Long reads sequences file (REQUIRED; there can be multiple -i), []\n"
-	" -I <string> Error-free sequences file (can be multiple), []\n"
+	//" -I <string> Error-free sequences file (can be multiple), []\n"
 	" -o <string> Prefix of output files (REQUIRED), []\n"
 	" -t <int>    Number of threads, 0 for all cores, [4]\n"
 	" -f          Force to overwrite output files\n"
@@ -6408,17 +6428,18 @@ int usage(int level){
 	"             else, mask the top fraction part high frequency kmers\n"
 	" -E <int>    Min kmer frequency, [2]\n"
 	" -F          Filter low frequency kmers by a 4G-bytes array (max_occ=3 2-bits). Here, -E must greater than 1\n"
-	" -S <int>    Subsampling kmers, 1/(<-S>) kmers are indexed, [4]\n"
+	" -S <float>  Subsampling kmers, 1/(<-S>) kmers are indexed, [4.00]\n"
 	"             -S is very useful in saving memeory and speeding up\n"
 	"             please note that subsampling kmers will have less matched length\n"
-	" -X <int>    Max number of bin(256bp) in one gap, [4]\n"
-	" -Y <int>    Max number of bin(256bp) in one deviation, [4]\n"
-	" -x <int>    penalty for BIN gap, [-7]\n"
-	" -y <int>    penalty for BIN deviation, [-21]\n"
+	//" -X <int>    Max number of bin(256bp) in one gap, [4]\n"
+	//" -Y <int>    Max number of bin(256bp) in one deviation, [4]\n"
+	//" -x <int>    penalty for BIN gap, [-7]\n"
+	//" -y <int>    penalty for BIN deviation, [-21]\n"
 	" -l <float>  Min length of alignment, [2048]\n"
-	" -m <float>  Min matched, [200]\n"
+	" -m <float>  Min matched length by kmer matching, [200]\n"
 	" -A          Keep contained reads during alignment\n"
-	" -s <float>  Max length variation of two aligned fragments, [0.2]\n"
+	//" -s <float>  Max length variation of two aligned fragments, [0.2]\n"
+	" -s <float>  Min similarity, calculated by kmer matched length / aligned length, [0.05]\n"
 	" -e <int>    Min read depth of a valid edge, [3]\n"
 	" -q          Quiet\n"
 	" -v          Verbose (can be multiple)\n"
@@ -6453,8 +6474,8 @@ int usage(int level){
 	"   See -F\n"
 	"   `wtdbg` uses a 4 Gbytes array to counting the occurence (0-3) of kmers in the way of counting-bloom-filter. It will reduce memory space largely\n"
 	"    Orphaned kmers won't appear in building kbm-index\n"
-	" --kmer-subsampling <int>\n"
-	"   See -S 1\n"
+	" --kmer-subsampling <float>\n"
+	"   See -S 4.0\n"
 	" --aln-kmer-sampling <int>\n"
 	"   Select no more than n seeds in a query bin, default: 256\n"
 	" --dp-max-gap <int>\n"
@@ -6469,8 +6490,10 @@ int usage(int level){
 	"   See -l 2048\n"
 	" --aln-min-match <int>\n"
 	"   See -m 200. Here the num of matches counting basepair of the matched kmer's regions\n"
+	" --aln-min-similarity <float>\n"
+	"   See -s 0.05\n"
 	" --aln-max-var <float>\n"
-	"   See -s 0.2\n"
+	"   Max length variation of two aligned fragments, default: 0.2\n"
 	" --aln-dovetail <int>\n"
 	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: 256\n"
 	" --aln-strand <int>\n"
@@ -6526,6 +6549,8 @@ int usage(int level){
 	"   Instead of reading sequences and building kbm index, which is time-consumed, loading kbm-index from already dumped file.\n"
 	"   Please note that, once kbm-index is mmaped by kbm -R <kbm-index> start, will just get the shared memory in minute time.\n"
 	"   See `kbm` -R <your_seqs.kbmidx> [start | stop]\n"
+	" --load-seqs <string>\n"
+	"   Similar with --load-kbm, but only use the sequences in kbmidx, and rebuild index in process's RAM.\n"
 	" --load-alignments <string> +\n"
 	"   `wtdbg` output reads' alignments into <--prefix>.alignments, program can load them to fastly build assembly graph. Or you can offer\n"
 	"   other source of alignments to `wtdbg`. When --load-alignment, will only reading long sequences but skip building kbm index\n"
@@ -6573,7 +6598,7 @@ int main(int argc, char **argv){
 	BioSequence *seqs[2], *seq;
 	cplist *pbs, *ngs, *pws;
 	FILE *evtlog;
-	char *prefix, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
+	char *prefix, *dump_seqs, *load_seqs, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
 	char regtag[14];
 	int len, tag_size, asyn_read;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
@@ -6608,6 +6633,8 @@ int main(int argc, char **argv){
 	bestn = 500;
 	ttr_n_cov = 0;
 	ttr_e_cov = 0.5;
+	dump_seqs = NULL;
+	load_seqs = NULL;
 	dump_kbm = NULL;
 	load_kbm = NULL;
 	load_clips = NULL;
@@ -6647,7 +6674,7 @@ int main(int argc, char **argv){
 	par->min_aln = 1024 * 2;
 	par->min_mat = 200;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:I:fo:FE:k:p:K:S:X:Y:x:y:l:m:s:vqe:L:A", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:FE:k:p:K:S:l:m:s:vqe:L:A", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
@@ -6662,14 +6689,15 @@ int main(int argc, char **argv){
 					break;
 			case 'E': par->kmin = atoi(optarg); break;
 			case 'F': par->use_kf = 1; break;
-			case 'S': par->kmer_mod = atoi(optarg) * KBM_N_HASH; opt_flags |= (1 << 2);break;
+			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
 			case 'X': par->max_bgap = atoi(optarg); break;
 			case 'Y': par->max_bvar = atoi(optarg); break;
 			case 'x': par->pgap = atoi(optarg); break;
 			case 'y': par->pvar = atoi(optarg); break;
 			case 'l': par->min_aln = atoi(optarg); break;
 			case 'm': par->min_mat = atoi(optarg); break;
-			case 's': par->aln_var = atof(optarg); break;
+			case 2004: par->aln_var = atof(optarg); break;
+			case 's': par->min_sim = atof(optarg); break;
 			case 'v': KBM_LOG ++; break;
 			case 'q': quiet = 1; break;
 			case 'h': return usage(0);
@@ -6686,6 +6714,7 @@ int main(int argc, char **argv){
 			case 1008: max_node_cov = atoi(optarg); break;
 			case 1009: ttr_n_cov = atoi(optarg); break;
 			case 1010: ttr_e_cov = atof(optarg); break;
+			case 2002: load_seqs = optarg; break;
 			case 1011: dump_kbm = optarg; break;
 			case 1012: load_kbm = optarg; break;
 			case 2000: load_nodes = optarg; break;
@@ -6711,7 +6740,7 @@ int main(int argc, char **argv){
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
-			case 1034: fprintf(stdout, "wtdbg2 2.1\n"); return 0;
+			case 1034: fprintf(stdout, "wtdbg2 2.2\n"); return 0;
 			default: return usage(-1);
 		}
 	}
@@ -6730,8 +6759,8 @@ int main(int argc, char **argv){
 		fprintf(stderr, "ERROR: please specify the output prefix with -o\n");
 		return 1;
 	}
-	if(load_kbm == NULL && pbs->size + ngs->size == 0) {
-		fprintf(stderr, "ERROR: please specify the input with -i, -I or --load-kbm\n");
+	if(load_seqs == NULL && load_kbm == NULL && pbs->size + ngs->size == 0) {
+		fprintf(stderr, "ERROR: please specify the input with -i/--load-seqs/--load-kbm\n");
 		return 1;
 	}
 	if((reglen % KBM_BIN_SIZE)){
@@ -6744,8 +6773,8 @@ int main(int argc, char **argv){
 		return usage(-1);
 	}
 	if(max_idx_bp == 0) max_idx_bp = 0xFFFFFFFFFFFFFFFFLLU;
-	if(par->ksize + par->psize > 25){
-		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > 25 in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize,  __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+	if(par->ksize + par->psize > KBM_MAX_KSIZE){
+		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > %d in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize, KBM_MAX_KSIZE,  __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		return 1;
 	}
 	if(quiet){
@@ -6771,35 +6800,48 @@ int main(int argc, char **argv){
 			kbm = mem_read_obj_file(&kbm_obj_desc, load_kbm, NULL, NULL, NULL, NULL);
 		}
 		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-S %d')\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, kbm->par->kmer_mod / KBM_N_HASH);
-		// check KBMPar
-		if((opt_flags >> 0) & 0x01){
-			if(kbm->par->psize != par->psize){
-				fprintf(KBM_LOGF, " ** -p is different, %d != %d\n", kbm->par->psize, par->psize); exit(1);
+		{
+			// check KBMPar
+			if((opt_flags >> 0) & 0x01){
+				if(kbm->par->psize != par->psize){
+					fprintf(KBM_LOGF, " ** -p is different, %d != %d\n", kbm->par->psize, par->psize); exit(1);
+				}
+			} else {
+				par->psize = kbm->par->psize;
 			}
-		} else {
-			par->psize = kbm->par->psize;
-		}
-		if((opt_flags >> 1) & 0x01){
-			if(kbm->par->ksize != par->ksize){
-				fprintf(KBM_LOGF, " ** -k is different, %d != %d\n", kbm->par->ksize, par->ksize); exit(1);
+			if((opt_flags >> 1) & 0x01){
+				if(kbm->par->ksize != par->ksize){
+					fprintf(KBM_LOGF, " ** -k is different, %d != %d\n", kbm->par->ksize, par->ksize); exit(1);
+				}
+			} else {
+				par->ksize = kbm->par->ksize;
 			}
-		} else {
-			par->ksize = kbm->par->ksize;
-		}
-		if((opt_flags >> 2) & 0x01){
-			if(kbm->par->kmer_mod != par->kmer_mod){
-				fprintf(KBM_LOGF, " ** -S is different, %d != %d\n", kbm->par->kmer_mod / KBM_N_HASH, par->kmer_mod / KBM_N_HASH); exit(1);
+			if((opt_flags >> 2) & 0x01){
+				if(kbm->par->kmer_mod != par->kmer_mod){
+					fprintf(KBM_LOGF, " ** -S is different, %d != %d\n", kbm->par->kmer_mod / KBM_N_HASH, par->kmer_mod / KBM_N_HASH); exit(1);
+				}
+			} else {
+				par->kmer_mod = kbm->par->kmer_mod;
 			}
-		} else {
-			par->kmer_mod = kbm->par->kmer_mod;
-		}
-		if((opt_flags >> 3) & 0x01){
-			if(kbm->par->rd_len_order != par->rd_len_order){
-				fprintf(KBM_LOGF, " ** par->rd_len_order is different, %d != %d\n", kbm->par->rd_len_order, par->rd_len_order); exit(1);
+			if((opt_flags >> 3) & 0x01){
+				if(kbm->par->rd_len_order != par->rd_len_order){
+					fprintf(KBM_LOGF, " ** par->rd_len_order is different, %d != %d\n", kbm->par->rd_len_order, par->rd_len_order); exit(1);
+				}
+			} else {
+				par->rd_len_order = kbm->par->rd_len_order;
 			}
-		} else {
-			par->rd_len_order = kbm->par->rd_len_order;
 		}
+		nfix = 0;
+		tot_bp = kbm->rdseqs->size;
+	} else if(load_seqs){
+		fprintf(KBM_LOGF, "[%s] loading kbm index from %s\n", date(), load_seqs);
+		if((kbm = mem_find_obj_file(&kbm_obj_desc, load_seqs, NULL, NULL, NULL, NULL, 0)) == NULL){
+			fprintf(KBM_LOGF, " -- cannot find mmap object %s --\n", load_seqs);
+			fprintf(KBM_LOGF, " -- try read from file --\n");
+			kbm = mem_read_obj_file(&kbm_obj_desc, load_seqs, NULL, NULL, NULL, NULL);
+		}
+		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size);
+		kbm = clone_seqs_kbm(kbm, par);
 		nfix = 0;
 		tot_bp = kbm->rdseqs->size;
 	} else {
@@ -6993,7 +7035,7 @@ int main(int argc, char **argv){
 		fprintf(KBM_LOGF, "[%s] deleted %llu nodes, might be tandom repeats\n", date(), (unsigned long long)cnt);
 	}
 	if(!less_out) generic_print_graph(g, print_reads_graph, prefix, ".1.reads");
-	if(!less_out) generic_print_graph(g, print_dot_full_graph,   prefix, ".1.dot");
+	if(!less_out) generic_print_graph(g, print_dot_full_graph,   prefix, ".1.dot.gz");
 	fprintf(KBM_LOGF, "[%s] graph clean\n", date()); fflush(KBM_LOGF);
 	if(0){
 		cnt = mask_read_weak_regs_graph(g, ncpu);
@@ -7021,7 +7063,7 @@ int main(int argc, char **argv){
 			fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
 		}
 	}
-	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".2.dot");
+	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".2.dot.gz");
 	{
 		bub = tip = rep = yarn = 0;
 		int safe = 1;
@@ -7065,7 +7107,7 @@ int main(int argc, char **argv){
 		cnt = del_isolated_nodes_graph(g, evtlog);
 		fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
 	}
-	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".3.dot");
+	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".3.dot.gz");
 	rep = mask_all_branching_nodes_graph(g);
 	fprintf(KBM_LOGF, "[%s] cut %llu branching nodes\n", date(), rep);
 	if(del_iso){
@@ -7080,7 +7122,7 @@ int main(int argc, char **argv){
 	fprintf(KBM_LOGF, "[%s] generating links\n", date());
 	cnt = gen_lnks_graph(g, ncpu, evtlog);
 	fprintf(KBM_LOGF, "[%s] generated %llu links\n", date(), cnt);
-	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.dot");
+	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.dot.gz");
 	if(1){
 		cnt = rescue_weak_tip_lnks_graph(g);
 		fprintf(KBM_LOGF, "[%s] rescue %llu weak links\n", date(), (unsigned long long)cnt);
@@ -7113,7 +7155,7 @@ int main(int argc, char **argv){
 	fprintf(KBM_LOGF, "[%s] pop %llu bubbles\n", date(), (unsigned long long)cnt);
 	cnt = trim_frgtips_graph(g, frgtip_len);
 	fprintf(KBM_LOGF, "[%s] cut %llu tips\n", date(), (unsigned long long)cnt);
-	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".ctg.dot");
+	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".ctg.dot.gz");
 	fprintf(KBM_LOGF, "[%s] building contigs\n", date());
 	cnt = gen_contigs_graph(g, evtlog);
 	fprintf(KBM_LOGF, "[%s] searched %llu contigs\n", date(), (unsigned long long)cnt);
@@ -7133,7 +7175,7 @@ int main(int argc, char **argv){
 	//fprintf(KBM_LOGF, "[%s] %llu nodes not in contigs\n", date(), (unsigned long long)cnt);
 	//cnt = count_isolated_reads_graph(g);
 	//fprintf(KBM_LOGF, "[%s] %llu reads not in contigs\n", date(), (unsigned long long)cnt);
-	cnt = print_ctgs_graph(g, 0, 0, g->major_nctg, prefix, ".ctg.lay", ncpu, evtlog);
+	cnt = print_ctgs_graph(g, 0, 0, g->major_nctg, prefix, ".ctg.lay.gz", ncpu, evtlog);
 	if(0){
 		fprintf(KBM_LOGF, "[%s] outputing reptigs\n", date());
 		cnt = print_ctgs_graph(g, cnt, g->major_nctg, g->ctgs->size, prefix, ".rtg.lay", ncpu, evtlog);
@@ -7142,7 +7184,7 @@ int main(int argc, char **argv){
 	free_cplist(pbs);
 	free_cplist(ngs);
 	free_cplist(pws);
-	if(load_kbm == NULL) free_kbm(kbm);
+	free_kbm(kbm);
 	free_kbmpar(par);
 	free_graph(g);
 	fprintf(KBM_LOGF, "[%s] Program Done\n", date());
