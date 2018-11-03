@@ -793,6 +793,24 @@ static inline void print_seq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out
 	}
 }
 
+static inline void print_lines_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out, int linewidth){
+	u8i i, b, e;
+	char *buf;
+	if(linewidth < 1) linewidth = 100;
+	buf = malloc(linewidth + 1);
+	for(b=off;b<off+len;){
+		e = num_min(b + linewidth, off + len);
+		for(i=b;i<e;i++){
+			buf[i - b] = bit_base_table[bits2bit(bnk->bits, i)];
+		}
+		buf[e - b] = '\0';
+		fputs(buf, out);
+		fputc('\n', out);
+		b = e;
+	}
+	free(buf);
+}
+
 #define print_fwdseq_basebank(bnk, off, len, out) print_seq_basebank(bnk, off, len, out)
 
 static inline void println_seq_basebank(BaseBank *bnk, u8i off, u8i len, FILE *out){
