@@ -945,7 +945,7 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu, FILE *kmstat)
 		}
 		fprintf(KBM_LOGF, "\n");
 		fprintf(KBM_LOGF,
-			"# If the kmer distribution is not good, please kill me and adjust -k, -p\n"
+			"# If the kmer distribution is not good, please kill me and adjust -k, -p, and -K\n"
 			"# Cannot get a good distribution anyway, should adjust -S -s, also -A -e in assembly\n"
 		);
 		free(_kcnts);
