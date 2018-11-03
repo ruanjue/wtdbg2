@@ -641,6 +641,7 @@ typedef struct {	\
 	size_type size, cap;	\
 	size_type *recyc;	\
 	size_type rsize, rcap;	\
+	u8i userdata;	\
 } list_type;	\
 	\
 static inline list_type* init_##list_type(size_type size){	\
@@ -653,6 +654,7 @@ static inline list_type* init_##list_type(size_type size){	\
 	list->recyc = calloc(2, sizeof(size_type));	\
 	list->rsize = 0;	\
 	list->rcap  = 2;	\
+	list->userdata = 0;	\
 	return list;	\
 }	\
 	\
