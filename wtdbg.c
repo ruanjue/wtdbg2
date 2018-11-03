@@ -1176,6 +1176,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			hit->aln = atoi(get_col_str(pws, 11));
 			if(hit->aln < g->par->min_aln) continue;
 			if(hit->mat < hit->aln * g->par->min_sim) continue;
+			if(num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(g->par->aln_var * hit->aln, 1.0)) continue;
 			hit->cnt = atoi(get_col_str(pws, 12));
 			hit->gap = atoi(get_col_str(pws, 13));
 			hit->cgoff = g->cigars->size;
