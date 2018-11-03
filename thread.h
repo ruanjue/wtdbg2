@@ -335,7 +335,7 @@ while(1){	\
 
 #define THREAD_EXPR(...) __VA_ARGS__
 
-#define thread_fast_run(tname, ncpu, loop_expr) thread_run(tname, ncpu, , , , THREAD_EXPR(int NCPU; int TIDX; NCPU = tname->n_cpu; TIDX = tname->t_idx;), loop_expr, , THREAD_EXPR(thread_wake_all(tname); thread_wait_all(tname);))
+#define thread_fast_run(tname, ncpu, loop_expr) thread_run(tname, ncpu, , , , THREAD_EXPR(int NCPU; int TIDX; NCPU = tname->n_cpu; TIDX = tname->t_idx;), THREAD_EXPR(loop_expr;), , THREAD_EXPR(thread_wake_all(tname); thread_wait_all(tname);))
 
 #define thread_fast_run2(tname, ncpu, expr)	\
 {	\
