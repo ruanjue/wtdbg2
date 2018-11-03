@@ -5,7 +5,7 @@
 use strict;
 
 =pod
-Transform <dbg>.[1/2/3].dot into GFA format. <dbg>.[1/2/3].dot is the assembly graph from wtdbg
+Transform <dbg>.[1/2/3/frg/ctg].dot into GFA format. <dbg>.[1/2/3/frg/ctg].dot is the assembly graph from wtdbg
 TAG:
 	gl: gap length
 	rc: read count to support the link
@@ -14,7 +14,7 @@ TAG:
 
 while(<>){
 	chomp;
-	next unless(/^(N\d+)\s(->\s(N\d+)\s)?\[([^\]]+)\]$/);
+	next unless(/^([NF]\d+)\s(->\s([NF]\d+)\s)?\[([^\]]+)\]$/);
 	my $n1 = $1;
 	my $n2 = $3;
 	my $label = $4;
@@ -31,6 +31,8 @@ while(<>){
 	} else {
 		if($label=~/\{N\d+\s(\d+)\s\|\s(\S+)\s\|\s([FR])_(\d+)_(\d+)\}/){
 			print "S\t$n1\t*\tLN:i:$5\tsq:Z:$2_$3_$4_$5\n"
+		} elsif($label=~/\{F\d+\s(\d+)\s(\d+)\/(\d+)\s\|/){
+			print "S\t$n1\t*\tLN:i:$2\n";
 		} else {
 			die("Bad format: $_");
 		}
