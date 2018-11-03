@@ -95,7 +95,7 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [canu]: https://github.com/marbl/canu
 [falcon]: https://github.com/PacificBiosciences/FALCON
 [Axolotl]: https://www.nature.com/articles/nature25458
-[chm1]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA246220
+[chm1]: https://trace.ncbi.nlm.nih.gov/Traces/sra/?study=SRP044331
 [na12878]: https://github.com/nanopore-wgs-consortium/NA12878/blob/master/rel5.md
 [na19240]: https://www.ebi.ac.uk/ena/data/view/PRJEB26791
 [pbcr]: http://www.cbcb.umd.edu/software/PBcR/data/selfSampleData.tar.gz
