@@ -227,6 +227,30 @@ static inline void set_bitvec(BitVec *bitv, u8i idx, int v){
 
 static inline u8i get_bitvec(BitVec *bitv, u8i idx){ return (bitv->bits[idx>>6] >> (idx&0x3FU)) & 0x01LLU; }
 
+static inline u8i get64_bitvec(BitVec *bitv, u8i off){
+	u8i m, n;
+	m = off >> 6;
+	n = off & 0x3F;
+	if(n){
+		return (bitv->bits[m] >> (64 - n)) | (bitv->bits[m + 1] << n);
+	} else {
+		return bitv->bits[m];
+	}
+}
+
+static inline void set64_bitvec(BitVec *bitv, u8i off, u8i val){
+	u8i m, n;
+	m = off >> 6;
+	n = off & 0x3F;
+	if(n){
+		bitv->bits[m] = ((bitv->bits[m] << (64 - n)) >> (64 - n)) | (val << (64 - n));
+		m ++;
+		bitv->bits[m] = ((bitv->bits[m] >> n) << n) | (val >> (64 - n));
+	} else {
+		bitv->bits[m] = val;
+	}
+}
+
 static inline void encap_bitvec(BitVec *bitv, u8i num){
 	u8i cap;
 	if(bitv->n_bit + num < bitv->n_cap) return;
