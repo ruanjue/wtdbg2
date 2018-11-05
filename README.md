@@ -9,7 +9,7 @@ cd wtdbg2 && make
 # polish consensus, not necessary if you want to polish the assemblies using other tools
 minimap2 -t 16 -x map-pb -a prefix.ctg.lay.fa reads.fa.gz | samtools view -Sb - >prefix.ctg.lay.map.bam
 samtools sort prefix.ctg.lay.map.bam prefix.ctg.lay.map.srt
-samtools view prefix.ctg.lay.map.srt | ./wtpoa-cns -t 16 -d prefix.ctg.lay.fa -i - -fo prefix.ctg.lay.2nd.fa
+samtools view prefix.ctg.lay.map.srt.bam | ./wtpoa-cns -t 16 -d prefix.ctg.lay.fa -i - -fo prefix.ctg.lay.2nd.fa
 ```
 
 ## <a name="intro"></a>Introduction
