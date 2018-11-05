@@ -25,7 +25,8 @@
 
 typedef struct {
 	SeqBank *seqs;
-	u4i longest_idx;
+	u2v *rbegs, *rends;
+	u4i longest_idx, seqmax;
 	int8_t matrix[16];
 	int fail_skip;
 	u1i ksize; // 11
@@ -42,11 +43,14 @@ typedef struct {
 	int is_tripog;
 } TriPOG;
 
-static inline TriPOG* init_tripog(int winlen, int winmin, int fail_skip, int M, int X, int I, int D, int W, int use_sse, int rW, u4i min_cnt, float min_freq){
+static inline TriPOG* init_tripog(u4i seqmax, int winlen, int winmin, int fail_skip, int M, int X, int I, int D, int W, int use_sse, int rW, u4i min_cnt, float min_freq){
 	TriPOG *tp;
 	u4i i;
 	tp = malloc(sizeof(TriPOG));
 	tp->seqs = init_seqbank();
+	tp->rbegs = init_u2v(32);
+	tp->rends = init_u2v(32);
+	tp->seqmax = seqmax;
 	tp->longest_idx = 0;
 	tp->ksize = 11;
 	tp->kdup = 0.1;
@@ -82,6 +86,8 @@ static inline TriPOG* init_tripog(int winlen, int winmin, int fail_skip, int M, 
 
 static inline void free_tripog(TriPOG *tp){
 	free_seqbank(tp->seqs);
+	free_u2v(tp->rbegs);
+	free_u2v(tp->rends);
 	free_uuhash(tp->khash);
 	free_u1v(tp->qry);
 	free_u1v(tp->ref);
@@ -98,21 +104,27 @@ static inline void free_tripog(TriPOG *tp){
 
 static inline void beg_tripog(TriPOG *tp){
 	clear_seqbank(tp->seqs);
-	if(tp->winlen == 0){
-		beg_pog(tp->pogs[0]);
-	}
+	clear_u2v(tp->rbegs);
+	clear_u2v(tp->rends);
 	tp->longest_idx = 0;
 	tp->is_tripog = 0;
 }
 
-static inline void push_tripog(TriPOG *tp, char *seq, u4i len){
+static inline void push_tripog(TriPOG *tp, char *seq, u4i len, u2i refbeg, u2i refend){
 	push_seqbank(tp->seqs, NULL, 0, seq, len);
+	push_u2v(tp->rbegs, refbeg);
+	push_u2v(tp->rends, refend);
 	if(tp->seqs->rdlens->buffer[tp->longest_idx] < len){
 		tp->longest_idx = tp->seqs->nseq - 1;
 	}
-	if(tp->winlen){
-	} else {
-		push_pog(tp->pogs[0], seq, len);
+}
+
+static inline void fwdbitpush_tripog(TriPOG *tp, u8i *bits, u8i off, u4i len, u2i refbeg, u2i refend){
+	fwdbitpush_seqbank(tp->seqs, NULL, 0, bits, off, len);
+	push_u2v(tp->rbegs, refbeg);
+	push_u2v(tp->rends, refend);
+	if(tp->seqs->rdlens->buffer[tp->longest_idx] < len){
+		tp->longest_idx = tp->seqs->nseq - 1;
 	}
 }
 
@@ -139,11 +151,23 @@ static inline void direct_run_tripog(TriPOG *tp){
 	tp->pogs[0]->W_score = 0;
 }
 
-static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u4v *kidxs, f4v *kords, u1i ksize){
+static inline void shuffle_reads_tripog(TriPOG *tp){
+	SeqBank *sb;
+	uuhash *khash;
+	u4v *kidxs;
+	f4v *kords;
+	u2v *rbegs, *rends;
 	uuhash_t *u;
 	u8i roff;
-	u4i ridx, i, kmer, kmask, rlen, khit;
+	u4i ridx, i, ksize, kmer, kmask, rlen, khit;
 	int exists;
+	sb = tp->seqs;
+	khash = tp->khash;
+	kidxs = tp->kidxs;
+	kords = tp->kords;
+	rbegs = tp->rbegs;
+	rends = tp->rends;
+	ksize = tp->ksize;
 	clear_uuhash(khash);
 	kmask = MAX_U4 >> ((16 - ksize) << 1);
 	for(ridx=0;ridx<sb->nseq;ridx++){
@@ -189,27 +213,30 @@ static inline void shuffle_reads_tripog(SeqBank *sb, uuhash *khash, u4v *kidxs, 
 	for(i=0;i<kidxs->size;i++){
 		push_u8v(sb->rdoffs, sb->rdoffs->buffer[kidxs->buffer[i]]);
 		push_u4v(sb->rdlens, sb->rdlens->buffer[kidxs->buffer[i]]);
+		push_u2v(rbegs, rbegs->buffer[kidxs->buffer[i]]);
+		push_u2v(rends, rends->buffer[kidxs->buffer[i]]);
 	}
 	remove_array_u8v(sb->rdoffs, 0, kidxs->size);
 	remove_array_u4v(sb->rdlens, 0, kidxs->size);
+	remove_array_u2v(rbegs, 0, kidxs->size);
+	remove_array_u2v(rends, 0, kidxs->size);
+	if(tp->seqmax && sb->nseq > tp->seqmax){
+		sb->nseq = tp->seqmax;
+		sb->rdoffs->size = tp->seqmax;
+		sb->rdlens->size = tp->seqmax;
+		rbegs->size = tp->seqmax;
+		rends->size = tp->seqmax;
+	}
 }
 
 static inline void end_tripog(TriPOG *tp){
 	POG *g;
 	kswr_t R;
 	u4i ridx, rlen, b, e, failed;
+	shuffle_reads_tripog(tp);
 	if(tp->winlen == 0){
-		shuffle_reads_tripog(tp->pogs[0]->seqs, tp->khash, tp->kidxs, tp->kords, tp->ksize);
-		end_pog(tp->pogs[0]);
-		clear_basebank(tp->cns);
-		if(tp->pogs[0]->cns->size == 0){
-			fast_fwdbits2basebank(tp->cns, tp->seqs->rdseqs->bits, tp->seqs->rdoffs->buffer[tp->longest_idx], tp->seqs->rdlens->buffer[tp->longest_idx]);
-		} else {
-			fast_fwdbits2basebank(tp->cns, tp->pogs[0]->cns->bits, 0, tp->pogs[0]->cns->size);
-		}
-		return;
+		return direct_run_tripog(tp);
 	}
-	shuffle_reads_tripog(tp->seqs, tp->khash, tp->kidxs, tp->kords, tp->ksize);
 	tp->longest_idx = 0;
 	for(ridx=1;ridx<tp->seqs->nseq;ridx++){
 		if(tp->seqs->rdlens->buffer[ridx] > tp->seqs->rdlens->buffer[tp->longest_idx]){

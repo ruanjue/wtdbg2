@@ -169,7 +169,7 @@ free_u8list(mem_cache);
 free_u32list(cigars[0]);
 thread_end_func(mcns);
 
-int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen, FILE *out){
+int _old_run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen, FILE *out){
 	CTGCNS *cc;
 	BaseBank *seq;
 	edge_cns_t *edge;
@@ -183,7 +183,7 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 	seq = init_basebank();
 	thread_beg_init(mcns, ncpu);
 	mcns->cc = cc;
-	mcns->g = init_tripog(winlen, winmin, fail_skip, M, X, I, D, W, use_sse, rW, mincnt, minfreq);
+	mcns->g = init_tripog(seqmax, winlen, winmin, fail_skip, M, X, I, D, W, use_sse, rW, mincnt, minfreq);
 	ZEROS(&(mcns->edge));
 	thread_end_init(mcns);
 	meths[0] = meths[1] = 0;
@@ -215,7 +215,7 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 				//if(UInt(sl) > POG_RDLEN_MAX){
 					//sl = POG_RDLEN_MAX;
 				//}
-				push_tripog(mcns->g, ss, sl);
+				push_tripog(mcns->g, ss, sl, 0, 0);
 			}
 		} else if(state == 2){
 			if(nrun){ // wait for all edge consensus
@@ -337,15 +337,518 @@ int run_cns(FileReader *fr, u4i ncpu, int use_sse, u4i seqmax, int winlen, int w
 	return 0;
 }
 
+typedef struct {
+	char *reftag;
+	u4i node1, node2;
+} lay_blk_t;
+
+typedef struct {
+	u4i chridx, bidx; // block idx
+	BaseBank *seq;
+	u4i rbeg, rend;
+} lay_seq_t;
+
+static inline void _init_lay_seq_t(lay_seq_t *sq){
+	ZEROS(sq);
+	sq->seq = init_basebank();
+}
+
+static inline void _free_lay_seq_t(lay_seq_t *sq){
+	free_basebank(sq->seq);
+}
+
+define_recycle_list(layseqr, lay_seq_t, u4i, _init_lay_seq_t(a), _free_lay_seq_t(a));
+
+typedef struct {
+	u4i     chridx;
+	u4v     *chrs;
+	SeqBank *refs;
+	FileReader *fr;
+	layseqr *seqs;
+	u4v     *heap;
+	u4i     bidx, sidx, lidx;
+	u2i     bsize, bstep; // block size, and slide steps
+} SAMBlock;
+
+static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bstep){
+	SAMBlock *sb;
+	assert(bstep <= bsize && 2 * bstep >= bsize);
+	sb = malloc(sizeof(SAMBlock));
+	sb->chridx = 0;
+	sb->chrs = init_u4v(32);
+	sb->refs = refs;
+	sb->fr   = fr;
+	sb->seqs = init_layseqr(1024);
+	sb->heap = init_u4v(1024);
+	sb->bidx = 0;
+	sb->bsize = bsize;
+	sb->bstep = bstep;
+	sb->sidx = MAX_U4; // last output lay_seq
+	sb->lidx = MAX_U4; // last input lay_seq
+	return sb;
+}
+
+static inline void free_samblock(SAMBlock *sb){
+	free_u4v(sb->chrs);
+	free_layseqr(sb->seqs);
+	free_u4v(sb->heap);
+	free(sb);
+}
+
+static inline lay_seq_t* iter_samblock(void *obj){
+	SAMBlock *sb;
+	lay_seq_t *sc, *sl;
+	u4i chr, chridx, off, nxt, val, len, op;
+	char *ptr, *str;
+	int c;
+	sb = (SAMBlock*)obj;
+	if(sb->sidx != MAX_U4){
+		recyc_layseqr(sb->seqs, sb->sidx);
+		sb->sidx = MAX_U4;
+	}
+	do {
+		if(sb->heap->size == 0){
+			sb->lidx = MAX_U4;
+		}
+		while(sb->lidx == MAX_U4){
+			c = readtable_filereader(sb->fr);
+			if(c == -1) break;
+			if(sb->fr->line->string[0] == '@') continue;
+			if(c < 11) continue;
+			if(get_col_str(sb->fr, 9)[0] == '*') continue;
+			// chr
+			if((chr = getval_cuhash(sb->refs->rdhash, get_col_str(sb->fr, 3))) == MAX_U4){
+				continue;
+			}
+			if(sb->chrs->size == 0 || chr != sb->chrs->buffer[sb->chridx]){
+				chridx = ++ sb->chridx;
+				push_u4v(sb->chrs, chr);
+			} else {
+				chridx = sb->chridx;
+			}
+			off = atol(get_col_str(sb->fr, 4));
+			ptr = get_col_str(sb->fr, 5);
+			if((*ptr) == '*') continue;
+			str = get_col_str(sb->fr, 9);
+			{
+				sc = pop_layseqr(sb->seqs);
+				sc->chridx = chridx;
+				sc->bidx = (off / sb->bstep);
+				sc->rbeg = off;
+				sc->rend = 0;
+				clear_basebank(sc->seq);
+			}
+			sl = NULL;
+			// parse SAM cigar
+			{
+				nxt = (off / sb->bstep) * sb->bstep;
+				if(off - nxt < UInt(sb->bsize - sb->bstep)){
+					if(sc->bidx){
+						sl = pop_layseqr(sb->seqs);
+						sl->chridx = chridx;
+						sl->bidx = sc->bidx - 1;
+						sl->rbeg = off;
+						sl->rend = 0;
+						clear_basebank(sl->seq);
+					}
+					nxt += sb->bsize - sb->bstep;
+				} else {
+					nxt += sb->bstep;
+				}
+			}
+			val = 0;
+			while(1){
+				op = MAX_U4;
+				switch(*ptr){
+					case '0' ... '9': val = val * 10 + (*ptr) - '0'; break;
+					case 'X':
+					case '=': 
+					case 'M': op = 0b111; break;
+					case 'I': op = 0b110; break;
+					case 'D': op = 0b101; break;
+					case 'N': op = 0b001; break;
+					case 'S': op = 0b010; break;
+					case 'H':
+					case 'P': op = 0b000; break;
+					default:
+						fprintf(stderr, " -- %s\n", get_col_str(sb->fr, 5));
+						fprintf(stderr, " -- Bad cigar '%c' in %s -- %s:%d --\n", *ptr, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+						abort();
+				}
+				ptr ++;
+				if(op == MAX_U4) continue;
+				if(val == 0) val = 1;
+				while(val){
+					if(op & 0b001){
+						len = num_min(val, nxt - off);
+						off += len;
+					} else {
+						len = val;
+					}
+					val -= len;
+					if(op & 0b010){
+						if(op & 0b100){
+							if(sc){
+								seq2basebank(sc->seq, str, len);
+								if(sc->rend == 0){
+									sc->rbeg = off - len;
+								}
+								sc->rend = off;
+							}
+							if(sl){
+								seq2basebank(sl->seq, str, len);
+								if(sl->rend == 0){
+									sl->rbeg = off - len;
+								}
+								sl->rend = off;
+							}
+						}
+						str += len;
+					}
+					if(off == nxt){
+						if(sl){
+							if(sl->rend > sl->rbeg){
+								if(sb->lidx == MAX_U4){
+									sb->lidx = offset_layseqr(sb->seqs, sl);
+								}
+								array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sl),
+									num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+										ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, b)->seq->size, ref_layseqr(sb->seqs, a)->seq->size));
+							}
+							sl = NULL;
+							nxt += 2 * sb->bstep - sb->bsize;
+						} else {
+							sl = sc;
+							sc = pop_layseqr(sb->seqs);
+							sc->chridx = chridx;
+							sc->bidx = sl->bidx + 1;
+							sc->rbeg = off;
+							sc->rend = 0;
+							clear_basebank(sc->seq);
+							nxt += sb->bsize - sb->bstep;
+						}
+					}
+				}
+			}
+			if(sl && sl->rend > sl->rbeg){
+				if(sb->lidx == MAX_U4){
+					sb->lidx = offset_layseqr(sb->seqs, sl);
+				}
+				array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sl),
+					num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+						ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, b)->seq->size, ref_layseqr(sb->seqs, a)->seq->size));
+			}
+			if(sc && sc->rend > sc->rbeg){
+				if(sb->lidx == MAX_U4){
+					sb->lidx = offset_layseqr(sb->seqs, sc);
+				}
+				array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sc),
+					num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+						ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, b)->seq->size, ref_layseqr(sb->seqs, a)->seq->size));
+			}
+		}
+		if(sb->heap->size == 0) break;
+		if(sb->lidx){
+			sl = ref_layseqr(sb->seqs, sb->lidx);
+			sb->sidx = sb->heap->buffer[0];
+			sc = ref_layseqr(sb->seqs, sb->sidx);
+			if(sc->chridx == sl->chridx && sc->bidx + 1 >= sl->bidx){
+				sb->lidx = MAX_U4;
+				continue;
+			}
+			array_heap_remove(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, 0,
+				num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+					ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, b)->seq->size, ref_layseqr(sb->seqs, a)->seq->size));
+			sc->rbeg -= sc->bidx * sb->bstep;
+			sc->rend -= sc->bidx * sb->bstep;
+			return sc;
+		} else {
+			sb->sidx = sb->heap->buffer[0];
+			array_heap_remove(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, 0,
+				num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+					ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, b)->seq->size, ref_layseqr(sb->seqs, a)->seq->size));
+			sc = ref_layseqr(sb->seqs, sb->sidx);
+			sc->rbeg -= sc->bidx * sb->bstep;
+			sc->rend -= sc->bidx * sb->bstep;
+			return sc;
+		}
+	} while(1);
+	return NULL;
+}
+
+static inline void info_samblock(void *obj, lay_seq_t *sq, lay_blk_t *bk){
+	SAMBlock *sb;
+	sb = (SAMBlock*)obj;
+	if(sq == NULL) return;
+	bk->node1 = sq->bidx;
+	bk->node2 = sq->bidx + 1;
+	bk->reftag = sb->refs->rdtags->buffer[sb->chrs->buffer[sq->chridx]];
+}
+
+typedef struct {
+	String *tag;
+	FileReader *fr;
+	u4i chridx, bidx;
+	lay_seq_t *key;
+	lay_blk_t *blk;
+} WTLAYBlock;
+
+static inline WTLAYBlock* init_wtlayblock(FileReader *fr){
+	WTLAYBlock *wb;
+	wb = malloc(sizeof(WTLAYBlock));
+	wb->tag = init_string(32);
+	append_string(wb->tag, "annonymous", 10);
+	wb->fr = fr;
+	wb->chridx = 0;
+	wb->bidx = 0;
+	wb->key = calloc(1, sizeof(lay_seq_t));
+	wb->key->seq = init_basebank();
+	wb->blk = calloc(1, sizeof(lay_blk_t));
+	return wb;
+}
+
+static inline void free_wtlayblock(WTLAYBlock *wb){
+	free_string(wb->tag);
+	free_basebank(wb->key->seq);
+	free(wb->key);
+	free(wb->blk);
+	free(wb);
+}
+
+static inline lay_seq_t* iter_wtlayblock(void *obj){
+	WTLAYBlock *wb;
+	char *ss;
+	int c, sl;
+	wb = (WTLAYBlock*)obj;
+	clear_basebank(wb->key->seq);
+	while((c = readtable_filereader(wb->fr)) != -1){
+		switch(wb->fr->line->string[0]){
+			case '>':
+				wb->chridx ++;
+				wb->bidx = 0;
+				wb->blk->node1 = 0;
+				wb->blk->node2 = 0;
+				clear_string(wb->tag);
+				ss = get_col_str(wb->fr, 0) + 1;
+				for(sl=0;ss[sl] && ss[sl] != ' ' && ss[sl] != '\t';sl++){
+				}
+				append_string(wb->tag, ss, sl);
+				break;
+			case 'E':
+				wb->bidx ++;
+				wb->blk->node1 = atoll(get_col_str(wb->fr, 2) + 1);
+				wb->blk->node2 = atoll(get_col_str(wb->fr, 4) + 1);
+				wb->blk->reftag = wb->tag->string;
+				break;
+			case 'S':
+			case 's':
+				ss = get_col_str(wb->fr, 5);
+				sl = get_col_len(wb->fr, 5);
+				wb->key->chridx = wb->chridx;
+				wb->key->bidx   = wb->bidx;
+				wb->key->rbeg   = 0;
+				wb->key->rend   = 0;
+				seq2basebank(wb->key->seq, ss, sl);
+				return wb->key;
+		}
+	}
+	return NULL;
+}
+
+static inline void info_wtlayblock(void *obj, lay_seq_t *sq, lay_blk_t *bk){
+	if(sq == NULL) return;
+	memcpy(bk, ((WTLAYBlock*)obj)->blk, sizeof(lay_blk_t));
+}
+
+typedef lay_seq_t* (*iter_cns_block)(void *obj);
+typedef void       (*info_cns_block)(void *obj, lay_seq_t *sq, lay_blk_t *bk);
+
+int run_cns(void *obj, iter_cns_block itercns, info_cns_block infocns, u4i ncpu, int use_sse, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen, FILE *out){
+	CTGCNS *cc;
+	BaseBank *seq;
+	edge_cns_t *edge;
+	lay_seq_t *sq;
+	lay_blk_t *bk;
+	u8i ridx;
+	u4i nrun, eidx, meths[2];
+	u4i i, chridx, bidx;
+	int state, next, flag;
+	thread_preprocess(mcns);
+	cc = init_ctgcns(M, X, (I + D) / 2, E, reglen, out);
+	seq = init_basebank();
+	thread_beg_init(mcns, ncpu);
+	mcns->cc = cc;
+	mcns->g = init_tripog(seqmax, winlen, winmin, fail_skip, M, X, I, D, W, use_sse, rW, mincnt, minfreq);
+	ZEROS(&(mcns->edge));
+	thread_end_init(mcns);
+	meths[0] = meths[1] = 0;
+	clear_string(cc->tag);
+	append_string(cc->tag, "anonymous", 9);
+	thread_wait_one(mcns);
+	cc->widx = 1;
+	ridx = 1;
+	state = 1;
+	next = 0;
+	nrun = flag = 0;
+	sq = NULL;
+	chridx = MAX_U4;
+	bidx = MAX_U4;
+	bk = alloca(sizeof(lay_blk_t));
+	while(state){
+		if(state == 1){
+			if(sq == NULL){
+				sq = itercns(obj);
+			}
+			if(sq == NULL || sq->chridx != chridx){
+				if(sq){
+					chridx = sq->chridx;
+					cc->cidx ++;
+					bidx = MAX_U4;
+					infocns(obj, sq, bk);
+				}
+				if(mcns->edge.idx) thread_wake(mcns);
+				nrun = ncpu + 1;
+				state = 2;
+			} else if(sq->bidx != bidx){
+				if(mcns->edge.idx) thread_wake(mcns);
+				bidx = sq->bidx;
+				infocns(obj, sq, bk);
+				nrun = 1;
+				state = 3;
+			} else {
+				fwdbitpush_tripog(mcns->g, sq->seq->bits, 0, sq->seq->size, sq->rbeg, sq->rend);
+				sq = NULL;
+			}
+		} else if(state == 2){
+			if(nrun){ // wait for all edge consensus
+				thread_wait_next(mcns);
+				nrun --;
+				state = 4;
+				next = 2;
+			} else { // end of one contig consensus
+				if(cc->rs->size){
+					while(1){
+						thread_beg_syn(mcns);
+						eidx = cc->eidx;
+						thread_end_syn(mcns);
+						if(eidx + 1 >= cc->rs->size) break;
+						thread_wait_one(mcns);
+						thread_wake(mcns);
+					}
+					thread_wait_all(mcns);
+					clear_basebank(seq);
+					for(i=0;i<cc->rs->size;i++){
+						edge = ref_edgecnsv(cc->rs, i);
+						if(edge->end > edge->beg){
+							fast_fwdbits2basebank(seq, cc->seq->bits, edge->soff + edge->beg, edge->end - edge->beg);
+						} else if(Int(seq->size) + edge->end > edge->beg){
+							seq->size = seq->size + edge->end - edge->beg;
+							normalize_basebank(seq);
+						} else {
+							clear_basebank(seq);
+						}
+					}
+					fprintf(out, ">%s len=%d\n", cc->tag->string, (u4i)seq->size);
+					for(i=0;i<seq->size;i+=100){
+						if(i + 100 <= seq->size){
+							println_seq_basebank(seq, i, 100, out);
+						} else {
+							println_seq_basebank(seq, i, seq->size - i, out);
+						}
+					}
+					fflush(out);
+				}
+				if(sq == NULL){
+					state = 0;
+				} else {
+					state = 1;
+					clear_string(cc->tag);
+					if(bk->reftag){
+						append_string(cc->tag, bk->reftag, strlen(bk->reftag));
+					} else {
+						append_string(cc->tag, "anonymous", 10);
+					}
+					clear_basebank(cc->seq);
+					clear_edgecnsv(cc->heap);
+					clear_edgecnsv(cc->rs);
+					cc->eidx = 0;
+				}
+			}
+		} else if(state == 3){
+			if(nrun){
+				thread_wait_one(mcns);
+				next = 3;
+				state = 4;
+				nrun --;
+			} else {
+				beg_tripog(mcns->g);
+				mcns->edge.idx = ridx ++;
+				mcns->edge.node1 = bk->node1;
+				mcns->edge.node2 = bk->node2;
+				mcns->edge.soff = 0;
+				mcns->edge.slen = 0;
+				mcns->edge.beg = 0;
+				mcns->edge.end = 0;
+				state = 1;
+			}
+		} else if(state == 4){ // collect edge consensus
+			if(mcns->edge.idx){
+				meths[mcns->g->is_tripog] ++;
+				if(cns_debug){
+					thread_beg_syn(mcns);
+					fprintf(stderr, "%llu_%s_N%u_N%u\t%d\t%d\t", mcns->edge.idx, cc->tag->string, mcns->edge.node1, mcns->edge.node2, mcns->g->seqs->nseq, (u4i)mcns->g->cns->size);
+					println_seq_basebank(mcns->g->cns, 0, mcns->g->cns->size, stderr);
+					thread_end_syn(mcns);
+				}
+				mcns->edge.soff = cc->seq->size;
+				mcns->edge.slen = mcns->g->cns->size;
+				mcns->edge.beg = 0;
+				mcns->edge.end = mcns->g->cns->size;
+				fast_fwdbits2basebank(cc->seq, mcns->g->cns->bits, 0, mcns->g->cns->size);
+				array_heap_push(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, mcns->edge, num_cmp(a.idx, b.idx));
+				ZEROS(&mcns->edge);
+			}
+			thread_beg_syn(mcns);
+			while(cc->heap->size){
+				edge = head_edgecnsv(cc->heap);
+				if(edge->idx == cc->widx){
+					if(!cns_debug && (cc->widx % 100) == 0){
+						fprintf(stderr, "\r%u contigs %llu edges", cc->cidx, cc->widx); fflush(stderr);
+					}
+					push_edgecnsv(cc->rs, *edge);
+					array_heap_remove(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, 0, num_cmp(a.idx, b.idx));
+					cc->widx ++;
+				} else {
+					break;
+				}
+			}
+			thread_end_syn(mcns);
+			state = next;
+		}
+	}
+	if(!cns_debug){
+		fprintf(stderr, "\r%u contigs %llu edges\n", cc->cidx, cc->widx); fflush(stderr);
+	}
+	fprintf(stderr, " -- TRIPOA: not=%u yes=%u --\n", meths[0], meths[1]); fflush(stderr);
+	thread_beg_close(mcns);
+	free_tripog(mcns->g);
+	thread_end_close(mcns);
+	free_basebank(seq);
+	free_ctgcns(cc);
+	return 0;
+}
+
 int usage(){
 	printf(
 	"WTPOA-CNS: Consensuser for wtdbg using PO-MSA\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 1.1\n"
+	"Version: 1.2\n"
 	"Usage: wtpoa-cns [options]\n"
 	"Options:\n"
 	" -t <int>    Number of threads, [4]\n"
+	" -d <string> Reference sequences for SAM input, will invoke sorted-SAM input mode and auto set '-j 100 -W -256 -w 2000'\n"
 	" -i <string> Input file(s) *.ctg.lay from wtdbg, +, [STDIN]\n"
+	"             Or sorted SAM files when having -d\n"
 	" -o <string> Output files, [STDOUT]\n"
 	" -f          Force overwrite\n"
 	" -j <int>    Expected max length of node, or say the overlap length of two adjacent units in layout file, [1500] bp\n"
@@ -357,6 +860,7 @@ int usage(){
 	" -W <int>    Window size in the middle of the first read for fast align remaining reads, [200]\n"
 	"             If $W is negative, will disable fast align, but use the abs($W) as Band align score cutoff\n"
 	" -w <int>    Min size of aligned size in window, [$W * 0.5]\n"
+	"             In sorted-SAM input mode, -w is the sliding window size [2000]\n"
 	" -A          Abort TriPOA when any read cannot be fast aligned, then try POA\n"
 	//" -S <int>    SSE speedup in graph alignment, [1]\n"
 	" -R <int>    Realignment bandwidth, 0: disable, [16]\n"
@@ -371,11 +875,12 @@ int usage(){
 }
 
 int main(int argc, char **argv){
-	FileReader *fr;
-	cplist *infs;
+	SeqBank *refs;
+	FileReader *fr, *db;
+	cplist *infs, *dbfs;
 	FILE *out;
 	char *outf;
-	int reglen, use_sse, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax;
+	int reglen, use_sse, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax, wsize;
 	float minfreq;
 	int c, ncpu, overwrite;
 	ncpu = 4;
@@ -386,6 +891,7 @@ int main(int argc, char **argv){
 	winmin = 0;
 	fail_skip = 1;
 	reglen = 1500;
+	wsize = 2000; // used for SAM input
 	M = 2;
 	X = -5;
 	I = -2;
@@ -395,12 +901,14 @@ int main(int argc, char **argv){
 	mincnt = 3;
 	minfreq = 0.5;
 	infs = init_cplist(4);
+	dbfs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
-	while((c = getopt(argc, argv, "hvVt:i:o:fj:S:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:d:i:o:fj:S:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
+			case 'd': push_cplist(dbfs, optarg); reglen = 100; winlen = -256; break;
 			case 'i': push_cplist(infs, optarg); break;
 			case 'o': outf = optarg; break;
 			case 'f': overwrite = 1; break;
@@ -420,7 +928,7 @@ int main(int argc, char **argv){
 			case 'F': minfreq = atof(optarg); break;
 			case 'N': seqmax = atoi(optarg); break;
 			case 'v': cns_debug ++; break;
-			case 'V': fprintf(stdout, "wtpoa-cns 1.1\n"); return 0;
+			case 'V': fprintf(stdout, "wtpoa-cns 1.2\n"); return 0;
 			default: return usage();
 		}
 	}
@@ -445,10 +953,31 @@ int main(int argc, char **argv){
 	if(outf){
 		out = open_file_for_write(outf, NULL, 1);
 	} else out = stdout;
-	run_cns(fr, ncpu, use_sse, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen, out);
+	if(dbfs->size == 0){
+		WTLAYBlock *wb;
+		wb = init_wtlayblock(fr);
+		run_cns(wb, iter_wtlayblock, info_wtlayblock, ncpu, use_sse, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen, out);
+		free_wtlayblock(wb);
+	} else {
+		SAMBlock *sb;
+		BioSequence *seq;
+		refs = init_seqbank();
+		db = open_all_filereader(dbfs->size, dbfs->buffer, 1);
+		seq = init_biosequence();
+		while(readseq_filereader(db, seq)){
+			push_seqbank(refs, seq->tag->string, seq->tag->size, seq->seq->string, seq->seq->size);
+		}
+		free_biosequence(seq);
+		close_filereader(db);
+		sb = init_samblock(refs, fr, winmin, winmin - reglen);
+		run_cns(sb, iter_samblock, info_samblock, ncpu, use_sse, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen, out);
+		free_samblock(sb);
+		free_seqbank(refs);
+	}
 	close_filereader(fr);
 	if(outf) fclose(out);
 	free_cplist(infs);
+	free_cplist(dbfs);
 	END_STAT_PROC_INFO(stderr);
 	return 0;
 }
