@@ -1,7 +1,7 @@
 VERSION=2.2
 
 CC  := gcc
-BIN := =/usr/local/bin
+BIN := /usr/local/bin
 
 ifeq (0, ${MAKELEVEL})
 TIMESTAMP=$(shell date)
