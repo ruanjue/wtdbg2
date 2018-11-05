@@ -702,6 +702,16 @@ static inline void recyc_##list_type(list_type *list, size_type idx){	\
 	list->recyc[list->rsize++] = idx;	\
 }	\
 	\
+static inline e_type* pop_##list_type(list_type *list){	\
+	size_type idx;	\
+	idx = fetch_##list_type(list);	\
+	return ref_##list_type(list, idx);	\
+}	\
+	\
+static inline void push_##list_type(list_type *list, e_type* e){	\
+	recyc_##list_type(list, offset_##list_type(list, e));	\
+}	\
+	\
 static inline void recyc_all_##list_type(list_type *list){	\
 	size_type i;	\
 	list->rsize = 0;	\
