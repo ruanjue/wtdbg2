@@ -131,6 +131,7 @@ static inline BufferedWriter* open2_bufferedwriter(void *obj, write_data_func _w
 		fprintf(stderr, " -- Failed to create thread [%s] in %s -- %s:%d --\n", "_buffered_writer_thread_func", __FUNCTION__, __FILE__, __LINE__);
 		bw->pid = 0;
 	}
+	while(bw->running != 1){ nano_sleep(1); }
 	return bw;
 }
 
