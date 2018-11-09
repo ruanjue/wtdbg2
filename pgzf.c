@@ -30,7 +30,7 @@ int usage(int ret){
 	" -t <int>    Number of threads, [8]\n"
 	" -f          Force to overwrite\n"
 	" -o <string> Output file name\n"
-	" -x          Delete input files after done, need to specify `-o` or/and `-f`\n"
+	" -x          Delete input files after done\n"
 	" -b <int>    Block size in MB, 1 ~ 256 [16]\n"
 	" -l <int>    Compress level, 1-9, see gzip, [6]\n"
 	" -h          Show this document\n"
@@ -50,7 +50,7 @@ int usage(int ret){
 
 int main(int argc, char **argv){
 	PGZF *pz;
-	char *outf;
+	char *outf, *ftag;
 	FILE *in, *out;
 	void *buff;
 	u4i bufsize, nbyte;
@@ -76,7 +76,10 @@ int main(int argc, char **argv){
 			default: return usage(1);
 		}
 	}
-	if(del){
+	if(optind == argc){
+		return usage(1);
+	}
+	if(0 && del){
 		if(outf == NULL && overwrite == 0){
 			if(optind < argc){
 				fprintf(stderr, " ** WARNNING: won't delete input files. To force delete input files, please specify -o or/and -f\n");
@@ -85,23 +88,47 @@ int main(int argc, char **argv){
 		}
 	}
 	if(outf){
-		for(c=optind;c<argc;c++){
-			if(strcmp(outf, argv[c]) == 0){
-				fprintf(stderr, " ** ERROR: The same file in INPUT and OUTPUT, '%s'\n", outf);
+		if(file_exists(outf)){
+			if(overwrite == 0){
+				fprintf(stderr, " ** ERROR: '%s' exists\n", outf);
 				return 1;
+			} else {
+				for(c=optind;c<argc;c++){
+					if(strcmp(outf, argv[c]) == 0){
+						fprintf(stderr, " ** ERROR: The same file in INPUT and OUTPUT, '%s'\n", outf);
+						return 1;
+					}
+				}
 			}
 		}
 		out = open_file_for_write(outf, NULL, overwrite);
 	} else {
-		out = stdout;
+		out = NULL;
 	}
 	buff = malloc(bufsize);
 	if(rw == PGZF_MODE_R){
+		if(outf == NULL){
+			for(c=optind;c<argc;c++){
+				if(strlen(argv[c]) < 4 || strcasecmp(argv[c] + strlen(argv[c]) - 3, ".gz")){
+					fprintf(stderr, " ** ERROR: cannot auto generate output file name for '%s'\n", argv[c]);
+					return 1;
+				} else {
+					ftag = strdup(argv[optind]);
+					ftag[strlen(ftag) - 3] = 0;
+					if(overwrite == 0 && file_exists(ftag)){
+						fprintf(stderr, " ** ERROR: '%s' exists\n", ftag);
+						return 1;
+					}
+					free(ftag);
+				}
+			}
+		}
 		do {
-			if(optind < argc){
-				in = open_file_for_read(argv[optind], NULL);
-			} else {
-				in = stdin;
+			in = open_file_for_read(argv[optind], NULL);
+			if(outf == NULL){
+				ftag = strdup(argv[optind]);
+				ftag[strlen(ftag) - 3] = 0;
+				out = open_file_for_write(ftag, NULL, overwrite);
 			}
 			pz = open_pgzf_reader(in, bufsize, ncpu);
 			while((nbyte = read_pgzf(pz, buff, bufsize))){
@@ -115,15 +142,42 @@ int main(int argc, char **argv){
 				}
 			}
 			optind ++;
+			if(outf == NULL){
+				fclose(out);
+			}
 		} while(optind < argc);
 	} else {
-		pz = open_pgzf_writer(out, bufsize, ncpu, level);
-		do {
-			if(optind < argc){
-				in = open_file_for_read(argv[optind], NULL);
-			} else {
-				in = stdin;
+		if(outf){
+			pz = open_pgzf_writer(out, bufsize, ncpu, level);
+		} else {
+			pz = NULL;
+			for(c=optind;c<argc;c++){
+				if(strlen(argv[c]) >= 4 && strcasecmp(argv[c] + strlen(argv[c]) - 3, ".gz") == 0){
+					fprintf(stderr, " ** ERROR: file seems already compressed '%s'\n", argv[c]);
+					return 1;
+				} else if(strcmp(argv[c], "-") == 0){
+					fprintf(stderr, " ** ERROR: Please specify output file when read from STDIN '%s'\n", argv[c]);
+					return 1;
+				} else {
+					ftag = malloc(strlen(argv[c]) + 4);
+					sprintf(ftag, "%s.gz", argv[c]);
+					if(overwrite == 0 && file_exists(ftag)){
+						fprintf(stderr, " ** ERROR: '%s' exists\n", ftag);
+						return 1;
+					}
+					free(ftag);
+				}
 			}
+		}
+		do {
+			if(outf == NULL){
+				ftag = malloc(strlen(argv[optind]) + 4);
+				sprintf(ftag, "%s.gz", argv[optind]);
+				out = open_file_for_write(ftag, NULL, overwrite);
+				pz = open_pgzf_writer(out, bufsize, ncpu, level);
+				free(ftag);
+			}
+			in = open_file_for_read(argv[optind], NULL);
 			while((nbyte = fread(buff, 1, bufsize, in))){
 				write_pgzf(pz, buff, nbyte);
 			}
@@ -133,11 +187,17 @@ int main(int argc, char **argv){
 					unlink(argv[optind]);
 				}
 			}
+			if(outf == NULL){
+				close_pgzf(pz);
+				fclose(out);
+			}
 			optind ++;
 		} while(optind < argc);
-		close_pgzf(pz);
+		if(outf){
+			close_pgzf(pz);
+		}
 	}
-	if(out != stdout) fclose(out);
+	if(outf) fclose(out);
 	free(buff);
 	return 0;
 }
