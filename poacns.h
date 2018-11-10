@@ -56,7 +56,11 @@ typedef struct {
 	u4i edge, erev;
 	u4i aligned;
 	u4i btx;
-	u4i coff, roff, voff;
+	u4i coff;
+	union {
+		u8i flag;
+		struct { u4i roff, voff; };
+	};
 } pog_node_t;
 define_list(pognodev, pog_node_t);
 
@@ -91,11 +95,11 @@ typedef struct {
 	u8i ncall;
 } POG;
 
-static inline POG* init_pog(int M, int X, int I, int D, int W, int Wscore_cutoff, int use_sse, int rW, u4i min_cnt, float min_freq){
+static inline POG* init_pog(int refmode, int M, int X, int I, int D, int W, int Wscore_cutoff, int use_sse, int rW, u4i min_cnt, float min_freq){
 	POG *g;
 	g = malloc(sizeof(POG));
 	g->seqs = init_seqbank();
-	g->ref_mode = 0;
+	g->ref_mode = refmode;
 	g->sbegs = init_u2v(32);
 	g->sends = init_u2v(32);
 	g->nodes = init_pognodev(16 * 1024);
@@ -270,6 +274,7 @@ static inline void beg_pog(POG *g){
 	clear_basebank(g->cns);
 	head = next_ref_pognodev(g->nodes);
 	ZEROS(head);
+	head->base = 4;
 	tail = next_ref_pognodev(g->nodes);
 	ZEROS(tail);
 	tail->base = 4;
@@ -293,7 +298,6 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 	b2i *row1, *row2, *btds;
 	u4i i, slen, seqlex, beg, end;
 	int lsth, lstf, msk, mi, center;
-	UNUSED(nidx1);
 	UNUSED(coff1);
 	slen = (seqlen + 7) / 8;
 	seqlex = slen * 8;
@@ -353,10 +357,15 @@ static inline void sse_band_row_rdaln_pog(POG *g, u4i nidx1, u4i nidx2, u4i seql
 		}
 	}
 	MAX = _mm_set1_epi16(POG_SCORE_MIN);
-	if(g->aln_mode == POG_ALNMODE_OVERLAP){
-		lstf = lsth = beg? POG_SCORE_MIN : 0;
-	} else {
+	if(beg){
 		lstf = lsth = POG_SCORE_MIN;
+	} else {
+		lstf = (g->aln_mode == POG_ALNMODE_OVERLAP)? 0 : POG_SCORE_MIN;
+		if(nidx1){
+			lsth = (g->aln_mode == POG_ALNMODE_OVERLAP)? 0 : POG_SCORE_MIN;;
+		} else {
+			lsth = g->T;
+		}
 	}
 	for(i=beg;i<end;i++){
 		E = _mm_load_si128(((__m128i*)(row1)) + i);
@@ -721,6 +730,8 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	clear_u1v(g->btvs);
 	inc_u1v(g->btvs, 8);
 	clear_and_inc_u4v(g->btxs, bb + 1);
+	//g->btxs->buffer[0] = 0;
+	memset(g->btxs->buffer, 0, (bb + 1) * sizeof(u4i));
 	u = ref_pognodev(g->nodes, POG_HEAD_NODE);
 	if(g->rowr->size){
 		u->coff = u->roff = g->rowr->buffer[--g->rowr->size];
@@ -734,14 +745,14 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	btds = ref_b2v(g->btds, u->coff);
 	if(g->aln_mode == POG_ALNMODE_OVERLAP){ // overlap alignment
 		memset(row,  0, seqinc * sizeof(b2i));
-		row[0] = g->T;
+		//row[0] = g->T;
 	} else { // global
 		__m128i MIN;
 		MIN = _mm_set1_epi16(POG_SCORE_MIN);
 		for(j=0;j<slen;j++){
 			_mm_store_si128(((__m128i*)row) + j, MIN);
 		}
-		row[0] = g->T;
+		//row[0] = g->T;
 	}
 	memset(btds, 0, seqinc * sizeof(b2i));
 	if(g->near_dialog && g->W_score <= 0){
@@ -940,7 +951,13 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				u->edge = offset_pogedgev(g->edges, e);
 				e->next = 0;
 			} else {
-				u = ref_pognodev(g->nodes, POG_HEAD_NODE);
+				xb = x;
+				if(nidx == POG_HEAD_NODE || nidx + 1 >= g->nodes->size || g->nodes->buffer[nidx].rid != g->nodes->buffer[nidx + 1].rid){
+					nidx = POG_HEAD_NODE;
+				} else {
+					nidx ++;
+				}
+				u = ref_pognodev(g->nodes, nidx);
 				eidx = u->edge;
 				flag = 0;
 				while(eidx){
@@ -958,7 +975,33 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				} else {
 					trunc_pogedgev(g->edges, 1);
 				}
-				xb = x;
+				if(nidx != POG_HEAD_NODE){
+					v = u;
+					e = next_ref_pogedgev(g->edges);
+					e->node = nidx;
+					e->cov = 1;
+					v->nin ++;
+					{
+						u = ref_pognodev(g->nodes, POG_HEAD_NODE);
+						eidx = u->edge;
+						flag = 0;
+						while(eidx){
+							f = ref_pogedgev(g->edges, eidx);
+							eidx = f->next;
+							if(f->node == e->node){
+								inc_edge_core_pog(g, u, f);
+								v->nin --;
+								flag = 1;
+								break;
+							}
+						}
+						if(flag == 0){
+							add_edge_core_pog(g, u, e);
+						} else {
+							trunc_pogedgev(g->edges, 1);
+						}
+					}
+				}
 				break;
 			}
 			x --;
@@ -1014,8 +1057,11 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			v = u;
 		} else {
 		}
-		if(x < 0){
-			nidx = 0;
+		if(x < 0){ // && nidx
+			if(bt == POG_DP_BT_I){
+			} else {
+				nidx = 0;
+			}
 			btx = 0;
 			continue;
 		}
@@ -1061,7 +1107,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		}
 	}
 	if(cns_debug > 1){
-		fprintf(stderr, "ALIGN[%03d] len=%u aligned=%d,%d score=%d\n", rid, g->seqs->rdlens->buffer[rid], xb, xe + 1, score);
+		fprintf(stderr, "ALIGN[%03d] len=%u ref=%d,%d aligned=%d,%d score=%d\n", rid, g->seqs->rdlens->buffer[rid], g->sbegs->buffer[rid], g->sends->buffer[rid], xb, xe + 1, score);
 	}
 	return score;
 }
@@ -1098,6 +1144,43 @@ static inline void revbitpush_pog_core(POG *g, u8i *bits, u8i off, u4i len, u2i 
 }
 
 static inline void revbitpush_pog(POG *g, u8i *bits, u8i off, u4i len){ revbitpush_pog_core(g, bits, off, len, 0, 0); }
+
+/*
+static inline void tidy_ends_msa_pog(POG *g, u4i W){
+	u2i *bcnts[7];
+	u1i *r;
+	u4i i, j, ridx, beg, end, max;
+	for(i=0;i<7;i++){
+		clear_and_encap_u2v(g->bcnts[i], g->msa_len);
+		bcnts[i] = g->bcnts[i]->buffer;
+		memset(bcnts[i], 0, g->msa_len * sizeof(u2i));
+	}
+	for(i=0;i<g->seqs->nseq;i++){
+		r = ref_u1v(g->msa, g->msa_len * i);
+		for(j=0;j<(int)g->msa_len;j++){
+			bcnts[r[j]][j] ++;
+		}
+	}
+	for(i=0;i<g->msa_len;i++){
+		max = 0;
+		for(j=1;j<4;j++){
+			if(bcnts[j][i] > bcnts[max][i]){
+				max = j;
+			}
+		}
+		bcnts[5][i] = max;
+		bcnts[6][i] = bcnts[0][i] + bcnts[1][i] + bcnts[2][i] + bcnts[3][i];
+	}
+	for(ridx=0;ridx<g->seqs->nseq;ridx++){
+		r = ref_u1v(g->msa, g->msa_len * ridx);
+		for(beg=0;beg<g->msa_len&&r[beg]==4;beg++);
+		for(end=beg,i=0;end<g->msa_len&&i<W;end++){
+			if(r[end] != 4) i ++;
+		}
+		if(end == g->msa_len) continue;
+	}
+}
+*/
 
 static inline u4i realign_msa_pog_core(POG *g, u4i ridx, int W){
 	u2i *bcnts[7], *hcovs, *bts, *bs, *bs1;
@@ -1371,11 +1454,11 @@ static const float homo_merging_cmp_norm[20] = {
 
 static inline void gen_cns_pog(POG *g){
 	u1i *s, *r;
-	u4i idx, lst, lsv, lsx, rid, max, i, mcnt, min_cnt, max_cnt, runlen, cnl, beg, end;
-	u4i freqs[5][11], fmax1, fmax2;
+	u4i idx, lst, lsv, lsx, rid, max, i, mcnt, min_cnt, max_cnt, runlen, cnl, beg, end, cbeg, cend;
+	u4i freqs[5][11], fmax1, fmax2, tot, cut, *hcnts;
 	u2i cnts[5], *bls, cl, bx, bl, bm, dl, dm, *hcovs, corr;
 	//u2i *vsts;
-	float fl, fx1, fx2, norm;
+	float fl, fx1, fx2, norm, flush;
 	mcnt = num_min(g->msa_min_cnt, g->seqs->nseq);
 	min_cnt = num_max(mcnt, UInt(g->msa_min_freq * g->seqs->nseq));
 	max_cnt = g->seqs->nseq - min_cnt;
@@ -1385,20 +1468,69 @@ static inline void gen_cns_pog(POG *g){
 	hcovs = g->hcovs->buffer;
 	bls   = hcovs + 8 + g->msa_len; // bls is all zeros, see end_pog
 	if(g->rW){
-		memset(g->hcovs->buffer, 0, g->msa_len * sizeof(u2i));
+		memset(hcovs, 0, g->msa_len * sizeof(u2i));
 		for(rid=0;rid<g->seqs->nseq;rid++){
 			r = ref_u1v(g->msa, g->msa_len * rid);
 			beg = 0;
 			while(beg < g->msa_len && r[beg] == 4) beg ++;
 			end = g->msa_len;
-			while(end && r[end - 1] == 4) end --;
-			for(i=beg;i<end;i++) g->hcovs->buffer[i] ++;
+			while(end > beg && r[end - 1] == 4) end --;
+			for(i=beg;i<end;i++) hcovs[i] ++;
 		}
+	}
+	// revise mcnt
+	if(g->ref_mode){
+	} else {
+		tot = 0;
+		clear_and_encap_u4v(g->btxs, mcnt + 1);
+		hcnts = g->btxs->buffer;
+		//hcnts = alloca((mcnt + 1) * sizeof(u4i));
+		memset(hcnts, 0, (mcnt + 1) * sizeof(u4i));
+		for(i=0;i<g->msa_len;i++){
+			tot += (hcovs[i] + 1) * (hcovs[i]) / 2;
+			hcnts[num_min(hcovs[i], mcnt)] += (hcovs[i] + 1) * (hcovs[i]) / 2;
+		}
+		cut = tot * 0.8;
+		tot = 0;
+		for(i=mcnt;i>1;i--){
+			tot += hcnts[i];
+			if(tot >= cut){
+				break;
+			}
+		}
+		if(i < mcnt){
+			if(cns_debug > 1){
+				fprintf(stderr, " Revise mcnt %u -> %u\n", mcnt, i); fflush(stderr);
+			}
+			mcnt = i;
+			min_cnt = i;
+			max_cnt = g->seqs->nseq - min_cnt;
+		}
+	}
+	// gen cns
+	cbeg = 0;
+	cend = g->msa_len;
+	if(g->ref_mode){
+		rid = 0;
+		{
+			r = ref_u1v(g->msa, g->msa_len * rid);
+			cbeg = 0;
+			while(cbeg < g->msa_len && r[cbeg] == 4){ hcovs[cbeg] = 0; cbeg ++; }
+			end = g->msa_len;
+			while(cend > cbeg && r[cend - 1] == 4){ cend --; hcovs[cend] = 0; }
+		}
+	} else {
+		cbeg = 0;
+		while(cbeg < g->msa_len && hcovs[cbeg] < min_cnt) cbeg ++;
+		cend = g->msa_len;
+		while(cend > cbeg && hcovs[cend - 1] < min_cnt) cend --;
 	}
 	fmax1 = 5;
 	fmax2 = 10;
-	for(i=0;i<fmax1;i++){
-		memset(freqs[i], 0, (fmax2 + 1) * sizeof(u4i));
+	if(cns_debug > 1){
+		for(i=0;i<fmax1;i++){
+			memset(freqs[i], 0, (fmax2 + 1) * sizeof(u4i));
+		}
 	}
 	lst = lsv = MAX_U4;
 	lsx = 0;
@@ -1406,28 +1538,48 @@ static inline void gen_cns_pog(POG *g){
 	cl = 0;
 	cnl = 0;
 	end = 0;
-	for(idx=0;idx<=g->msa_len;idx++){
-		if(idx <= g->msa_len){
+	flush = 0;
+	for(idx=cbeg;idx<=cend;idx++){
+		if(idx < cend){
+			flush = 0;
 			memset(cnts, 0, 5 * 2);
+			if(g->ref_mode){
+				if((max = g->msa->buffer[g->msa_len * 0 + idx]) == 4){
+					max = 0;
+				} else {
+					if(hcovs[idx] < min_cnt){
+						flush = 1;
+					}
+				}
+			} else {
+				max = 0;
+			}
 			for(rid=0;rid<g->seqs->nseq;rid++){
 				cnts[g->msa->buffer[g->msa_len * rid + idx]] ++;
 			}
-			max = 0;
-			for(i=1;i<4;i++){
+			for(i=0;i<4;i++){
 				if(cnts[i] > cnts[max]){
 					max = i;
 				}
 			}
-		}
-		if(idx == g->msa_len || (hcovs[idx] >= min_cnt && cnts[4] + hcovs[idx] - g->seqs->nseq <= max_cnt && cnts[max] >= mcnt)){
-			if(lst == MAX_U4){ lst = idx; lsv = idx; }
-			if(idx < g->msa_len){
+			if(flush){
 				s[idx] = max;
 				end = idx;
-			} else if(end + 1 == idx){
+			} else if(hcovs[idx] >= min_cnt && cnts[max] >= mcnt && cnts[4] - (g->seqs->nseq - hcovs[idx]) < (g->seqs->nseq - cnts[4])){
+				s[idx] = max;
+				end = idx;
+				flush = 1;
+			}
+		} else {
+			if(end + 1 == idx){
 				end = idx;
 			}
-			if(idx == g->msa_len || s[lst] != max){
+			max = 4;
+			flush = 1;
+		}
+		if(flush){
+			if(lst == MAX_U4){ lst = idx; lsv = idx; }
+			if(idx == cend || s[lst] != max){
 				runlen = 0;
 				for(rid=0;rid<g->seqs->nseq;rid++){
 					r = ref_u1v(g->msa, g->msa_len * rid);
@@ -1448,7 +1600,7 @@ static inline void gen_cns_pog(POG *g){
 					if(rid < hcovs[lst] && bls[rid] == bls[rid - 1]){
 						bx ++;
 					} else {
-						if(cl <= fmax1 && bls[rid - 1] <= fmax2){
+						if(cns_debug > 1 && cl <= fmax1 && bls[rid - 1] <= fmax2){
 							freqs[cl - 1][bls[rid - 1]] += bx;
 						}
 						if(bx > bm){
@@ -1474,7 +1626,6 @@ static inline void gen_cns_pog(POG *g){
 						fprintf(stderr, "\n");
 					}
 				}
-				//if(bl && cl != bl){
 				if(cl != bl){
 					if(bl > cl + 1 && bl > Int(fl) + 1) bl = Int(fl) + 1; // Don't correct too much
 					if(bl + 1 < cl && (float)bl < fl) bl = cl - 1;
@@ -1499,6 +1650,12 @@ static inline void gen_cns_pog(POG *g){
 				cnl += cl;
 				for(i=0;i<corr;i++){
 					bit2basebank(g->cns, s[lst]);
+					if(i){
+						s[lst + i] = s[lst];
+					}
+				}
+				for(i+=lst;i<end;i++){
+					s[i] = 4;
 				}
 				runlen = 0;
 				lst = idx;
@@ -1561,7 +1718,7 @@ static inline void end_pog(POG *g){
 		u = ref_pognodev(g->nodes, POG_HEAD_NODE);
 		reflen = g->seqs->rdlens->buffer[0];
 		for(i=0;i<g->sbegs->size;i++){
-			if(g->sbegs->buffer[i] == 0) continue;
+			if(g->sbegs->buffer[i] < 10) continue;
 			nidx = POG_TAIL_NODE + 1 + (reflen - 1 - g->sbegs->buffer[i]);
 			v = ref_pognodev(g->nodes, nidx);
 			eidx = u->edge;
@@ -1585,7 +1742,7 @@ static inline void end_pog(POG *g){
 		}
 		v = ref_pognodev(g->nodes, POG_TAIL_NODE);
 		for(i=0;i<g->sends->size;i++){
-			if(g->sends->buffer[i] == 0 || g->sends->buffer[i] == reflen) continue;
+			if(g->sends->buffer[i] == 0 || g->sends->buffer[i] + 10U >= reflen) continue;
 			nidx = POG_TAIL_NODE + 1 + (reflen - g->sends->buffer[i]);
 			u = ref_pognodev(g->nodes, nidx);
 			eidx = u->edge;
@@ -1616,6 +1773,7 @@ static inline void end_pog(POG *g){
 		u->vst = 0;
 		u->btx = 0;
 		u->coff = 0;
+		u->erev = 0;
 	}
 	// calcuate msa_len
 	clear_u4v(g->stack);
@@ -1692,9 +1850,9 @@ static inline void end_pog(POG *g){
 		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		abort();
 	}
+	// generate MSA
 	u = ref_pognodev(g->nodes, POG_TAIL_NODE);
 	g->msa_len = u->coff;
-	// generate MSA
 	for(nidx=0;nidx<g->nodes->size;nidx++){
 		u = ref_pognodev(g->nodes, nidx);
 		u->vst = 0;
