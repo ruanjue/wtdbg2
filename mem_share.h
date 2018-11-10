@@ -321,6 +321,17 @@ static inline int dir_exists(const char *filename){
 	}
 }
 
+static inline char* relative_filename(char *filename){
+	char *ptr;
+	if(filename == NULL) return NULL;
+	ptr = filename + strlen(filename);
+	while(ptr >= filename){
+		if(*ptr == '/') break;
+		ptr --;
+	}
+	return strdup(ptr + 1);
+}
+
 static inline char* absolute_filename(char *filename){
 	char *path, *cwd, *ptr;
 	int x, y, z, i;
