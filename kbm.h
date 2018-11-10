@@ -187,7 +187,7 @@ typedef struct {
 	cuhash   *tag2idx;
 	kbmbinv  *bins;
 	BitVec   *binmarks;
-	u8i      *kfs;
+	//u8i      *kfs;
 	kbmbmerv *seeds;
 	kbmbauxv *sauxs;
 	kbmhash  *hashs[KBM_N_HASH];
@@ -305,7 +305,7 @@ static inline KBM* init_kbm(KBMPar *par){
 	kbm->tag2idx = init_cuhash(1023);
 	kbm->bins  = init_kbmbinv(64);
 	kbm->binmarks = init_bitvec(1024);
-	kbm->kfs = NULL;
+	//kbm->kfs = NULL;
 	kbm->seeds = init_kbmbmerv(64);
 	kbm->sauxs = init_kbmbauxv(64);
 	for(i=0;i<KBM_N_HASH;i++) kbm->hashs[i] = init_kbmhash(1023);
@@ -326,7 +326,7 @@ static inline void free_kbm(KBM *kbm){
 	free_cuhash(kbm->tag2idx);
 	free_kbmbinv(kbm->bins);
 	free_bitvec(kbm->binmarks);
-	if(kbm->kfs) free(kbm->kfs);
+	//if(kbm->kfs) free(kbm->kfs);
 	free_kbmbmerv(kbm->seeds);
 	free_kbmbauxv(kbm->sauxs);
 	for(i=0;i<KBM_N_HASH;i++) free_kbmhash(kbm->hashs[i]);
@@ -869,12 +869,12 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu, FILE *kmstat)
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmhash(kbm->hashs[i]);
 	kcnts = NULL;
 	MAX = KBM_MAX_KCNT;
-	if(kbm->kfs){
-		free(kbm->kfs);
-		kbm->kfs = NULL;
-	}
-	if(kbm->par->kmin <= 1) kbm->par->use_kf = 0;
-	kbm->kfs = kbm->par->use_kf? calloc(KBM_KF_SIZE / 4 / 8, 8) : NULL;
+	//if(kbm->kfs){
+		//free(kbm->kfs);
+		//kbm->kfs = NULL;
+	//}
+	//if(kbm->par->kmin <= 1) kbm->par->use_kf = 0;
+	//kbm->kfs = kbm->par->use_kf? calloc(KBM_KF_SIZE / 4 / 8, 8) : NULL;
 	hash_locks = calloc(KBM_N_HASH, sizeof(pthread_mutex_t));
 	thread_beg_init(midx, ncpu);
 	midx->kbm = kbm;
