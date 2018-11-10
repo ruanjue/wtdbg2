@@ -1480,7 +1480,7 @@ static inline void gen_cns_pog(POG *g){
 	}
 	// revise mcnt
 	if(g->ref_mode){
-	} else {
+	} else if(0){
 		tot = 0;
 		clear_and_encap_u4v(g->btxs, mcnt + 1);
 		hcnts = g->btxs->buffer;
