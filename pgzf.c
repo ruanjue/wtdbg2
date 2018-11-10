@@ -29,7 +29,7 @@ int usage(int ret){
 	" -d          Decompress mode\n"
 	" -t <int>    Number of threads, [8]\n"
 	" -f          Force to overwrite\n"
-	" -o <string> Output file name\n"
+	" -o <string> Output file name, support directory\n"
 	" -x          Delete input files after done\n"
 	" -b <int>    Block size in MB, 1 ~ 256 [16]\n"
 	" -l <int>    Compress level, 1-9, see gzip, [6]\n"
@@ -54,7 +54,7 @@ int main(int argc, char **argv){
 	FILE *in, *out;
 	void *buff;
 	u4i bufsize, nbyte;
-	int c, rw, ncpu, level, overwrite, del;
+	int c, rw, ncpu, level, overwrite, del, is_dir;
 	rw = PGZF_MODE_W;
 	ncpu = 8;
 	bufsize = PGZF_DEFAULT_BUFF_SIZE;
@@ -87,6 +87,8 @@ int main(int argc, char **argv){
 			del = 0;
 		}
 	}
+	is_dir = 0;
+	out = NULL;
 	if(outf){
 		if(file_exists(outf)){
 			if(overwrite == 0){
@@ -100,18 +102,32 @@ int main(int argc, char **argv){
 					}
 				}
 			}
+			out = open_file_for_write(outf, NULL, overwrite);
+		} else if(dir_exists(outf)){
+			is_dir = 1;
+		} else {
+			out = open_file_for_write(outf, NULL, overwrite);
 		}
-		out = open_file_for_write(outf, NULL, overwrite);
-	} else {
-		out = NULL;
 	}
 	buff = malloc(bufsize);
 	if(rw == PGZF_MODE_R){
-		if(outf == NULL){
+		if(outf == NULL || is_dir){
 			for(c=optind;c<argc;c++){
 				if(strlen(argv[c]) < 4 || strcasecmp(argv[c] + strlen(argv[c]) - 3, ".gz")){
 					fprintf(stderr, " ** ERROR: cannot auto generate output file name for '%s'\n", argv[c]);
 					return 1;
+				} else if(is_dir){
+					char *rtag;
+					rtag = relative_filename(argv[c]);
+					rtag[strlen(rtag) - 3] = 0;
+					ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+					sprintf(ftag, "%s/%s", outf, rtag);
+					free(rtag);
+					if(overwrite == 0 && file_exists(ftag)){
+						fprintf(stderr, " ** ERROR: '%s' exists\n", ftag);
+						return 1;
+					}
+					free(ftag);
 				} else {
 					ftag = strdup(argv[optind]);
 					ftag[strlen(ftag) - 3] = 0;
@@ -129,6 +145,16 @@ int main(int argc, char **argv){
 				ftag = strdup(argv[optind]);
 				ftag[strlen(ftag) - 3] = 0;
 				out = open_file_for_write(ftag, NULL, overwrite);
+				free(ftag);
+			} else if(is_dir){
+				char *rtag;
+				rtag = relative_filename(argv[optind]);
+				rtag[strlen(rtag) - 3] = 0;
+				ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+				sprintf(ftag, "%s/%s", outf, rtag);
+				free(rtag);
+				out = open_file_for_write(ftag, NULL, overwrite);
+				free(ftag);
 			}
 			pz = open_pgzf_reader(in, bufsize, ncpu);
 			while((nbyte = read_pgzf(pz, buff, bufsize))){
@@ -142,12 +168,12 @@ int main(int argc, char **argv){
 				}
 			}
 			optind ++;
-			if(outf == NULL){
+			if(outf == NULL || is_dir){
 				fclose(out);
 			}
 		} while(optind < argc);
 	} else {
-		if(outf){
+		if(outf && !is_dir){
 			pz = open_pgzf_writer(out, bufsize, ncpu, level);
 		} else {
 			pz = NULL;
@@ -158,6 +184,17 @@ int main(int argc, char **argv){
 				} else if(strcmp(argv[c], "-") == 0){
 					fprintf(stderr, " ** ERROR: Please specify output file when read from STDIN '%s'\n", argv[c]);
 					return 1;
+				} else if(is_dir){
+					char *rtag;
+					rtag = relative_filename(argv[c]);
+					ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+					sprintf(ftag, "%s/%s.gz", outf, rtag);
+					free(rtag);
+					if(overwrite == 0 && file_exists(ftag)){
+						fprintf(stderr, " ** ERROR: '%s' exists\n", ftag);
+						return 1;
+					}
+					free(ftag);
 				} else {
 					ftag = malloc(strlen(argv[c]) + 4);
 					sprintf(ftag, "%s.gz", argv[c]);
@@ -176,6 +213,15 @@ int main(int argc, char **argv){
 				out = open_file_for_write(ftag, NULL, overwrite);
 				pz = open_pgzf_writer(out, bufsize, ncpu, level);
 				free(ftag);
+			} else if(is_dir){
+				char *rtag;
+				rtag = relative_filename(argv[optind]);
+				ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+				sprintf(ftag, "%s/%s.gz", outf, rtag);
+				free(rtag);
+				out = open_file_for_write(ftag, NULL, overwrite);
+				pz = open_pgzf_writer(out, bufsize, ncpu, level);
+				free(ftag);
 			}
 			in = open_file_for_read(argv[optind], NULL);
 			while((nbyte = fread(buff, 1, bufsize, in))){
@@ -187,17 +233,17 @@ int main(int argc, char **argv){
 					unlink(argv[optind]);
 				}
 			}
-			if(outf == NULL){
+			if(outf == NULL || is_dir){
 				close_pgzf(pz);
 				fclose(out);
 			}
 			optind ++;
 		} while(optind < argc);
-		if(outf){
+		if(outf && !is_dir){
 			close_pgzf(pz);
 		}
 	}
-	if(outf) fclose(out);
+	if(outf && !is_dir) fclose(out);
 	free(buff);
 	return 0;
 }
