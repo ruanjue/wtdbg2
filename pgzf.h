@@ -611,8 +611,6 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	pz->ncpu = ncpu;
 	pz->ridx = 0;
 	pz->widx = 0;
-	if(bufsize == 0) bufsize = PGZF_DEFAULT_BUFF_SIZE;
-	pz->bufsize = (bufsize + 0xFFFFFU) & 0xFFF00000U;
 	offset = ftell(in);
 	if(offset == -1){
 		pz->offset = 0;
@@ -626,18 +624,13 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	pz->error = 0;
 	pz->step = 0;
 	pz->dsts = calloc(pz->ncpu, sizeof(u1v*));
-	for(i=0;i<pz->ncpu;i++){
-		pz->dsts[i] = init_u1v(pz->bufsize);
-	}
 	pz->srcs = calloc(pz->ncpu, sizeof(u1v*));
-	for(i=0;i<pz->ncpu;i++){
-		pz->srcs[i] = init_u1v(pz->bufsize);
-	}
 	pz->tot_in  = 0;
 	pz->tot_out = 0;
 	// recognize PGZF
 	zsval = zxval = 0;
 	hoff = 0;
+	pz->srcs[0] = init_u1v(1024);
 	ftype = _read_pgzf_header(pz->file, pz->srcs[0], &hoff, &zsval, &zxval);
 	switch(ftype){
 		case PGZF_FILETYPE_GZ: pz->step = 1; pz->rw_mode = PGZF_MODE_R_GZ; break;
@@ -646,13 +639,40 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 			fprintf(stderr, " ** WARNNING: input file is not in gzip format **\n");
 			pz->rw_mode = PGZF_MODE_R_UNKNOWN; break;
 	}
-	pz->boffs = init_u8v(32);
-	if(pz->rw_mode == PGZF_MODE_R_GZ){
+	if(pz->rw_mode == PGZF_MODE_R){
+		pz->z = NULL;
+		if(pz->seekable){
+			u8i foff;
+			foff = ftell(pz->file);
+			fseek(pz->file, pz->offset + zsval - 4, SEEK_SET);
+			if(fread(&pz->bufsize, 4, 1, pz->file) == 0){
+				fprintf(stderr, " ** ERROR: failed to read uncompress size for the first block **\n");
+				return NULL;
+			}
+			fseek(pz->file, foff, SEEK_SET);
+		} else {
+			pz->bufsize = bufsize;
+		}
+	} else if(pz->rw_mode == PGZF_MODE_R_GZ){
 		pz->z = calloc(1, sizeof(z_stream));
 		inflateInit2(pz->z, -15);
+		pz->bufsize = bufsize;
 	} else {
 		pz->z = NULL;
+		pz->bufsize = bufsize;
 	}
+	if(pz->bufsize == 0) pz->bufsize = PGZF_DEFAULT_BUFF_SIZE;
+	pz->bufsize = (pz->bufsize + 0xFFFFFU) & 0xFFF00000U;
+	for(i=0;i<pz->ncpu;i++){
+		pz->dsts[i] = init_u1v(pz->bufsize);
+	}
+	if(pz->bufsize > pz->srcs[0]->size){
+		encap_u1v(pz->srcs[0], pz->bufsize - pz->srcs[0]->size);
+	}
+	for(i=1;i<pz->ncpu;i++){
+		pz->srcs[i] = init_u1v(pz->bufsize);
+	}
+	pz->boffs = init_u8v(32);
 	thread_beg_init(pgz, pz->ncpu);
 	pgz->pz = pz;
 	pgz->zsval = pgz->t_idx? 0 : zsval;
