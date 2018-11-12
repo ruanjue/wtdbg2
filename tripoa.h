@@ -281,6 +281,10 @@ static inline void end_tripog(TriPOG *tp){
 	{
 		uuhash_t *u;
 		u4i i, j, hit, nb, kmer, kcnt, kdup, keqs, ktot, kmask, roff;
+		reset_iter_uuhash(tp->khash);
+		while((u = ref_iter_uuhash(tp->khash))){
+			u->val &= 0xFFFFU;
+		}
 		kmask = MAX_U4 >> ((16 - tp->ksize) << 1);
 		for(ridx=0;ridx<1;ridx++){
 			rlen = tp->seqs->rdlens->buffer[ridx];
