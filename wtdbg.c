@@ -1353,6 +1353,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 						}
 						for(i=0;i<mdbg->aux->hits->size;i++){
 							hit = ref_kbmmapv(mdbg->aux->hits, i);
+							if(hit->mat == 0) continue;
 							if(rdflags
 								&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
 								&& (hit->tb <= KBM_BSIZE && hit->te + KBM_BSIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE))
@@ -1445,16 +1446,20 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 						// Choose the best hit
 						if(idx > lsx + 1){
 							bst = lsx;
-							for(ite=lsx+1;ite<idx;ite++){
+							for(bst=lsx;bst<idx;bst++){
+								if(g->pwalns->buffer[bst].mat) break;
+							}
+							for(ite=bst+1;ite<idx;ite++){
+								if(g->pwalns->buffer[ite].mat == 0) continue;
 								if((g->pwalns->buffer[ite].aln > g->pwalns->buffer[bst].aln) || (g->pwalns->buffer[ite].aln == g->pwalns->buffer[bst].aln && g->pwalns->buffer[ite].mat > g->pwalns->buffer[bst].mat)){
 									bst = ite;
 								}
 							}
 							for(ite=lsx;ite<bst;ite++){
-								g->pwalns->buffer[ite++].mat = 0;
+								g->pwalns->buffer[ite].mat = 0;
 							}
 							for(ite=bst+1;ite<idx;ite++){
-								g->pwalns->buffer[ite++].mat = 0;
+								g->pwalns->buffer[ite].mat = 0;
 							}
 							nrm += idx - lsx - 1;
 						}
@@ -1463,7 +1468,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 					lst = idx;
 				}
 			}
-			fprintf(KBM_LOGF, " %llu hits into %llu, deleted %llu hits failed in chainning\n", nch, nmg, nrm); fflush(KBM_LOGF);
+			fprintf(KBM_LOGF, " %llu hits into %llu, deleted %llu non-best hits between two reads\n", nch, nmg, nrm); fflush(KBM_LOGF);
 		}
 		if(g->bestn > 0){
 			fprintf(KBM_LOGF, "[%s] picking best %d hits for each read ... ", date(), g->bestn); fflush(KBM_LOGF);
@@ -1528,6 +1533,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 				ms[1] = init_u4v(1024);
 				ms[2] = init_u4v(1024);
 				for(i=TIDX;i<g->pwalns->size;i+=NCPU){
+					hit = ref_kbmmapv(g->pwalns, i);
+					if(hit->mat == 0) continue;
 					clear_rdregv(rs);
 					hit2rdregs_graph(g, rs, ref_kbmmapv(g->pwalns, i), g->cigars, ms);
 					if(rs->size){
@@ -1542,7 +1549,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 				free_u4v(ms[2]);
 			));
 		}
-		free_kbmmapv(g->pwalns); g->pwalns = init_kbmmapv(1024);
+		renew_kbmmapv(g->pwalns, 1024);
 		free_bitsvec(g->cigars); g->cigars = init_bitsvec(1024, 3);
 	}
 	free_u4v(maps[0]);
