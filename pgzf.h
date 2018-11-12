@@ -31,6 +31,7 @@
 #define PGZF_HEAD_ZS_OFFSET	16
 #define PGZF_HEAD_ZX_OFFSET	24
 #define PGZF_TAIL_SIZE	8
+#define PGZF_INDEX_BIN	64
 
 #define PGZF_MODE_W	1 // pgzf writer
 #define PGZF_MODE_R	2 // pgzf reader
@@ -60,9 +61,11 @@ typedef struct PGZF {
 	u4i ncpu, ridx, widx;
 	int rw_mode, seekable;
 	u4i bufsize; // MUST be multiple of 1MB
+	u8i xsize; // total uncompressed size
 	u8v *boffs;
+	u8v *xoffs;
 	u8i tot_in, tot_out;
-	u1v **dsts, **srcs;
+	u1v **dsts, **srcs, *tmp;
 	z_stream *z;
 	u8i offset;
 	FILE *file;
@@ -495,7 +498,9 @@ static inline PGZF* open_pgzf_writer(FILE *out, u4i buffer_size, int ncpu, int l
 	pz->rw_mode = 1; // write
 	if(buffer_size == 0) buffer_size = PGZF_DEFAULT_BUFF_SIZE;
 	pz->bufsize = (buffer_size + 0xFFFFFU) & 0xFFF00000U;
+	pz->xsize = 0;
 	pz->boffs = init_u8v(32);
+	pz->xoffs = init_u8v(32);
 	pz->z = NULL;
 	pz->dsts = calloc(pz->ncpu, sizeof(u1v*));
 	for(i=0;i<pz->ncpu;i++){
@@ -505,6 +510,7 @@ static inline PGZF* open_pgzf_writer(FILE *out, u4i buffer_size, int ncpu, int l
 	for(i=0;i<pz->ncpu;i++){
 		pz->srcs[i] = init_u1v(pz->bufsize);
 	}
+	pz->tmp = init_u1v(32);
 	pz->tot_in  = 0;
 	pz->tot_out = 0;
 	if(level == 0) level = Z_DEFAULT_COMPRESSION; // disable level 0, set to default level 6
@@ -581,15 +587,17 @@ static inline void _end_pgzf_writer(PGZF *pz){
 static inline int write_index_pgzf(PGZF *pz){
 	u8i i, x;
 	u1i bs[6];
+	pz->xsize = pz->tot_in;
 	if(!pz->seekable) return 0;
 	if(fseek(pz->file, pz->offset + PGZF_HEAD_ZX_OFFSET, SEEK_SET) == -1){
 		perror("fseek error in write_index_pgzf");
 		return 0;
 	}
-	_num2bytes_pgzf(bs, 6, pz->tot_in);
+	_num2bytes_pgzf(bs, 6, pz->xsize);
 	fwrite(bs, 1, 6, pz->file);
-	for(i=64,x=1;i+64<=pz->boffs->size;i+=64,x++){
-		_num2bytes_pgzf(bs, 6, pz->boffs->buffer[i+64]);
+	for(i=64,x=1;i+PGZF_INDEX_BIN<=pz->boffs->size;i+=PGZF_INDEX_BIN,x++){
+		push_u8v(pz->xoffs, pz->boffs->buffer[i+PGZF_INDEX_BIN]);
+		_num2bytes_pgzf(bs, 6, pz->boffs->buffer[i+PGZF_INDEX_BIN]);
 		if(fseek(pz->file, pz->offset + pz->boffs->buffer[x] + PGZF_HEAD_ZX_OFFSET, SEEK_SET) == -1){
 			perror("fseek error in write_index_pgzf");
 			return 0;
@@ -625,8 +633,11 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	pz->step = 0;
 	pz->dsts = calloc(pz->ncpu, sizeof(u1v*));
 	pz->srcs = calloc(pz->ncpu, sizeof(u1v*));
+	pz->tmp = init_u1v(32);
 	pz->tot_in  = 0;
 	pz->tot_out = 0;
+	pz->boffs = init_u8v(32);
+	pz->xoffs = init_u8v(32);
 	// recognize PGZF
 	zsval = zxval = 0;
 	hoff = 0;
@@ -641,15 +652,23 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	}
 	if(pz->rw_mode == PGZF_MODE_R){
 		pz->z = NULL;
+		pz->xsize = zxval;
+		push_u8v(pz->boffs, zsval);
 		if(pz->seekable){
 			u8i foff;
 			foff = ftell(pz->file);
-			fseek(pz->file, pz->offset + zsval - 4, SEEK_SET);
-			if(fread(&pz->bufsize, 4, 1, pz->file) == 0){
-				fprintf(stderr, " ** ERROR: failed to read uncompress size for the first block **\n");
+			if(fseek(pz->file, pz->offset + zsval - 4, SEEK_SET) == -1){
+				fprintf(stderr, " ** ERROR: failed to read uncompress block size in the first block ERR(1) **\n");
 				return NULL;
 			}
-			fseek(pz->file, foff, SEEK_SET);
+			if(fread(&pz->bufsize, 4, 1, pz->file) == 0){
+				fprintf(stderr, " ** ERROR: failed to read uncompress block size in the first block ERR(2) **\n");
+				return NULL;
+			}
+			if(fseek(pz->file, foff, SEEK_SET) == -1){
+				fprintf(stderr, " ** ERROR: failed to read uncompress block size in the first block ERR(3) **\n");
+				return NULL;
+			}
 		} else {
 			pz->bufsize = bufsize;
 		}
@@ -672,7 +691,6 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	for(i=1;i<pz->ncpu;i++){
 		pz->srcs[i] = init_u1v(pz->bufsize);
 	}
-	pz->boffs = init_u8v(32);
 	thread_beg_init(pgz, pz->ncpu);
 	pgz->pz = pz;
 	pgz->zsval = pgz->t_idx? 0 : zsval;
@@ -688,6 +706,30 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	thread_export(pgz, pz);
 	return pz;
 }
+
+/*
+static inline _clear_pgzf_reader(PGZF *pz){
+	UNUSED(pz);
+}
+
+static inline off_t seek_pgzf(PGZF *pz, u8i offset){
+	u4i bidx, boff, xidx, xoff;
+	if(offset > pz->xsize) return -1;
+	else if(offset == pz->xsize){
+		pz->eof = 1;
+		return offset;
+	}
+	if(!pz->seekable) return -1;
+	bidx = offset / pz->bufsize;
+	boff = offset % pz->>bufsize;
+	xidx = bidx / PGZF_INDEX_BIN;
+	xoff = bidx % PGZF_INDEX_BIN;
+	if(xidx > pz->xoffs->size){
+		
+	}
+	return 0;
+}
+*/
 
 static inline size_t read_pgzf(PGZF *pz, void *dat, size_t len){
 	size_t off;
@@ -730,6 +772,7 @@ static inline void close_pgzf(PGZF *pz){
 	thread_end_close(pgz);
 	free(pz->dsts);
 	free(pz->srcs);
+	free_u1v(pz->tmp);
 	switch(pz->rw_mode){
 		case PGZF_MODE_W: write_index_pgzf(pz); fflush(pz->file); break;
 		case PGZF_MODE_R: break;
@@ -741,6 +784,7 @@ static inline void close_pgzf(PGZF *pz){
 			break;
 	}
 	free_u8v(pz->boffs);
+	free_u8v(pz->xoffs);
 	free(pz);
 }
 
