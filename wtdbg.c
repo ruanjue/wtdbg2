@@ -1400,10 +1400,10 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	if(raw){
 	} else {
 		if(g->chainning_hits){
-			u8i lst, nch, nmg;
+			u8i bst, ite, lst, nch, nmg, nrm;
 			fprintf(KBM_LOGF, "[%s] chainning ... ", date()); fflush(KBM_LOGF);
 			psort_array(g->pwalns->buffer, g->pwalns->size, kbm_map_t, ncpu, num_cmpgtxx(a.qidx, b.qidx, a.tidx, b.tidx, a.qdir, b.qdir));
-			nch = nmg = 0;
+			nch = nmg = nrm = 0;
 			for(idx=lst=0;idx<=g->pwalns->size;idx++){
 				if(idx == g->pwalns->size || g->pwalns->buffer[lst].qidx != g->pwalns->buffer[idx].qidx ||
 					g->pwalns->buffer[lst].tidx != g->pwalns->buffer[idx].tidx || g->pwalns->buffer[lst].qdir != g->pwalns->buffer[idx].qdir){
@@ -1427,12 +1427,27 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 							while(lst < idx){
 								g->pwalns->buffer[lst++].mat = 0; // closed = 1
 							}
+						} else {
+							// Choose the best hit
+							bst = lst;
+							for(ite=lst+1;ite<idx;ite++){
+								if((g->pwalns->buffer[ite].aln > g->pwalns->buffer[bst].aln) || (g->pwalns->buffer[ite].aln == g->pwalns->buffer[bst].aln && g->pwalns->buffer[ite].mat > g->pwalns->buffer[bst].mat)){
+									bst = ite;
+								}
+							}
+							for(ite=lst;ite<bst;ite++){
+								g->pwalns->buffer[ite++].mat = 0;
+							}
+							for(ite=bst+1;ite<idx;ite++){
+								g->pwalns->buffer[ite++].mat = 0;
+							}
+							nrm += idx - lst - 1;
 						}
 					}
 					lst = idx;
 				}
 			}
-			fprintf(KBM_LOGF, " %llu hits into %llu\n", nch, nmg); fflush(KBM_LOGF);
+			fprintf(KBM_LOGF, " %llu hits into %llu, deleted %llu hits failed in chainning\n", nch, nmg, nrm); fflush(KBM_LOGF);
 		}
 		if(g->bestn > 0){
 			fprintf(KBM_LOGF, "[%s] picking best %d hits for each read ... ", date(), g->bestn); fflush(KBM_LOGF);
@@ -6362,6 +6377,7 @@ static struct option prog_opts[] = {
 	{"aln-max-var",                      1, 0, 2004},
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
+	{"version",                          0, 0, 'V'},
 	{"help",                             0, 0, 1000}, // detailed document
 	{"tidy-reads",                       1, 0, 'L'},
 	{"keep-name",                        0, 0, 1001},
@@ -6401,7 +6417,6 @@ static struct option prog_opts[] = {
 	{"node-matched-bins",                1, 0, 1031},
 	{"rescue-low-cov-edges",             0, 0, 1032},
 	{"drop-low-cov-edges",               0, 0, 1033},
-	{"version",                          0, 0, 1034},
 	{0, 0, 0, 0}
 };
 
@@ -6444,7 +6459,7 @@ int usage(int level){
 	" -e <int>    Min read depth of a valid edge, [3]\n"
 	" -q          Quiet\n"
 	" -v          Verbose (can be multiple)\n"
-	" --version   Print version information and then exit\n"
+	" -V          Print version information and then exit\n"
 	" --help      Show more options\n"
 #ifdef TIMESTAMP
 	, TOSTR(TIMESTAMP)
@@ -6675,7 +6690,7 @@ int main(int argc, char **argv){
 	par->min_aln = 1024 * 2;
 	par->min_mat = 200;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:fo:FE:k:p:K:S:l:m:s:vqe:L:A", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:FE:k:p:K:S:l:m:s:vqVe:L:A", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
@@ -6741,7 +6756,7 @@ int main(int argc, char **argv){
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
-			case 1034: fprintf(stdout, "wtdbg2 2.2\n"); return 0;
+			case 'V': fprintf(stdout, "wtdbg2 2.2\n"); return 0;
 			default: return usage(-1);
 		}
 	}
