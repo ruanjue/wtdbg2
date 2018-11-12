@@ -155,7 +155,7 @@ if(eidx != MAX_U4){
 	revise_joint_point(cigars[0], &b, &e);
 	thread_beg_syn(mcns);
 	if(cns_debug){
-		fprintf(stderr, "JOINT\t%llu\tqe = %d -> %d\tte = %d -> %d [%d,%d],[%d,%d,%d,%d,%d]\n", ref_edgecnsv(cc->rs, eidx)->idx, XX.qe, b, XX.te, e, (int)seq1->size, (int)seq2->size, XX.aln, XX.mat, XX.mis, XX.ins, XX.del);
+		fprintf(stderr, "JOINT\t%llu\tqe = %d -> %d\tte = %d -> %d\t[%5d,%5d]\t[%5d,%5d,%d,%d,%d]\n", ref_edgecnsv(cc->rs, eidx)->idx, XX.qe, b, XX.te, e, (int)seq1->size, (int)seq2->size, XX.aln, XX.mat, XX.mis, XX.ins, XX.del);
 		fflush(stderr);
 	}
 	ref_edgecnsv(cc->rs, eidx    )->end = b;
