@@ -1400,13 +1400,25 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	if(raw){
 	} else {
 		if(g->chainning_hits){
-			u8i bst, ite, lst, nch, nmg, nrm;
+			u8i bst, ite, lst, lsx, nch, nmg, nrm;
+			int state;
 			fprintf(KBM_LOGF, "[%s] chainning ... ", date()); fflush(KBM_LOGF);
 			psort_array(g->pwalns->buffer, g->pwalns->size, kbm_map_t, ncpu, num_cmpgtxx(a.qidx, b.qidx, a.tidx, b.tidx, a.qdir, b.qdir));
 			nch = nmg = nrm = 0;
-			for(idx=lst=0;idx<=g->pwalns->size;idx++){
-				if(idx == g->pwalns->size || g->pwalns->buffer[lst].qidx != g->pwalns->buffer[idx].qidx ||
-					g->pwalns->buffer[lst].tidx != g->pwalns->buffer[idx].tidx || g->pwalns->buffer[lst].qdir != g->pwalns->buffer[idx].qdir){
+			for(idx=lst=lsx=0;idx<=g->pwalns->size;idx++){
+				state = 0;
+				if(idx == g->pwalns->size){
+					state = 1;
+				} else if(g->pwalns->buffer[lst].qidx == g->pwalns->buffer[idx].qidx && g->pwalns->buffer[lst].tidx == g->pwalns->buffer[idx].tidx){
+					if(g->pwalns->buffer[lst].qdir == g->pwalns->buffer[idx].qdir){
+						state = 0;
+					} else {
+						state = 2;
+					}
+				} else {
+					state = 1;
+				}
+				if(state){
 					if(idx > lst + 1){
 						if(0){ // TODO: remove this block after debug
 							u8i i;
@@ -1427,22 +1439,26 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 							while(lst < idx){
 								g->pwalns->buffer[lst++].mat = 0; // closed = 1
 							}
-						} else {
-							// Choose the best hit
-							bst = lst;
-							for(ite=lst+1;ite<idx;ite++){
+						}
+					}
+					if(state == 1){
+						// Choose the best hit
+						if(idx > lsx + 1){
+							bst = lsx;
+							for(ite=lsx+1;ite<idx;ite++){
 								if((g->pwalns->buffer[ite].aln > g->pwalns->buffer[bst].aln) || (g->pwalns->buffer[ite].aln == g->pwalns->buffer[bst].aln && g->pwalns->buffer[ite].mat > g->pwalns->buffer[bst].mat)){
 									bst = ite;
 								}
 							}
-							for(ite=lst;ite<bst;ite++){
+							for(ite=lsx;ite<bst;ite++){
 								g->pwalns->buffer[ite++].mat = 0;
 							}
 							for(ite=bst+1;ite<idx;ite++){
 								g->pwalns->buffer[ite++].mat = 0;
 							}
-							nrm += idx - lst - 1;
+							nrm += idx - lsx - 1;
 						}
+						lsx = idx;
 					}
 					lst = idx;
 				}
