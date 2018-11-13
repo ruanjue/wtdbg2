@@ -6384,16 +6384,17 @@ static struct option prog_opts[] = {
 	{"err-free-seq",                     1, 0, 'I'},
 	{"force",                            0, 0, 'f'},
 	{"prefix",                           1, 0, 'o'},
+	{"preset",                           1, 0, 'x'},
 	{"kmer-fsize",                       1, 0, 'k'},
 	{"kmer-psize",                       1, 0, 'p'},
 	{"kmer-depth-max",                   1, 0, 'K'},
 	{"kmer-depth-min",                   1, 0, 'E'},
-	{"kmer-depth-min-filter",            0, 0, 'F'},
+	//{"kmer-depth-min-filter",            0, 0, 'F'},
 	{"kmer-subsampling",                 1, 0, 'S'},
-	{"dp-max-gap",                       1, 0, 'X'},
-	{"dp-max-var",                       1, 0, 'Y'},
-	{"dp-penalty-gap",                   1, 0, 'x'},
-	{"dp-penalty-var",                   1, 0, 'y'},
+	{"dp-max-gap",                       1, 0, 2005},
+	{"dp-max-var",                       1, 0, 2006},
+	{"dp-penalty-gap",                   1, 0, 2007},
+	{"dp-penalty-var",                   1, 0, 2008},
 	{"aln-min-length",                   1, 0, 'l'},
 	{"aln-min-match",                    1, 0, 'm'},
 	{"aln-min-similarity",               1, 0, 's'},
@@ -6447,37 +6448,38 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 2.2 (20181101)\n"
+	"Version: 2.2 (20181111)\n"
 #ifdef TIMESTAMP
-	"Compiled: %s\n"
+	//"Compiled: %s\n"
 #endif
-	"Usage: wtdbg2 [options]\n"
+	"Usage: wtdbg2 [options] -i <reads.fa> -o <prefix> [reads.fa ...]\n"
 	"Options:\n"
 	" -i <string> Long reads sequences file (REQUIRED; there can be multiple -i), []\n"
-	//" -I <string> Error-free sequences file (can be multiple), []\n"
 	" -o <string> Prefix of output files (REQUIRED), []\n"
 	" -t <int>    Number of threads, 0 for all cores, [4]\n"
 	" -f          Force to overwrite output files\n"
-	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
+	" -x <string> Presets, comma delimited, []\n"
+	"            rsII/rs: -p 21 -S 4 -s 0.05 -L 5000\n"
+	"          sequel/sq: -p 19 -AS 2 -s 0.05 -L 10000\n"
+	"       nanopore/ont: -p 19 -AS 2 -s 0.05 -L 10000\n"
+	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 10000\n"
+	"             $1G$2X: (float)$1 = genome size, (float)$2 = retain depth, unset --no-read-length-sort\n"
+	"                     after loaded sequences with -L, program will filter short reads\n"
+	"                     this preset will be enhanced in future\n"
+	"             Example: '-e 3 -x ont,0.12g50x -S 1' in parsing order, -e will be infered by seq depth, -S will be 1\n"
+	" -L <int>    Choose the longest subread and drop reads shorter than <int> [0]\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
-	" -K <float>  Filter high frequency kmers, maybe repetitive, [1000]\n"
-	"             if K >= 1, take the integer value as cutoff, MUST <= 65535\n"
-	"             else, mask the top fraction part high frequency kmers\n"
+	" -K <float>  Filter high frequency kmers, maybe repetitive, [1000.05]\n"
+	"             >= 1000 and indexing >= (1 - 0.05) * total_kmers_count\n"
 	" -E <int>    Min kmer frequency, [2]\n"
-	//" -F          Filter low frequency kmers by a 4G-bytes array (max_occ=3 2-bits). Here, -E must greater than 1\n"
 	" -S <float>  Subsampling kmers, 1/(<-S>) kmers are indexed, [4.00]\n"
 	"             -S is very useful in saving memeory and speeding up\n"
 	"             please note that subsampling kmers will have less matched length\n"
-	//" -X <int>    Max number of bin(256bp) in one gap, [4]\n"
-	//" -Y <int>    Max number of bin(256bp) in one deviation, [4]\n"
-	//" -x <int>    penalty for BIN gap, [-7]\n"
-	//" -y <int>    penalty for BIN deviation, [-21]\n"
 	" -l <float>  Min length of alignment, [2048]\n"
 	" -m <float>  Min matched length by kmer matching, [200]\n"
 	" -A          Keep contained reads during alignment\n"
-	//" -s <float>  Max length variation of two aligned fragments, [0.2]\n"
 	" -s <float>  Min similarity, calculated by kmer matched length / aligned length, [0.05]\n"
 	" -e <int>    Min read depth of a valid edge, [3]\n"
 	" -q          Quiet\n"
@@ -6485,7 +6487,7 @@ int usage(int level){
 	" -V          Print version information and then exit\n"
 	" --help      Show more options\n"
 #ifdef TIMESTAMP
-	, TOSTR(TIMESTAMP)
+	//, TOSTR(TIMESTAMP)
 #endif
 	);
 	if(level > 0){
@@ -6495,18 +6497,20 @@ int usage(int level){
 	"   See -t 0, default: all cores\n"
 	" --input <string> +\n"
 	"   See -i\n"
-	" --err-free-seq <string> +\n"
-	"   See -I. Error-free sequences will be firstly token for nodes, if --err-free-nodes is specified, only select nodes from those sequences\n"
+	//" --err-free-seq <string> +\n"
+	//"   See -I. Error-free sequences will be firstly token for nodes, if --err-free-nodes is specified, only select nodes from those sequences\n"
 	" --force\n"
 	"   See -f\n"
 	" --prefix <string>\n"
 	"   See -o\n"
+	" --preset <string>\n"
+	"   See -x\n"
 	" --kmer-fsize <int>\n"
 	"   See -k 0\n"
 	" --kmer-psize <int>\n"
 	"   See -p 21\n"
 	" --kmer-depth-max <float>\n"
-	"   See -K 1000\n"
+	"   See -K 1000.05\n"
 	" --kmer-depth-min <int>\n"
 	"   See -E\n"
 	//" --kmer-depth-min-filter\n"
@@ -6518,13 +6522,13 @@ int usage(int level){
 	" --aln-kmer-sampling <int>\n"
 	"   Select no more than n seeds in a query bin, default: 256\n"
 	" --dp-max-gap <int>\n"
-	"   See -X 4\n"
+	"   Max number of bin(256bp) in one gap, [4]\n"
 	" --dp-max-var <int>\n"
-	"   See -Y 4\n"
+	"   Max number of bin(256bp) in one deviation, [4]\n"
 	" --dp-penalty-gap <int>\n"
-	"   See -x -7\n"
+	"   Penalty for BIN gap, [-7]\n"
 	" --dp-penalty-var <int>\n"
-	"   See -y -21\n"
+	"   Penalty for BIN deviation, [-21]\n"
 	" --aln-min-length <int>\n"
 	"   See -l 2048\n"
 	" --aln-min-match <int>\n"
@@ -6550,9 +6554,9 @@ int usage(int level){
 	"   See -q\n"
 	" -L <int>, --tidy-reads=<int>\n"
 	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
-	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio reads\n"
+	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio RSII reads\n"
 	" --keep-name\n"
-	"   Keep orignal read names even with --tidy-reads\n"
+	"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
 	" --err-free-nodes\n"
 	"   Select nodes from error-free-sequences only. E.g. you have contigs assembled from NGS-WGS reads, and long noisy reads.\n"
 	"   You can type '--err-free-seq your_ctg.fa --input your_long_reads.fa --err-free-nodes' to perform assembly somehow act as long-reads scaffolding\n"
@@ -6646,6 +6650,7 @@ int main(int argc, char **argv){
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode;
+	double genome_size, genome_depx;
 	float node_drop, node_mrg, ttr_e_cov, fval;
 	pbs = init_cplist(4);
 	ngs = init_cplist(4);
@@ -6654,6 +6659,8 @@ int main(int argc, char **argv){
 	ncpu = 4;
 	tidy_reads = 0;
 	tidy_rdtag = -1;
+	genome_size = 0;
+	genome_depx = 50.0;
 	fast_mode = 0;
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
@@ -6713,26 +6720,93 @@ int main(int argc, char **argv){
 	par->min_aln = 1024 * 2;
 	par->min_mat = 200;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:fo:FE:k:p:K:S:l:m:s:vqVe:L:A", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:vqVe:L:A", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
-			case 'I': push_cplist(ngs, optarg); par->rd_len_order = 0; break;
+			//case 'I': push_cplist(ngs, optarg); par->rd_len_order = 0; break;
 			case 'f': overwrite = 1; break;
 			case 'o': prefix = optarg; break;
+			case 'x':
+					{
+						regex_t pat1;
+						regmatch_t mats[8];
+						char *ptr, *beg;
+						regcomp(&pat1, "^([0-9.]+)g([0-9.]+)x$", REG_EXTENDED | REG_ICASE | REG_NEWLINE);
+						beg = optarg;
+						do {
+							ptr = index(beg, ',');
+							if(ptr) *ptr = 0;
+							if(KBM_LOG){
+								fprintf(KBM_LOGF, " -- Preset: '%s' --", beg); fflush(KBM_LOGF);
+							}
+							if(strcasecmp(beg, "rs") == 0 || strcasecmp(beg, "rsII") == 0){
+								par->ksize = 0;
+								par->psize = 21;
+								par->kmer_mod = 4 * KBM_N_HASH;
+								par->min_sim = 0.05;
+								par->skip_contained = 1;
+								tidy_reads = 5000;
+							} else if(strcasecmp(beg, "sq") == 0 || strcasecmp(beg, "sequel") == 0){
+								par->ksize = 0;
+								par->psize = 19;
+								par->kmer_mod = 2 * KBM_N_HASH;
+								par->min_sim = 0.05;
+								par->skip_contained = 0;
+								tidy_reads = 10000;
+							} else if(strcasecmp(beg, "ont") == 0 || strcasecmp(beg, "nanopore") == 0){
+								par->ksize = 0;
+								par->psize = 19;
+								par->kmer_mod = 2 * KBM_N_HASH;
+								par->min_sim = 0.05;
+								par->skip_contained = 0;
+								tidy_reads = 10000;
+							} else if(strcasecmp(beg, "ccs") == 0 || strcasecmp(beg, "corrected") == 0){
+								par->ksize = 19;
+								par->psize = 0;
+								par->kmer_mod = 4 * KBM_N_HASH;
+								par->min_sim = 0.5;
+								par->skip_contained = 0;
+								tidy_reads = 10000;
+							} else if(regexec(&pat1, beg, 3, mats, 0) == 0){
+								char *valstr;
+								valstr = strndup(beg + mats[1].rm_so, mats[1].rm_eo - mats[1].rm_so);
+								genome_size = atof(valstr);
+								free(valstr);
+								valstr = strndup(beg + mats[2].rm_so, mats[2].rm_eo - mats[2].rm_so);
+								genome_depx = atof(valstr);
+								free(valstr);
+								par->rd_len_order = 1;
+								edge_cov = 0; // to be inferred
+								if(KBM_LOG){
+									fprintf(KBM_LOGF, " genome-size = %0.4f G, genome-depth-cutoff = %0.4f --", genome_size, genome_depx); fflush(KBM_LOGF);
+								}
+							} else {
+								fprintf(stderr, " ** ERROR: cannot recognize '%s' in '-x %s'\n", beg, optarg);
+								exit(1);
+							}
+							if(KBM_LOG){
+								fprintf(KBM_LOGF, "\n"); fflush(KBM_LOGF);
+							}
+							if(ptr){
+								*ptr = ',';
+								beg = ptr + 1;
+							} else {
+								break;
+							}
+						} while(1);
+						regfree(&pat1);
+					}
+					break;
 			case 'k': par->ksize = atoi(optarg); opt_flags |= (1 << 1); break;
 			case 'p': par->psize = atoi(optarg); opt_flags |= (1 << 0); break;
-			case 'K': fval = atof(optarg);
-					if(fval > 1) par->kmax = fval;
-					else { par->kmax = 0; par->ktop = fval; }
-					break;
+			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; break;
 			case 'E': par->kmin = atoi(optarg); break;
-			case 'F': par->use_kf = 1; break;
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
-			case 'X': par->max_bgap = atoi(optarg); break;
-			case 'Y': par->max_bvar = atoi(optarg); break;
-			case 'x': par->pgap = atoi(optarg); break;
-			case 'y': par->pvar = atoi(optarg); break;
+			case 2005: par->max_bgap = atoi(optarg); break;
+			case 2006: par->max_bvar = atoi(optarg); break;
+			case 2007: par->pgap = atoi(optarg); break;
+			case 2008: par->pvar = atoi(optarg); break;
 			case 'l': par->min_aln = atoi(optarg); break;
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 2004: par->aln_var = atof(optarg); break;
@@ -6806,7 +6880,6 @@ int main(int argc, char **argv){
 		reglen = ((reglen + KBM_BIN_SIZE - 1) / KBM_BIN_SIZE) * KBM_BIN_SIZE;
 		fprintf(stderr, " ** Adjust -j to %d\n", reglen);
 	}
-	if(node_cov == 0) node_cov = edge_cov;
 	if(!overwrite && file_exists(prefix)){
 		fprintf(stderr, "File exists! '%s'\n\n", prefix);
 		return usage(-1);
@@ -6822,8 +6895,13 @@ int main(int argc, char **argv){
 		dup2(devnull, STDERR_FILENO);
 	}
 	if(tidy_rdtag == -1){
-		tidy_rdtag = tidy_reads;
+		if(tidy_reads > 0){
+			tidy_rdtag = 1;
+		} else {
+			tidy_rdtag = 0;
+		}
 	}
+	if(tidy_reads < 0) tidy_reads = - tidy_reads;
 	max_bp *= 1000000;
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	if(ncpu <= 0 && _sig_proc_deamon) ncpu = _sig_proc_deamon->ncpu;
@@ -6985,9 +7063,40 @@ int main(int argc, char **argv){
 		free_biosequence(seqs[1]);
 		if(!KBM_LOG){ fprintf(KBM_LOGF, "\r%u reads", (unsigned)kbm->reads->size); fflush(KBM_LOGF); }
 		ready_kbm(kbm);
-		fprintf(KBM_LOGF, "\n[%s] Done, %u reads, %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
+		fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
+		if(par->rd_len_order && genome_size > 0 && genome_depx > 0){
+			cnt = 1024 * 1024 * 1024LLU * genome_size * genome_depx;
+			if(cnt < tot_bp){
+				kbm_read_t *kr;
+				while(kbm->reads->size){
+					kr = tail_kbmreadv(kbm->reads);
+					if(tot_bp - kr->rdlen < cnt) break;
+					tot_bp -= kr->rdlen;
+					kbm->reads->size --;
+					kbm->bins->size -= kr->bincnt;
+				}
+				fprintf(KBM_LOGF, "[%s] Filtering ... Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tail_kbmreadv(kbm->reads)->rdlen, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
+			}
+		}
 	}
 	print_proc_stat_info(0);
+	if(edge_cov <= 0){
+		if(genome_size > 0){
+			float dep;
+			dep = tot_bp / 1024LLU / (genome_size * 1024 * 1024);
+			if(dep <= 40){
+				edge_cov = 2;
+			} else if(dep >= 80){
+				edge_cov = 4;
+			} else {
+				edge_cov = 3;
+			}
+		} else {
+			edge_cov = 3;
+		}
+		fprintf(KBM_LOGF, "[%s] Set --edge-cov to %d\n", date(), edge_cov); fflush(KBM_LOGF);
+	}
+	if(node_cov == 0) node_cov = edge_cov;
 	g = init_graph(kbm);
 	g->node_order = node_order;
 	g->reglen = reglen;
