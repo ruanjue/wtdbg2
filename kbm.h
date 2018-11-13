@@ -976,13 +976,15 @@ static inline void index_kbm(KBM *kbm, u4i beg, u4i end, u4i ncpu, FILE *kmstat)
 			ktyp += kcnts[i] * (i + 1);
 		}
 	}
-	if(kbm->par->kmax < 2){
+	if(kbm->par->ktop){
 		off = 0;
 		for(i=MAX;i>kbm->par->kmin;i--){
 			off += kcnts[i-1] * i;
 			if(off >= (ktyp * kbm->par->ktop)) break;
 		}
-		kbm->par->kmax = i;
+		if(i > kbm->par->kmax){
+			kbm->par->kmax = i;
+		}
 		fprintf(KBM_LOGF, "[%s] - high frequency kmer depth is set to %d\n", date(), kbm->par->kmax);
 	}
 	for(i=kbm->par->kmin? kbm->par->kmin - 1 : 0;i<kbm->par->kmax;i++){
