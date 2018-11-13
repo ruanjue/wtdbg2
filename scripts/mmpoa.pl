@@ -32,7 +32,7 @@ $cmd = "$MM -t $ncpu -x map-$MX -a $ref @ARGV | $ST view -Sb - > $rst.bam";
 $cmd = "$ST sort $rst.bam $rst.srt";
 &run($cmd);
 
-$cmd = "$ST view $rst.srt.bam | $WP -t $ncpu -i - -fo $rst.mmpoa.fa";
+$cmd = "$ST view $rst.srt.bam | $WP -t $ncpu -d $ref -i - -fo $rst.mmpoa.fa";
 &run($cmd);
 
 1;
