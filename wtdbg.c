@@ -6389,6 +6389,8 @@ static struct option prog_opts[] = {
 	{"kmer-psize",                       1, 0, 'p'},
 	{"kmer-depth-max",                   1, 0, 'K'},
 	{"kmer-depth-min",                   1, 0, 'E'},
+	{"genome-size",                      1, 0, 'g'},
+	{"cov-cutoff",                       1, 0, 'X'},
 	//{"kmer-depth-min-filter",            0, 0, 'F'},
 	{"kmer-subsampling",                 1, 0, 'S'},
 	{"dp-max-gap",                       1, 0, 2005},
@@ -6464,10 +6466,9 @@ int usage(int level){
 	"          sequel/sq: -p 0 -k 15 -AS 2 -s 0.05 -L 10000\n"
 	"       nanopore/ont: -p 19 -AS 2 -s 0.05 -L 10000\n"
 	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 10000\n"
-	"             $1G$2X: (float)$1 = genome size, (float)$2 = retain depth, unset --no-read-length-sort\n"
-	"                     after loaded sequences with -L, program will filter short reads\n"
-	"                     this preset will be enhanced in future\n"
-	"             Example: '-e 3 -x ont,0.12g50x -S 1' in parsing order, -e will be infered by seq depth, -S will be 1\n"
+	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be infered by seq depth, -S will be 1\n"
+	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
+	" -X <float>  Choose the best <float> depth for layout (effective with -g) [50]\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> [0]\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
@@ -6634,6 +6635,17 @@ int usage(int level){
 	return (level < 0)? 1 : 0;
 }
 
+static inline int64_t mm_parse_num(const char *str)
+{
+	double x;
+	char *p;
+	x = strtod(str, &p);
+	if (*p == 'G' || *p == 'g') x *= 1e9;
+	else if (*p == 'M' || *p == 'm') x *= 1e6;
+	else if (*p == 'K' || *p == 'k') x *= 1e3;
+	return (int64_t)(x + .499);
+}
+
 int main(int argc, char **argv){
 	Graph *g;
 	KBMPar *par;
@@ -6721,7 +6733,7 @@ int main(int argc, char **argv){
 	par->min_aln = 1024 * 2;
 	par->min_mat = 200;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:vqVe:L:A", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:vqVe:L:Ag:X:", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
@@ -6730,10 +6742,7 @@ int main(int argc, char **argv){
 			case 'o': prefix = optarg; break;
 			case 'x':
 					{
-						regex_t pat1;
-						regmatch_t mats[8];
 						char *ptr, *beg;
-						regcomp(&pat1, "^([0-9.]+)g([0-9.]+)x$", REG_EXTENDED | REG_ICASE | REG_NEWLINE);
 						beg = optarg;
 						do {
 							ptr = index(beg, ',');
@@ -6769,19 +6778,6 @@ int main(int argc, char **argv){
 								par->min_sim = 0.5;
 								par->skip_contained = 0;
 								tidy_reads = 10000;
-							} else if(regexec(&pat1, beg, 3, mats, 0) == 0){
-								char *valstr;
-								valstr = strndup(beg + mats[1].rm_so, mats[1].rm_eo - mats[1].rm_so);
-								genome_size = atof(valstr);
-								free(valstr);
-								valstr = strndup(beg + mats[2].rm_so, mats[2].rm_eo - mats[2].rm_so);
-								genome_depx = atof(valstr);
-								free(valstr);
-								par->rd_len_order = 1;
-								edge_cov = 0; // to be inferred
-								if(KBM_LOG){
-									fprintf(KBM_LOGF, " genome-size = %0.4f G, genome-depth-cutoff = %0.4f --", genome_size, genome_depx); fflush(KBM_LOGF);
-								}
 							} else {
 								fprintf(stderr, " ** ERROR: cannot recognize '%s' in '-x %s'\n", beg, optarg);
 								exit(1);
@@ -6796,7 +6792,6 @@ int main(int argc, char **argv){
 								break;
 							}
 						} while(1);
-						regfree(&pat1);
 					}
 					break;
 			case 'k': par->ksize = atoi(optarg); opt_flags |= (1 << 1); break;
@@ -6804,6 +6799,8 @@ int main(int argc, char **argv){
 			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; break;
 			case 'E': par->kmin = atoi(optarg); break;
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
+			case 'g': genome_size = 1e-9 * mm_parse_num(optarg); break;
+			case 'X': genome_depx = atof(optarg); break;
 			case 2005: par->max_bgap = atoi(optarg); break;
 			case 2006: par->max_bvar = atoi(optarg); break;
 			case 2007: par->pgap = atoi(optarg); break;
