@@ -6463,9 +6463,9 @@ int usage(int level){
 	" -x <string> Presets, comma delimited, []\n"
 	"            rsII/rs: -p 21 -S 4 -s 0.05 -L 5000\n"
 	//"          sequel/sq: -p 19 -AS 2 -s 0.05 -L 10000\n"
-	"          sequel/sq: -p 0 -k 15 -AS 2 -s 0.05 -L 10000\n"
-	"       nanopore/ont: -p 19 -AS 2 -s 0.05 -L 10000\n"
-	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 10000\n"
+	"          sequel/sq: -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
+	"       nanopore/ont: -p 19 -AS 2 -s 0.05 -L 5000\n"
+	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 5000\n"
 	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be infered by seq depth, -S will be 1\n"
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
 	" -X <float>  Choose the best <float> depth for layout (effective with -g) [50]\n"
@@ -6763,21 +6763,21 @@ int main(int argc, char **argv){
 								par->kmer_mod = 2 * KBM_N_HASH;
 								par->min_sim = 0.05;
 								par->skip_contained = 0;
-								tidy_reads = 10000;
+								tidy_reads = 5000;
 							} else if(strcasecmp(beg, "ont") == 0 || strcasecmp(beg, "nanopore") == 0){
 								par->ksize = 0;
 								par->psize = 19;
 								par->kmer_mod = 2 * KBM_N_HASH;
 								par->min_sim = 0.05;
 								par->skip_contained = 0;
-								tidy_reads = 10000;
+								tidy_reads = 5000;
 							} else if(strcasecmp(beg, "ccs") == 0 || strcasecmp(beg, "corrected") == 0){
 								par->ksize = 19;
 								par->psize = 0;
 								par->kmer_mod = 4 * KBM_N_HASH;
 								par->min_sim = 0.5;
 								par->skip_contained = 0;
-								tidy_reads = 10000;
+								tidy_reads = 5000;
 							} else {
 								fprintf(stderr, " ** ERROR: cannot recognize '%s' in '-x %s'\n", beg, optarg);
 								exit(1);
