@@ -6758,8 +6758,8 @@ int main(int argc, char **argv){
 								par->skip_contained = 1;
 								tidy_reads = 5000;
 							} else if(strcasecmp(beg, "sq") == 0 || strcasecmp(beg, "sequel") == 0){
-								par->ksize = 0;
-								par->psize = 19;
+								par->ksize = 15;
+								par->psize = 0;
 								par->kmer_mod = 2 * KBM_N_HASH;
 								par->min_sim = 0.05;
 								par->skip_contained = 0;
