@@ -6682,11 +6682,11 @@ int main(int argc, char **argv){
 	node_drop = 0.25;
 	node_mrg = 0.9;
 	only_fix = 0;
-	node_cov = 0;
+	node_cov = 0; // will equal edge_cov, if no --node-cov
 	max_node_cov = 200;
 	exp_node_cov = 40;
 	min_bins = 1;
-	edge_cov = 3;
+	edge_cov = 0; // will be set to 3, if no genome_size available and no -e
 	rdclip = 1;
 	chainning = 1;
 	bestn = 500;
