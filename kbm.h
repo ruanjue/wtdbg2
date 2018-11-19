@@ -380,6 +380,47 @@ static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, int seql
 	}
 }
 
+// Please call no more than once
+static inline u8i filter_reads_kbm(KBM *kbm, u8i retain_size, int strategy){
+	u8i m, b, e, len;
+	if(kbm->reads->size == 0) return 0;
+	if(retain_size == 0 || retain_size >= kbm->rdseqs->size) return kbm->rdseqs->size;
+	if((kbm->flags & 0x2) == 0){
+		if(kbm->par->rd_len_order){
+			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.rdlen, a.rdlen));
+			if(strategy == 0){ // longest
+				len = 0;
+				for(e=0;e<kbm->reads->size;e++){
+					len += kbm->reads->buffer[e].rdlen;
+					if(len >= retain_size) break;
+				}
+				kbm->reads->size = e;
+			} else if(strategy == 1){ // median
+				m = kbm->reads->size / 2;
+				len = kbm->reads->buffer[m].rdlen;
+				e = m;
+				for(b=0;b<=m&&len<retain_size;b++){
+					len += kbm->reads->buffer[m - b].rdlen;
+					len += kbm->reads->buffer[m + b].rdlen;
+				}
+				e = b * 2;
+				b = m - b;
+				if(b){
+					remove_array_kbmreadv(kbm->reads, 0, b);
+				}
+				kbm->reads->size = e;
+			} else {
+				return kbm->rdseqs->size;
+			}
+			return len;
+		} else {
+			return kbm->rdseqs->size;
+		}
+	} else {
+		return kbm->rdseqs->size;
+	}
+}
+
 static inline void ready_kbm(KBM *kbm){
 	kbm_read_t *rd;
 	u4i i, j;
