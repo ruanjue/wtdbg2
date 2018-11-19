@@ -6807,7 +6807,7 @@ int main(int argc, char **argv){
 			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; break;
 			case 'E': par->kmin = atoi(optarg); break;
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
-			case 'g': genome_size = 1e-9 * mm_parse_num(optarg); break;
+			case 'g': genome_size = mm_parse_num(optarg); break;
 			case 'X': genome_depx = atof(optarg); break;
 			case 2009: filter_rd_strategy = atoi(optarg); break;
 			case 2005: par->max_bgap = atoi(optarg); break;
@@ -7071,9 +7071,9 @@ int main(int argc, char **argv){
 		if(!KBM_LOG){ fprintf(KBM_LOGF, "\r%u reads", (unsigned)kbm->reads->size); fflush(KBM_LOGF); }
 		{
 			if(par->rd_len_order && genome_size > 0 && genome_depx > 0){
-				cnt = 1024 * 1024 * 1024LLU * genome_size * genome_depx;
+				cnt = genome_size * genome_depx;
 				if(cnt < tot_bp){
-					fprintf(KBM_LOGF, "\n[%s] filtering from %u reads (>=%u bp), %llu bp", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp); fflush(KBM_LOGF);
+					fprintf(KBM_LOGF, "\n[%s] filtering from %u reads (>=%u bp), %llu bp. Try selecting %llu bp", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, cnt); fflush(KBM_LOGF);
 					tot_bp = filter_reads_kbm(kbm, cnt, filter_rd_strategy);
 				}
 			}
@@ -7085,7 +7085,7 @@ int main(int argc, char **argv){
 	if(edge_cov <= 0){
 		if(genome_size > 0){
 			float dep;
-			dep = tot_bp / 1024LLU / (genome_size * 1024 * 1024);
+			dep = tot_bp / genome_size;
 			if(dep <= 40){
 				edge_cov = 2;
 			} else if(dep >= 80){
