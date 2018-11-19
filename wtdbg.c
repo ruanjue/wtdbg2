@@ -6390,7 +6390,8 @@ static struct option prog_opts[] = {
 	{"kmer-depth-max",                   1, 0, 'K'},
 	{"kmer-depth-min",                   1, 0, 'E'},
 	{"genome-size",                      1, 0, 'g'},
-	{"cov-cutoff",                       1, 0, 'X'},
+	{"rdcov-cutoff",                     1, 0, 'X'},
+	{"rdcov-filter",                     1, 0, 2009},
 	//{"kmer-depth-min-filter",            0, 0, 'F'},
 	{"kmer-subsampling",                 1, 0, 'S'},
 	{"dp-max-gap",                       1, 0, 2005},
@@ -6468,7 +6469,7 @@ int usage(int level){
 	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 5000\n"
 	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be infered by seq depth, -S will be 1\n"
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
-	" -X <float>  Choose the best <float> depth for layout (effective with -g) [50]\n"
+	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50]\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> [0]\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
@@ -6554,16 +6555,22 @@ int usage(int level){
 	"   See -v. -vvvv will display the most detailed information\n"
 	" --quiet\n"
 	"   See -q\n"
-	" -L <int>, --tidy-reads=<int>\n"
+	" --limit-input <int>\n"
+	"   Limit the input sequences to at most <int> M bp. Usually for test\n"
+	" -L <int>, --tidy-reads <int>\n"
 	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
 	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio RSII reads\n"
 	" --keep-name\n"
 	"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
+	" -g <number>, --genome-size <number>\n"
+	"   Provide genome size, e.g. 100.4m, 2.3g. In this version, it is used with -X/--rdcov-cutoff in selecting reads just after readed all.\n"
+	" -X <float>, --rdcov-cutoff <float>\n"
+	"   Default: 50.0. Retaining 50.0 folds of genome coverage, combined with -g and --rdcov-filter.\n"
+	" --rdcov-filter [0|1]\n"
+	"   Default 0. Strategy 0: retaining longest reads. Strategy 1: retaining medain length reads. \n"
 	" --err-free-nodes\n"
 	"   Select nodes from error-free-sequences only. E.g. you have contigs assembled from NGS-WGS reads, and long noisy reads.\n"
 	"   You can type '--err-free-seq your_ctg.fa --input your_long_reads.fa --err-free-nodes' to perform assembly somehow act as long-reads scaffolding\n"
-	" --limit-input <int>\n"
-	"   Limit the input sequences to at most <int> M bp. Usually for test\n"
 	" --node-len <int>\n"
 	"   The default value is 1024, which is times of KBM_BIN_SIZE(always equals 256 bp). It specifies the length of intervals (or call nodes after selecting).\n"
 	"   kbm indexs sequences into BINs of 256 bp in size, so that many parameter should be times of 256 bp. There are: --node-len, --node-ovl, --aln-min-length, --aln-dovetail ."
@@ -6661,7 +6668,7 @@ int main(int argc, char **argv){
 	uint32_t i, j, k;
 	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
-	int quiet, tidy_reads, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
+	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode;
 	double genome_size, genome_depx;
 	float node_drop, node_mrg, ttr_e_cov, fval;
@@ -6674,6 +6681,7 @@ int main(int argc, char **argv){
 	tidy_rdtag = -1;
 	genome_size = 0;
 	genome_depx = 50.0;
+	filter_rd_strategy = 0;
 	fast_mode = 0;
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
@@ -6801,6 +6809,7 @@ int main(int argc, char **argv){
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
 			case 'g': genome_size = 1e-9 * mm_parse_num(optarg); break;
 			case 'X': genome_depx = atof(optarg); break;
+			case 2009: filter_rd_strategy = atoi(optarg); break;
 			case 2005: par->max_bgap = atoi(optarg); break;
 			case 2006: par->max_bvar = atoi(optarg); break;
 			case 2007: par->pgap = atoi(optarg); break;
@@ -7060,21 +7069,16 @@ int main(int argc, char **argv){
 		free_biosequence(seqs[0]);
 		free_biosequence(seqs[1]);
 		if(!KBM_LOG){ fprintf(KBM_LOGF, "\r%u reads", (unsigned)kbm->reads->size); fflush(KBM_LOGF); }
-		ready_kbm(kbm);
-		fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
-		if(par->rd_len_order && genome_size > 0 && genome_depx > 0){
-			cnt = 1024 * 1024 * 1024LLU * genome_size * genome_depx;
-			if(cnt < tot_bp){
-				kbm_read_t *kr;
-				while(kbm->reads->size){
-					kr = tail_kbmreadv(kbm->reads);
-					if(tot_bp - kr->rdlen < cnt) break;
-					tot_bp -= kr->rdlen;
-					kbm->reads->size --;
-					kbm->bins->size -= kr->bincnt;
+		{
+			if(par->rd_len_order && genome_size > 0 && genome_depx > 0){
+				cnt = 1024 * 1024 * 1024LLU * genome_size * genome_depx;
+				if(cnt < tot_bp){
+					fprintf(KBM_LOGF, "\n[%s] filtering from %u reads (>=%u bp), %llu bp", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp); fflush(KBM_LOGF);
+					tot_bp = filter_reads_kbm(kbm, cnt, filter_rd_strategy);
 				}
-				fprintf(KBM_LOGF, "[%s] Filtering ... Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tail_kbmreadv(kbm->reads)->rdlen, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
 			}
+			ready_kbm(kbm);
+			fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
 		}
 	}
 	print_proc_stat_info(0);
