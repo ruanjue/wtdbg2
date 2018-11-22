@@ -217,6 +217,8 @@ typedef struct {
 } kbm_dpe_t;
 define_list(kbmdpev, kbm_dpe_t);
 
+//define_recyc_list(kbmdper, kbmdpev, u4i, kbmdpev_init(a), kbmdpev_free(a));
+
 typedef struct {
 	kbmdpev  *kms; // kmer offset in query and bidx
 	u4i      km_len;
@@ -250,9 +252,10 @@ typedef struct {
 	kmeroffv *koffs[2];
 	kbmrefv *refs;
 	u4v      *rank, **heaps;
+	u4i      nheap;
 	u4i      hptr;
 	u2i      *binmap;
-	u4i      bmlen, bmcnt;
+	u4i      bmlen, bmoff, bmcnt;
 	kbmdpev  *caches[2];
 	KBMDP    *dps[2];
 	kbmmapv  *hits;
@@ -1121,9 +1124,9 @@ static inline void reset_kbmdp(KBMDP *dp, KBMAux *aux, u4i bidx){
 	recap_kbmcellv(dp->cells[0], aux->qnbin);
 	recap_kbmcellv(dp->cells[1], aux->qnbin);
 	clear_bit2vec(dp->bts);
-	if(dp->paths->size > 1023){
+	if(dp->paths->size > 1024 * 10){
 		free_kbmphash(dp->paths);
-		dp->paths = init_kbmphash(13);
+		dp->paths = init_kbmphash(1023);
 	} else {
 		clear_kbmphash(dp->paths);
 	}
@@ -1170,7 +1173,17 @@ static inline KBMAux* init_kbmaux(KBM *kbm){
 	aux->koffs[1] = init_kmeroffv(32);
 	aux->refs = init_kbmrefv(64);
 	aux->rank = init_u4v(64);
-	aux->heaps = NULL;
+	aux->nheap = 1024;
+	aux->heaps = malloc((aux->nheap + 1) * sizeof(u4v*));
+	{
+		u4i i;
+		for(i=0;i<=aux->nheap;i++){
+			aux->heaps[i] = init_u4v(8);
+		}
+	}
+	aux->bmlen = 1;
+	aux->bmoff = 0;
+	aux->bmcnt = aux->kbm->bins->size;
 	aux->binmap = NULL;
 	aux->caches[0] = init_kbmdpev(64);
 	aux->caches[1] = init_kbmdpev(64);
@@ -1190,7 +1203,7 @@ static inline void free_kbmaux(KBMAux *aux){
 	free_u4v(aux->rank);
 	if(aux->heaps){
 		u4i i;
-		for(i=0;i<aux->bmlen;i++){
+		for(i=0;i<=aux->nheap;i++){
 			if(aux->heaps[i]) free_u4v(aux->heaps[i]);
 		}
 		free(aux->heaps);
@@ -1214,8 +1227,8 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 	kmer_off_t *f;
 	kbm_ref_t *ref;
 	u8i sidx;
-	u4i hidx, ksize, next;
-	u4i i, j, l, bmin, bmax, tot, mr;
+	u4i hidx, next;
+	u4i i, j, l, bmin, bmax, tot, mr, pdir;
 	kbm = aux->kbm;
 	par = aux->par;
 	aux->qtag  = qtag? qtag : kbm->reads->buffer[qidx].tag;
@@ -1229,13 +1242,6 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 	clear_kbmdp(aux->dps[0], aux, 0);
 	clear_kbmdp(aux->dps[1], aux, 0);
 	clear_kbmrefv(aux->refs);
-	if(aux->heaps){
-		for(i=0;i<aux->bmlen;i++){
-			if(aux->heaps[i]) free_u4v(aux->heaps[i]);
-		}
-		free(aux->heaps);
-		aux->heaps = NULL;
-	}
 	clear_u4v(aux->rank);
 	clear_kbmdpev(aux->caches[0]);
 	clear_kbmdpev(aux->caches[1]);
@@ -1318,7 +1324,7 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 		}
 	}
 	if(0){
-		sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
+		//sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
 		for(i=0;i<aux->refs->size;i++){
 			ref = ref_kbmrefv(aux->refs, i);
 			fprintf(KBM_LOGF, "%s\t%d\t%c\t%d\n", aux->qtag, ref->off, "+-"[ref->dir], (int)ref->aux->cnt);
@@ -1365,28 +1371,31 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 		}
 		//sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
 	}
-	// set binmap
-	if(0){
-		ksize = aux->par->ksize + aux->par->psize;
-		mr = (aux->par->min_mat + ksize - 1) / ksize;
+	//sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
+	// estimate binmap
+	aux->bmoff = 0;
+	if(aux->refs->size){
+		mr = aux->par->min_mat / (aux->par->ksize + aux->par->psize);
+		if(mr < 512) mr = 512;
+		aux->bmlen = tot / mr;
+		if(aux->bmlen == 0) aux->bmlen = 1;
+		aux->bmcnt = (aux->kbm->bins->size + aux->bmlen - 1) / aux->bmlen;
+		if(aux->bmcnt < aux->qnbin * 50){
+			aux->bmcnt = aux->qnbin * 50;
+			aux->bmlen = (aux->kbm->bins->size + aux->bmcnt - 1) / aux->bmcnt;
+		}
 	} else {
-		mr = 2048;
-	}
-	if(mr < 2) mr = 2;
-	aux->bmlen = (tot + mr - 1) / mr;
-	if(aux->bmlen < 1) aux->bmlen = 1;
-	if(aux->bmlen > 1024) aux->bmlen = 1024;
-	aux->bmcnt = (kbm->bins->size + aux->bmlen - 1) / aux->bmlen;
-	//fprintf(stderr, " -- %s tot=%d bmlen=%d bmcnt=%d mr=%d in %s -- %s:%d --\n", aux->qtag, tot, aux->bmlen, aux->bmcnt, mr, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-	if(0 && aux->bmcnt < aux->qnbin){
-		aux->bmcnt = aux->qnbin;
-		aux->bmlen = (kbm->bins->size + aux->bmcnt - 1) / aux->bmcnt;
-	}
-	if(0){
 		aux->bmlen = 1;
 		aux->bmcnt = aux->kbm->bins->size;
 	}
-	aux->heaps = calloc(aux->bmlen, sizeof(u4v*));
+	if(0 && aux->bmlen > aux->nheap){
+		aux->bmlen = aux->nheap;
+		aux->bmcnt = (aux->kbm->bins->size + aux->bmlen - 1) / aux->bmlen;
+	}
+	//fprintf(stderr, " -- %s tot=%d bmlen=%d bmcnt=%d mr=%d in %s -- %s:%d --\n", aux->qtag, tot, aux->bmlen, aux->bmcnt, tot / aux->bmlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+	for(i=0;i<aux->nheap&&i<aux->bmlen;i++){
+		clear_u4v(aux->heaps[i]);
+	}
 	//fprintf(stderr, " -- %s tot=%d avg=%d bmlen=%d bmcnt=%d mr=%d qnbin=%d in %s -- %s:%d --\n", aux->qtag, tot, tot / aux->bmlen, aux->bmlen, aux->bmcnt, mr, aux->qnbin, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 #ifdef TEST_MODE
 		if(par->test_mode >= 5) return;
@@ -1395,15 +1404,17 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 	for(i=0;i<aux->refs->size;i++){
 		ref = ref_kbmrefv(aux->refs, i);
 		while(ref->b < ref->end){
-			ref->pdir = (ref->dir ^ kbm->sauxs->buffer[offset_kbmbmerv(kbm->seeds, ref->b)].dir);
-			if(((aux->par->strand_mask >> ref->pdir) & 0x01) == 0){
-				ref->b ++;
-				continue;
+			if(0){
+				pdir = (ref->dir ^ kbm->sauxs->buffer[offset_kbmbmerv(kbm->seeds, ref->b)].dir);
+				if(((aux->par->strand_mask >> pdir) & 0x01) == 0){
+					ref->b ++;
+					continue;
+				}
 			}
 			hidx = ref->b->bidx / aux->bmcnt;
-			if(aux->heaps[hidx] == NULL) aux->heaps[hidx] = init_u4v(8);
-			push_u4v(aux->heaps[hidx], i);
-			//array_heap_push(aux->heaps[hidx]->buffer, aux->heaps[hidx]->size, aux->heaps[hidx]->cap, u4i, i, heap_cmp_kbm_bmer(aux->refs->buffer, a, b));
+			if(hidx - aux->bmoff < aux->nheap){
+				push_u4v(aux->heaps[hidx - aux->bmoff], i);
+			}
 			break;
 		}
 	}
@@ -1843,30 +1854,34 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 			push_kbmdpev(dp->kms, *p);
 			return;
 #if __DEBUG__
-		} else if(p->bidx < e->bidx) {
+		} else if(p->bidx < e->bidx){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			abort();
 #endif
 		}
-		if(dp->kms->buffer[0].bidx + aux->par->max_bcnt >= p->bidx){
-			if(aux->kbm->bins->buffer[e->bidx].ridx == aux->kbm->bins->buffer[p->bidx].ridx){
-				if(((u8i)e->bidx) + aux->par->max_bgap + 2 > p->bidx){
-					dp->km_len += aux->par->ksize + aux->par->psize;
-					push_kbmdpev(dp->kms, *p);
-					return;
-				}
+		if(e->bidx + aux->par->max_bgap + 1 < p->bidx || dp->kms->buffer[0].bidx + aux->par->max_bcnt < p->bidx || aux->kbm->bins->buffer[e->bidx].ridx != aux->kbm->bins->buffer[p->bidx].ridx){
+			if(Int(dp->km_len) < aux->par->min_mat || e->bidx + 1 < dp->kms->buffer[0].bidx + aux->par->min_aln / KBM_BIN_SIZE){
+				clear_kbmdpev(dp->kms);
+				push_kbmdpev(dp->kms, *p);
+				dp->km_len = aux->par->ksize + aux->par->psize;
+				return;
 			}
-		}
-		if((int)dp->km_len < aux->par->min_mat || e->bidx + 1 < dp->kms->buffer[0].bidx + aux->par->min_aln / KBM_BIN_SIZE){
-			clear_kbmdpev(dp->kms);
+		} else {
+			dp->km_len += aux->par->ksize + aux->par->psize;
 			push_kbmdpev(dp->kms, *p);
-			dp->km_len = aux->par->ksize + aux->par->psize;
 			return;
 		}
 	}
 	reset_kbmdp(dp, aux, dp->kms->buffer[0].bidx);
 #ifdef TEST_MODE
-	if(aux->par->test_mode >= 1) goto END;
+	if(aux->par->test_mode >= 1){
+		clear_kbmdpev(dp->kms);
+		if(p){
+			dp->km_len = aux->par->ksize + aux->par->psize;
+			push_kbmdpev(dp->kms, *p);
+		}
+		return;
+	}
 #endif
 	blen = dp->kms->buffer[dp->kms->size - 1].bidx + 1 - dp->kms->buffer[0].bidx + 2;
 	{
@@ -1918,35 +1933,57 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 	_dp_cal_spare_row_kbm(aux, dir);
 	//collecting maps
 	_dp_path2map_kbm(aux, dir);
-#ifdef TEST_MODE
-	END:
-#endif
 	clear_kbmdpev(dp->kms);
 	if(p) push_kbmdpev(dp->kms, *p);
 	dp->km_len = aux->par->ksize + aux->par->psize;
 }
 
 static inline void map_kbm(KBMAux *aux){
+	KBM *kbm;
 	kbm_ref_t *ref;
 	kbm_baux_t *saux;
 	u4v *heap;
-	u4i idx, hidx, i, j;
+	u4i idx, hidx, i, j, pdir;
+	kbm = aux->kbm;
 #ifdef TEST_MODE
 	if(aux->par->test_mode >= 4) return;
 #endif
 	while(aux->hptr < aux->bmlen){
-		heap = aux->heaps[aux->hptr];
-		if(heap){
+		if(aux->hptr - aux->bmoff >= aux->nheap){
+			aux->bmoff += aux->nheap;
+			for(i=0;i<aux->nheap;i++){
+				clear_u4v(aux->heaps[i]);
+			}
+			for(i=0;i<aux->refs->size;i++){
+				ref = ref_kbmrefv(aux->refs, i);
+				while(ref->b < ref->end){
+					if(0){
+						pdir = (ref->dir ^ kbm->sauxs->buffer[offset_kbmbmerv(kbm->seeds, ref->b)].dir);
+						if(((aux->par->strand_mask >> pdir) & 0x01) == 0){
+							ref->b ++;
+							continue;
+						}
+					}
+					hidx = ref->b->bidx / aux->bmcnt;
+					if(hidx - aux->bmoff < aux->nheap){
+						push_u4v(aux->heaps[hidx - aux->bmoff], i);
+					}
+					break;
+				}
+			}
+		}
+		heap = aux->heaps[aux->hptr - aux->bmoff];
+		if(heap->size){
 			clear_kbmdpev(aux->caches[0]);
 			clear_kbmdpev(aux->caches[1]);
 			for(i=0;i<heap->size;i++){
 				idx = heap->buffer[i];
 				ref = ref_kbmrefv(aux->refs, idx);
 				while(1){
-					saux = ref_kbmbauxv(aux->kbm->sauxs, offset_kbmbmerv(aux->kbm->seeds, ref->b));
-					ref->pdir = (ref->dir ^ saux->dir);
-					if(((aux->par->strand_mask >> ref->pdir) & 0x01)){
-						push_kbmdpev(aux->caches[ref->pdir], (kbm_dpe_t){ref->poffs[ref->pdir], ref->b->bidx, idx, saux->koff});
+					saux = ref_kbmbauxv(kbm->sauxs, offset_kbmbmerv(kbm->seeds, ref->b));
+					pdir = (ref->dir ^ saux->dir);
+					if(((aux->par->strand_mask >> pdir) & 0x01)){
+						push_kbmdpev(aux->caches[pdir], (kbm_dpe_t){ref->poffs[pdir], ref->b->bidx, idx, saux->koff});
 					}
 					ref->b ++;
 					if(ref->b >= ref->end) break;
@@ -1958,18 +1995,27 @@ static inline void map_kbm(KBMAux *aux){
 #endif
 					hidx = ref->b->bidx / aux->bmcnt;
 					if(hidx > aux->hptr){
-						if(aux->heaps[hidx] == NULL) aux->heaps[hidx] = init_u4v(8);
-						push_u4v(aux->heaps[hidx], idx);
+						if(hidx - aux->bmoff < aux->nheap){
+							push_u4v(aux->heaps[hidx - aux->bmoff], idx);
+						}
 						break;
 					}
 				}
 			}
 			{
 #ifdef TEST_MODE
-				if(aux->par->test_mode <= 3){
+				if(aux->par->test_mode <= 2){
 #endif
+				if(aux->caches[0]->size * (aux->par->ksize + aux->par->psize) < UInt(aux->par->min_mat)){
+					aux->caches[0]->size = 0;
+				} else {
 					sort_array(aux->caches[0]->buffer, aux->caches[0]->size, kbm_dpe_t, num_cmpgtx(a.bidx, b.bidx, a.poff, b.poff));
+				}
+				if(aux->caches[1]->size * (aux->par->ksize + aux->par->psize) < UInt(aux->par->min_mat)){
+					aux->caches[1]->size = 0;
+				} else {
 					sort_array(aux->caches[1]->buffer, aux->caches[1]->size, kbm_dpe_t, num_cmpgtx(a.bidx, b.bidx, a.poff, b.poff));
+				}
 					//sort_array(aux->caches[0]->buffer, aux->caches[0]->size, kbm_dpe_t, num_cmpgt((((u8i)a.bidx) << 32) | a.poff, (((u8i)b.bidx) << 32) | b.poff));
 					//sort_array(aux->caches[1]->buffer, aux->caches[1]->size, kbm_dpe_t, num_cmpgt((((u8i)a.bidx) << 32) | a.poff, (((u8i)b.bidx) << 32) | b.poff));
 					// TODO: sort by bidx+koff is more reasonable, need to modify push_kmer_match_kbm too
@@ -1977,31 +2023,23 @@ static inline void map_kbm(KBMAux *aux){
 				}
 #endif
 #ifdef TEST_MODE
-				if(aux->par->test_mode <= 2){
+				if(aux->par->test_mode <= 1){
 #endif
-					for(j=0;j<aux->caches[0]->size;j++){
+				for(i=0;i<2;i++){
+					for(j=0;j<aux->caches[i]->size;j++){
 #if __DEBUG__
 						if(KBM_LOG >= KBM_LOG_ALL){
 							//fprintf(KBM_LOGF, "KBMLOG%d\t%d\t%d\t%c\t%d\t%d[%d,%d]\n", __LINE__, aux->qidx, ref->poffs[ref->pdir], "+-"[ref->pdir], aux->hptr, ref->b->bidx, aux->kbm->bins->buffer[ref->b->bidx].ridx, aux->kbm->bins->buffer[ref->b->bidx].off * KBM_BIN_SIZE);
 						}
 #endif
-						push_kmer_match_kbm(aux, 0, aux->caches[0]->buffer + j);
+						push_kmer_match_kbm(aux, i, aux->caches[i]->buffer + j);
 					}
-					for(j=0;j<aux->caches[1]->size;j++){
-#if __DEBUG__
-						if(KBM_LOG >= KBM_LOG_ALL){
-							//fprintf(KBM_LOGF, "KBMLOG%d\t%d\t%d\t%c\t%d\t%d[%d,%d]\n", __LINE__, aux->qidx, ref->poffs[ref->pdir], "+-"[ref->pdir], aux->hptr, ref->b->bidx, aux->kbm->bins->buffer[ref->b->bidx].ridx, aux->kbm->bins->buffer[ref->b->bidx].off * KBM_BIN_SIZE);
-						}
-#endif
-						push_kmer_match_kbm(aux, 1, aux->caches[1]->buffer + j);
-					}
-					if(aux->hits->size >= aux->par->max_hit) return;
+				}
+				if(aux->hits->size >= aux->par->max_hit) return;
 #ifdef TEST_MODE
 				}
 #endif
 			}
-			free_u4v(heap);
-			aux->heaps[aux->hptr] = NULL;
 		}
 		aux->hptr ++;
 	}
