@@ -558,7 +558,6 @@ KBMAux *aux;
 rdregv *regs;
 BitVec *rdflags;
 u4v *maps[3];
-kmeroffv *kmers[2];
 kbm_map_t *hit;
 u4i ridx, i, todo;
 volatile reg_t *reg;
@@ -571,12 +570,10 @@ rdflags = mdbg->rdflags;
 maps[0] = init_u4v(32);
 maps[1] = init_u4v(32);
 maps[2] = init_u4v(32);
-kmers[0] = adv_init_kmeroffv(64, 0, 1);
-kmers[1] = adv_init_kmeroffv(64, 0, 1);
 thread_beg_loop(mdbg);
 if(mdbg->task == 1){
 	if(reg->closed) continue;
-	query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, kmers);
+	query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg);
 	map_kbm(aux);
 	sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
 } else {
@@ -588,7 +585,7 @@ if(mdbg->task == 1){
 			thread_end_syn(mdbg);
 			if(!todo) continue;
 		}
-		query_index_kbm(aux, NULL, ridx, kbm->rdseqs, kbm->reads->buffer[ridx].rdoff, kbm->reads->buffer[ridx].rdlen, kmers);
+		query_index_kbm(aux, NULL, ridx, kbm->rdseqs, kbm->reads->buffer[ridx].rdoff, kbm->reads->buffer[ridx].rdlen);
 		map_kbm(aux);
 		sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
 		{
@@ -633,8 +630,6 @@ thread_end_loop(mdbg);
 free_u4v(maps[0]);
 free_u4v(maps[1]);
 free_u4v(maps[2]);
-free_kmeroffv(kmers[0]);
-free_kmeroffv(kmers[1]);
 thread_end_func(mdbg);
 
 thread_beg_def(mbio);
@@ -1088,7 +1083,7 @@ void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u4i ncpu, u8i u
 	thread_end_close(mupd);
 }
 
-void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdclip, char *prefix, char *dump_kbm){
+void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdclip, int uniq_hit, char *prefix, char *dump_kbm){
 	kbm_map_t *hit, HIT;
 	BitVec *rks, *rdflags;
 	u4v *maps[3];
@@ -1444,7 +1439,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 					}
 					if(state == 1){
 						// Choose the best hit
-						if(idx > lsx + 1){
+						if(uniq_hit && idx > lsx + 1){
 							bst = lsx;
 							for(bst=lsx;bst<idx;bst++){
 								if(g->pwalns->buffer[bst].mat) break;
@@ -6402,6 +6397,8 @@ static struct option prog_opts[] = {
 	{"aln-min-match",                    1, 0, 'm'},
 	{"aln-min-similarity",               1, 0, 's'},
 	{"aln-max-var",                      1, 0, 2004},
+	{"corr-mode",                        1, 0, 2010},
+	{"keep-multiple-alignment-parts",    1, 0, 2011},
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
 	{"version",                          0, 0, 'V'},
@@ -6551,6 +6548,8 @@ int usage(int level){
 	"   <prefix>.alignments always store all alignments\n"
 	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
+	" --keep-multiple-alignment-parts\n"
+	"   By default, wtdbg will keep only the best alignment between two reads after chainning. This option will disable it, and keep multiple\n"
 	" --verbose +\n"
 	"   See -v. -vvvv will display the most detailed information\n"
 	" --quiet\n"
@@ -6668,8 +6667,8 @@ int main(int argc, char **argv){
 	uint32_t i, j, k;
 	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
-	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
-	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode;
+	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
+	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_mode;
 	double genome_size, genome_depx;
 	float node_drop, node_mrg, ttr_e_cov, fval;
 	pbs = init_cplist(4);
@@ -6683,6 +6682,7 @@ int main(int argc, char **argv){
 	genome_depx = 50.0;
 	filter_rd_strategy = 0;
 	fast_mode = 0;
+	corr_mode = 0; // 505 means 5X reads * 5X aligments
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
 	reglen = 1024;
@@ -6697,6 +6697,7 @@ int main(int argc, char **argv){
 	edge_cov = 0; // will be set to 3, if no genome_size available and no -e
 	rdclip = 1;
 	chainning = 1;
+	uniq_hit = 1;
 	bestn = 500;
 	ttr_n_cov = 0;
 	ttr_e_cov = 0.5;
@@ -6818,6 +6819,8 @@ int main(int argc, char **argv){
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 2004: par->aln_var = atof(optarg); break;
 			case 's': par->min_sim = atof(optarg); break;
+			case 2010: corr_mode = atoi(optarg); break;
+			case 2011: uniq_hit = 0; break;
 			case 'v': KBM_LOG ++; break;
 			case 'q': quiet = 1; break;
 			case 'h': return usage(0);
@@ -7151,12 +7154,12 @@ int main(int argc, char **argv){
 		}
 		fprintf(KBM_LOGF, "\n");
 		fr = open_all_filereader(pws->size, pws->buffer, asyn_read);
-		build_nodes_graph(g, max_idx_bp, ncpu, fr, rdclip, prefix, NULL);
+		build_nodes_graph(g, max_idx_bp, ncpu, fr, rdclip, uniq_hit, prefix, NULL);
 		close_filereader(fr);
 		fprintf(KBM_LOGF, "[%s] Done, %llu nodes\n", date(), (unsigned long long)g->nodes->size);
 	} else {
 		fprintf(KBM_LOGF, "[%s] generating nodes, %d threads\n", date(), ncpu);
-		build_nodes_graph(g, max_idx_bp, ncpu, NULL, rdclip, prefix, dump_kbm);
+		build_nodes_graph(g, max_idx_bp, ncpu, NULL, rdclip, uniq_hit, prefix, dump_kbm);
 		fprintf(KBM_LOGF, "[%s] Done, %llu nodes\n", date(), (unsigned long long)g->nodes->size);
 	}
 	if(load_nodes == NULL || strlen(load_nodes) != strlen(prefix) + strlen(".1.nodes") || strncmp(load_nodes, prefix, strlen(prefix)) || strcmp(load_nodes + strlen(prefix), ".1.nodes")){
