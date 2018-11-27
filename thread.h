@@ -201,8 +201,9 @@ struct tname##_struct {		\
 	tname##_i = 0;	\
 	tname##_j = 0
 
-#define thread_export_core(tname, params, pids, mlock, rwlock, i, j, next)	\
+#define thread_export_core(tname, _tname, params, pids, mlock, rwlock, i, j, next)	\
 do {	\
+	_tname = tname;	\
 	params = tname##_params;	\
 	pids   = tname##_pids;	\
 	mlock  = tname##_mlock;	\
@@ -212,10 +213,11 @@ do {	\
 	next   = tname##_var_next;	\
 } while(0)
 
-#define thread_export(tname, obj) thread_export_core(tname, (obj)->tname##_params, (obj)->tname##_pids, (obj)->tname##_mlock, (obj)->tname##_rwlock, (obj)->tname##_i, (obj)->tname##_j, (obj)->tname##_var_next)
+#define thread_export(tname, obj) thread_export_core(tname, (obj)->tname, (obj)->tname##_params, (obj)->tname##_pids, (obj)->tname##_mlock, (obj)->tname##_rwlock, (obj)->tname##_i, (obj)->tname##_j, (obj)->tname##_var_next)
 
-#define thread_import_core(tname, params, pids, mlock, rwlock, i, j, next)	\
+#define thread_import_core(tname, _tname, params, pids, mlock, rwlock, i, j, next)	\
 do {	\
+	tname           = _tname;	\
 	tname##_params = params;	\
 	tname##_pids   = pids;	\
 	tname##_mlock  = mlock;	\
@@ -225,7 +227,7 @@ do {	\
 	tname##_var_next   = next;	\
 } while(0)
 
-#define thread_import(tname, obj) thread_import_core(tname, (obj)->tname##_params, (obj)->tname##_pids, (obj)->tname##_mlock, (obj)->tname##_rwlock, (obj)->tname##_i, (obj)->tname##_j, (obj)->tname##_var_next)
+#define thread_import(tname, obj) thread_import_core(tname, (obj)->tname, (obj)->tname##_params, (obj)->tname##_pids, (obj)->tname##_mlock, (obj)->tname##_rwlock, (obj)->tname##_i, (obj)->tname##_j, (obj)->tname##_var_next)
 
 #define thread_begin_operate(tname, idx) tname = tname##_params + idx
 #define thread_beg_operate(tname, idx) thread_begin_operate(tname, idx)
