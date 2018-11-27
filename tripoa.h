@@ -129,6 +129,15 @@ static inline void fwdbitpush_tripog(TriPOG *tp, u8i *bits, u8i off, u4i len, u2
 	}
 }
 
+static inline void revbitpush_tripog(TriPOG *tp, u8i *bits, u8i off, u4i len, u2i refbeg, u2i refend){
+	revbitpush_seqbank(tp->seqs, NULL, 0, bits, off, len);
+	push_u2v(tp->rbegs, refbeg);
+	push_u2v(tp->rends, refend);
+	if(tp->seqs->rdlens->buffer[tp->longest_idx] < len){
+		tp->longest_idx = tp->seqs->nseq - 1;
+	}
+}
+
 static inline void direct_run_tripog(TriPOG *tp){
 	POG *g;
 	u4i ridx;
