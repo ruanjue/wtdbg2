@@ -1219,7 +1219,7 @@ static inline void free_kbmaux(KBMAux *aux){
 	free(aux);
 }
 
-static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *rdseqs, u8i seqoff, u4i seqlen, kmeroffv *kmers[2]){
+static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *rdseqs, u8i seqoff, u4i seqlen){
 	KBM *kbm;
 	KBMPar *par;
 	kbm_kmer_t *u;
@@ -1256,15 +1256,15 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 	if(par->self_aln == 2){
 		par->strand_mask = 2; // 1: forward; 2: reverse; 3: both
 	}
-	split_FIXP_kmers_kbm(rdseqs, seqoff, aux->slen, par->ksize, par->psize, par->kmer_mod, kmers);
+	split_FIXP_kmers_kbm(rdseqs, seqoff, aux->slen, par->ksize, par->psize, par->kmer_mod, aux->koffs);
 #ifdef TEST_MODE
 	if(par->test_mode >= 6) return;
 #endif
 	tot = 0;
 	for(i=0;i<2;i++){
 		next = 0;
-		for(j=0;j<kmers[i]->size;j++){
-			f = ref_kmeroffv(kmers[i], j);
+		for(j=0;j<aux->koffs[i]->size;j++){
+			f = ref_kmeroffv(aux->koffs[i], j);
 			if(f->closed) continue;
 			u = get_kbmhash(kbm->hashs[f->kidx], f->kmer);
 			if(u == NULL || u->flt || u->tot < par->kmin){
@@ -1371,7 +1371,7 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 		}
 		//sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
 	}
-	//sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
+	sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgt(a.off, b.off));
 	// estimate binmap
 	aux->bmoff = 0;
 	if(aux->refs->size){
