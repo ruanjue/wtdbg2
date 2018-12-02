@@ -32,7 +32,8 @@ typedef struct {
 
 typedef struct {
 	u4i chridx, bidx; // block idx
-	u4i rdidx, rdoff;
+	u4i rdidx, rdoff:31, rddir:1;
+	char *rdtag;
 	BaseBank *seq;
 	u4i rbeg, rend;
 } lay_seq_t;
@@ -249,6 +250,26 @@ static inline void free_ctgcns(CTGCNS *cc){
 	free(cc);
 }
 
+static inline void reset_ctgcns(CTGCNS *cc, void *obj, iter_cns_block itercns, info_cns_block infocns){
+	cc->obj = obj;
+	cc->itercns = itercns;
+	cc->infocns = infocns;
+	cc->sq = NULL;
+	ZEROS(&cc->BK);
+	cc->widx = 1;
+	cc->ridx = 1;
+	cc->cidx = 0;
+	cc->eidx = 0;
+	cc->state = 1;
+	cc->chridx = MAX_U4;
+	cc->bidx = MAX_U4;
+	clear_string(cc->tag);
+	clear_basebank(cc->seq);
+	clear_basebank(cc->cns);
+	clear_edgecnsv(cc->heap);
+	clear_edgecnsv(cc->rs);
+}
+
 static inline void print_lays_ctgcns(CTGCNS *cc, FILE *out){
 	lay_blk_t *bk;
 	bk = &cc->BK;
@@ -266,7 +287,11 @@ static inline void print_lays_ctgcns(CTGCNS *cc, FILE *out){
 			fprintf(out, "E\t%u\tN%u\t+\tN%u\t+\n", bk->refoff, bk->node1, bk->node2);
 		}
 		{
-			fprintf(out, "S\tR%llu\t+\t%u\t%u\t", (u8i)cc->sq->rdidx, cc->sq->rdoff, (u4i)cc->sq->seq->size);
+			if(cc->sq->rdtag){
+				fprintf(out, "S\t%s\t%c\t%u\t%u\t", cc->sq->rdtag, "+-"[cc->sq->rddir], cc->sq->rdoff, (u4i)cc->sq->seq->size);
+			} else {
+				fprintf(out, "S\tR%llu\t%c\t%u\t%u\t", (u8i)cc->sq->rdidx, "+-"[cc->sq->rddir], cc->sq->rdoff, (u4i)cc->sq->seq->size);
+			}
 			print_seq_basebank(cc->sq->seq, 0, cc->sq->seq->size, out);
 			fprintf(out, "\t%u\t%u\n", cc->sq->rbeg, cc->sq->rend);
 		}
@@ -306,6 +331,12 @@ static inline int iter_ctgcns(CTGCNS *cc){
 					cc->cidx ++;
 					cc->bidx = MAX_U4;
 					cc->infocns(cc->obj, cc->sq, bk);
+					clear_string(cc->tag);
+					if(bk->reftag){
+						append_string(cc->tag, bk->reftag, strlen(bk->reftag));
+					} else {
+						append_string(cc->tag, "anonymous", 10);
+					}
 				}
 				if(mcns->edge.idx) thread_wake(mcns);
 				nrun = cc->ncpu + 1;
@@ -475,10 +506,11 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 	while(sb->cidx < sq->chridx || (sb->cidx == sq->chridx && sb->bidx <= sq->bidx)){
 		st = pop_layseqr(sb->seqs);
 		st->chridx = sb->cidx;
-		st->bidx = sb->bidx;
+		st->bidx  = sb->bidx;
 		st->rdidx = 0;
+		st->rddir = 0;
 		st->rdoff = st->bidx * sb->bstep;
-		st->rbeg = st->rdoff;
+		st->rbeg  = st->rdoff;
 		if(sb->chrs->size <= sb->cidx){
 			for(i=0;i<sb->refs->nseq;i++){
 				for(j=1;j<sb->chrs->size;j++){
@@ -514,7 +546,7 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 static inline lay_seq_t* iter_samblock(void *obj){
 	SAMBlock *sb;
 	lay_seq_t *sc, *sl;
-	u4i chr, chridx, off, rdoff, nxt, val, len, op;
+	u4i chr, chridx, off, rddir, rdoff, nxt, val, len, op;
 	char *ptr, *str;
 	int c;
 	sb = (SAMBlock*)obj;
@@ -554,6 +586,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 			if((*ptr) == '*') continue;
 			sb->rdidx ++;
 			rdoff = 0;
+			rddir = (atol(get_col_str(sb->fr, 1)) & 0x10) >> 4;
 			str = get_col_str(sb->fr, 9);
 			{
 				encap_layseqr(sb->seqs, 2);
@@ -561,6 +594,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 				sc->chridx = chridx;
 				sc->bidx = (off / sb->bstep);
 				sc->rdidx = sb->rdidx;
+				sc->rddir = rddir;
 				sc->rdoff = rdoff;
 				sc->rbeg = off;
 				sc->rend = 0;
@@ -576,6 +610,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 						sl->chridx = chridx;
 						sl->bidx = sc->bidx - 1;
 						sl->rdidx = sb->rdidx;
+						sl->rddir = rddir;
 						sl->rdoff = rdoff;
 						sl->rbeg = off;
 						sl->rend = 0;
@@ -658,6 +693,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 							sc->chridx = chridx;
 							sc->bidx = sl->bidx + 1;
 							sc->rdidx = sb->rdidx;
+							sc->rddir = rddir;
 							sc->rdoff = rdoff;
 							sc->rbeg = off;
 							sc->rend = 0;
@@ -798,7 +834,8 @@ static inline lay_seq_t* iter_wtlayblock(void *obj){
 				wb->key->chridx = wb->chridx;
 				wb->key->bidx   = wb->bidx;
 				wb->key->rdidx  = wb->rdidx ++;
-				wb->key->rdoff  = 0;
+				wb->key->rddir  = (get_col_str(wb->fr, 2)[0] == '-');
+				wb->key->rdoff  = atoi(get_col_str(wb->fr, 3));
 				wb->key->rbeg   = 0;
 				wb->key->rend   = 0;
 				seq2basebank(wb->key->seq, ss, sl);
