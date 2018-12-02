@@ -65,14 +65,14 @@ static inline TriPOG* init_tripog(u4i seqmax, int ref_mode, int winlen, int winm
 	if(winlen > 0){
 		tp->winlen = winlen;
 		tp->winmin = winmin;
-		tp->pogs[0] = init_pog(0, M, X, I, D, 0, 0, use_sse, 0, min_cnt, min_freq);
+		tp->pogs[0] = init_pog(ref_mode, M, X, I, D, 0, 0, use_sse, 0, min_cnt, min_freq);
 	} else {
 		tp->winlen = 0;
 		tp->winmin = 0;
 		tp->pogs[0] = init_pog(ref_mode, M, X, I, D, W, - winlen, use_sse, rW, min_cnt, min_freq);
 	}
-	tp->pogs[1] = init_pog(0, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
-	tp->pogs[2] = init_pog(0, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
+	tp->pogs[1] = init_pog(ref_mode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
+	tp->pogs[2] = init_pog(ref_mode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
 	//tp->pogs[1]->near_dialog = 1;
 	//tp->pogs[2]->near_dialog = 1;
 	tp->kidxs = init_u4v(32);
