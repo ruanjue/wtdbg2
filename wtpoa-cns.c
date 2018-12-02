@@ -29,6 +29,7 @@ int usage(){
 	" -t <int>    Number of threads, [4]\n"
 	" -d <string> Reference sequences for SAM input, will invoke sorted-SAM input mode and auto set '-j 100 -W 0 -w 1000'\n"
 	" -u          Only process reference regions present in/between SAM alignments\n"
+	" -r          Force to use reference mode\n"
 	" -p <string> Similar with -d, but translate SAM into wtdbg layout file\n"
 	" -i <string> Input file(s) *.ctg.lay from wtdbg, +, [STDIN]\n"
 	"             Or sorted SAM files when having -d\n"
@@ -65,11 +66,12 @@ int main(int argc, char **argv){
 	FILE *out;
 	char *outf;
 	u4i i;
-	int reglen, use_sse, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax, wsize, print_lay, sam_present;
+	int reglen, use_sse, refmode, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax, wsize, print_lay, sam_present;
 	float minfreq;
 	int c, ncpu, overwrite;
 	ncpu = 4;
 	use_sse = 2;
+	refmode = 0;
 	seqmax = 20;
 	bandwidth = 96;
 	winlen = 200;
@@ -91,13 +93,14 @@ int main(int argc, char **argv){
 	overwrite = 0;
 	print_lay = 0;
 	sam_present = 0;
-	while((c = getopt(argc, argv, "hvVt:d:p:ui:o:fj:S:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
 			case 'p': print_lay = 1;
 			case 'd': push_cplist(dbfs, optarg); reglen = 100; winlen = 0; winmin = 1000; break;
 			case 'u': sam_present = 1; break;
+			case 'r': refmode = 1; break;
 			case 'i': push_cplist(infs, optarg); break;
 			case 'o': outf = optarg; break;
 			case 'f': overwrite = 1; break;
@@ -145,7 +148,7 @@ int main(int argc, char **argv){
 	if(dbfs->size == 0){
 		WTLAYBlock *wb;
 		wb = init_wtlayblock(fr);
-		cc = init_ctgcns(wb, iter_wtlayblock, info_wtlayblock, ncpu, 0, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen);
+		cc = init_ctgcns(wb, iter_wtlayblock, info_wtlayblock, ncpu, refmode, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen);
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
@@ -175,8 +178,8 @@ int main(int argc, char **argv){
 		}
 		free_biosequence(seq);
 		close_filereader(db);
-		sb = init_samblock(refs, fr, winmin, winmin - reglen, sam_present);
-		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen);
+		sb = init_samblock(refs, fr, winmin, reglen, sam_present);
+		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, winmin - reglen);
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
