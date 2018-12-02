@@ -442,6 +442,8 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 						append_array_u1v(pz->srcs[next], pgz->src->buffer + pgz->soff, pgz->src->size - pgz->soff);
 						pgz->soff = pgz->src->size = 0;
 					}
+				} else {
+					pgz->soff = pgz->src->size = 0;
 				}
 				break;
 			}
