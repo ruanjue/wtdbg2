@@ -18,6 +18,7 @@
  */
 
 #include "kbm.h"
+#include "kbmpoa.h"
 
 int kbm_usage(){
 	fprintf(stdout, "Program: kbm is a simple instance which implemented kmer-binmap\n");
@@ -81,26 +82,34 @@ int kbm_usage(){
 }
 
 thread_beg_def(maln);
+CTGCNS *cc;
 KBMAux *aux;
 String *rdtag;
 BaseBank *rdseqs;
 u4i qidx;
 u8i rdoff;
 u4i rdlen;
-FILE *out;
+int corr_mode;
+float corr_cov;
+u4i corr_min, corr_max;
+FILE *out, *lay;
 int chainning;
 int interactive;
 thread_end_def(maln);
 
 thread_beg_func(maln);
-kmeroffv *kmers[2];
 kbm_map_t HIT;
-kmers[0] = adv_init_kmeroffv(32, 0, 1);
-kmers[1] = adv_init_kmeroffv(32, 0, 1);
 thread_beg_loop(maln);
 if(maln->rdlen == 0) break;
-query_index_kbm(maln->aux, maln->rdtag->size? maln->rdtag->string : NULL, maln->qidx, maln->rdseqs, maln->rdoff, maln->rdlen, kmers);
-map_kbm(maln->aux);
+if(maln->corr_mode){
+	if(map_kbmpoa(maln->cc, maln->aux, maln->rdtag->size? maln->rdtag->string : NULL, maln->qidx, maln->rdseqs, maln->rdoff, maln->rdlen, maln->corr_min, maln->corr_max, maln->corr_cov, maln->lay) == 0){
+		clear_kbmmapv(maln->aux->hits);
+		break;
+	}
+} else {
+	query_index_kbm(maln->aux, maln->rdtag->size? maln->rdtag->string : NULL, maln->qidx, maln->rdseqs, maln->rdoff, maln->rdlen);
+	map_kbm(maln->aux);
+}
 if(maln->chainning){
 	u4i idx, lst;
 	for(idx=lst=0;idx<=maln->aux->hits->size;idx++){
@@ -131,8 +140,6 @@ if(maln->interactive){
 	thread_end_syn(maln);
 }
 thread_end_loop(maln);
-free_kmeroffv(kmers[0]);
-free_kmeroffv(kmers[1]);
 thread_end_func(maln);
 
 int kbm_main(int argc, char **argv){
@@ -353,7 +360,13 @@ int kbm_main(int argc, char **argv){
 	maln->rdseqs = qrys->size? init_basebank() : kbm->rdseqs;
 	maln->rdoff = 0;
 	maln->rdlen = 0;
+	maln->cc = NULL;
+	maln->corr_mode = 0;
+	maln->corr_cov = 0.75;
+	maln->corr_min = 5;
+	maln->corr_max = 10;
 	maln->out = out;
+	maln->lay = NULL;
 	maln->chainning = chainning;
 	maln->interactive = interactive;
 	thread_end_init(maln);
@@ -366,24 +379,44 @@ int kbm_main(int argc, char **argv){
 				run_mode = 1;
 			} else if(strcasecmp(fr->line->string, "#print_exists") == 0){
 				run_mode = 2;
+			} else if(strcasecmp(fr->line->string, "#correct_align") == 0){
+				run_mode = 3;
+				cns_debug = KBM_LOG;
+				thread_beg_iter(maln);
+				maln->corr_mode = 1;
+				KBMBlock *kb;
+				kb = init_kbmblock(2048, 2048 - 512);
+				maln->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, maln->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, 512);
+				maln->lay = maln->out;
+				thread_end_iter(maln);
+			} else if(strcasecmp(fr->line->string, "#print_read") == 0){
+				run_mode = 4;
+			} else {
+				rollback_filereader(fr);
 			}
-			rollback_filereader(fr);
 		}
 		seq = init_biosequence();
 		qidx = 0;
 		nhit = 0;
-		if(run_mode == 0){
+		if(run_mode == 0 || run_mode == 3){
 			while(readseq_filereader(fr, seq)){
 				if((qidx % 100) == 0){
 					fprintf(KBM_LOGF, "\r%u\t%llu", qidx, nhit); fflush(KBM_LOGF);
 				}
 				thread_wait_one(maln);
 				if(maln->rdlen && !maln->interactive){
-					aux = maln->aux;
-					for(i=0;i<aux->hits->size;i++){
-						fprint_hit_kbm(aux, i, out);
+					if(run_mode == 3 && maln->cc->cns->size){
+						//fprintf(out, ">%s\n", maln->cc->tag->string);
+						//print_lines_basebank(maln->cc->cns, 0, maln->cc->cns->size, out, 100);
 					}
-					nhit += aux->hits->size;
+					{
+						aux = maln->aux;
+						for(i=0;i<aux->hits->size;i++){
+							fprint_hit_kbm(aux, i, out);
+						}
+						if(run_mode == 3) fflush(out);
+						nhit += aux->hits->size;
+					}
 				}
 				trunc_string(seq->seq, cvt_kbm_read_length(seq->seq->size));
 				clear_basebank(maln->rdseqs);
@@ -440,16 +473,35 @@ int kbm_main(int argc, char **argv){
 			}
 			free_kmeroffv(kmers[0]);
 			free_kmeroffv(kmers[1]);
+		} else if(run_mode == 4){
+			int nc;
+			while((nc = readtable_filereader(fr)) >= 0){
+				if(nc < 1) continue;
+				if(fr->line->string[0] == '#') continue;
+				qidx = getval_cuhash(kbm->tag2idx, get_col_str(fr, 0));
+				if(qidx == MAX_U4){
+					fprintf(out, "#%s NOT FOUND\n", get_col_str(fr, 0));
+					continue;
+				}
+				fprintf(out, ">%s\n", kbm->reads->buffer[qidx].tag);
+				println_fwdseq_basebank(kbm->rdseqs, kbm->reads->buffer[qidx].rdoff, kbm->reads->buffer[qidx].rdlen, out);
+				fflush(out);
+			}
 		}
 		free_filereader(fr);
 		free_biosequence(seq);
 		thread_beg_iter(maln);
 		thread_wait(maln);
 		if(maln->rdlen && !maln->interactive){
+			if(run_mode == 3 && maln->cc->cns->size){
+				//fprintf(out, ">%s\n", maln->cc->tag->string);
+				//print_lines_basebank(maln->cc->cns, 0, maln->cc->cns->size, out, 100);
+			}
 			aux = maln->aux;
 			for(i=0;i<aux->hits->size;i++){
 				fprint_hit_kbm(aux, i, out);
 			}
+			if(run_mode == 3) fflush(out);
 			nhit += aux->hits->size;
 			maln->rdlen = 0;
 		}
@@ -499,6 +551,10 @@ int kbm_main(int argc, char **argv){
 	free_kbmaux(maln->aux);
 	free_string(maln->rdtag);
 	if(maln->rdseqs && maln->rdseqs != kbm->rdseqs) free_basebank(maln->rdseqs);
+	if(maln->cc){
+		free_kbmblock((KBMBlock*)maln->cc->obj);
+		free_ctgcns(maln->cc);
+	}
 	thread_end_close(maln);
 	if(solids) free_bitvec(solids);
 	fprintf(KBM_LOGF, "[%s] Done\n", date());
