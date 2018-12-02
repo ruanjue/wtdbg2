@@ -18,6 +18,7 @@
  */
 
 #include "kbm.h"
+#include "kbmpoa.h"
 #include "filewriter.h"
 #include "pgzf.h"
 #include <getopt.h>
@@ -221,7 +222,11 @@ typedef struct {
 	lnkv     *lnks;
 	edgerefv *lrefs;
 	tracev   *traces;
-
+	
+	u8i      genome_size;
+	u4i      corr_mode, corr_min, corr_max;
+	u4i      corr_bsize, corr_bstep;
+	float    corr_cov, corr_gcov;
 	int      node_order;
 	uint32_t n_fix, only_fix; // first n sequences are accurate contigs; only_fix means whether to include other pacbio sequenes
 	uint32_t reglen, regovl, bestn;
@@ -269,6 +274,14 @@ Graph* init_graph(KBM *kbm){
 	g->lnks = init_lnkv(32);
 	g->lrefs = init_edgerefv(32);
 	g->traces = init_tracev(32);
+	g->genome_size = 1024 * 1024 * 1024LLU;
+	g->corr_mode = 0;
+	g->corr_min  = 5;
+	g->corr_max  = 10;
+	g->corr_cov  = 0.75;
+	g->corr_gcov = 5.0;
+	g->corr_bsize = 2048;
+	g->corr_bstep = 2048 - 512;
 	g->node_order = 0;
 	g->n_fix = 0;
 	g->only_fix = 0;
@@ -359,11 +372,11 @@ int is_dovetail_overlap(Graph *g, kbm_map_t *hit){
 	return 1;
 }
 
-int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4v *maps[3]){
+int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *hit, BitsVec *cigars, u4v *maps[3]){
 	KBM *kbm;
 	u8i ndoff;
-	u4i bpos[2][2], npos[2][2], clen, ndbeg, qn, j;
-	int tmp, bt, qlen, tlen, x, y, mat, beg, end, min_node_len, max_node_len;
+	u4i bpos[2][2], npos[2][2], clen, ndbeg, qn, j, qbincnt;
+	int tmp, bt, tlen, x, y, mat, beg, end, min_node_len, max_node_len;
 	int mask, closed;
 	kbm = g->kbm;
 	mask = 0;
@@ -376,7 +389,15 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 	min_node_len = (qn - 1) * KBM_BIN_SIZE;
 	max_node_len = (qn + 1) * KBM_BIN_SIZE;
 	// translate into reverse sequence order
-	qlen = kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE;
+	if(qlen == 0){
+		qbincnt = kbm->reads->buffer[hit->qidx].bincnt;
+		qlen = qbincnt * KBM_BIN_SIZE;
+	} else if(qlen > kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE){
+		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+		abort();
+	} else {
+		qbincnt = qlen / KBM_BIN_SIZE;
+	}
 	tlen = kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE;
 	if(hit->qdir){
 		tmp = qlen - hit->qb;
@@ -428,9 +449,9 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 	{
 		ndoff = kbm->reads->buffer[hit->qidx].binoff;
 		if(hit->qdir){
-			ndbeg = kbm->reads->buffer[hit->qidx].bincnt - bpos[0][0];
+			ndbeg = qbincnt - bpos[0][0];
 			ndbeg = ndbeg % qn;
-			ndoff = ndoff + ((kbm->reads->buffer[hit->qidx].bincnt - (ndbeg + bpos[0][0])) / qn) - 1;
+			ndoff = ndoff + ((qbincnt - (ndbeg + bpos[0][0])) / qn) - 1;
 		} else {
 			ndbeg = (bpos[0][0] % qn)? qn - (bpos[0][0] % qn) : 0;
 			ndoff = ndoff + ((ndbeg + bpos[0][0]) / qn);
@@ -481,7 +502,7 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 #endif
 		}
 	}
-	{
+	if(!g->corr_mode){
 		ndoff = kbm->reads->buffer[hit->tidx].binoff;
 		ndbeg = (bpos[1][0] % qn)? qn - (bpos[1][0] % qn): 0;
 		ndoff = ndoff + ((ndbeg + bpos[1][0]) / qn);
@@ -542,6 +563,7 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 thread_beg_def(mdbg);
 Graph *g;
 KBMAux *aux;
+CTGCNS *cc;
 reg_t reg;
 rdregv *regs;
 BitVec *rdflags;
@@ -573,8 +595,14 @@ maps[2] = init_u4v(32);
 thread_beg_loop(mdbg);
 if(mdbg->task == 1){
 	if(reg->closed) continue;
-	query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg);
-	map_kbm(aux);
+	if(g->corr_mode){
+		if(map_kbmpoa(mdbg->cc, aux, kbm->reads->buffer[reg->rid].tag, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, g->corr_min, g->corr_max, g->corr_cov, NULL) == 0){
+			clear_kbmmapv(aux->hits);
+		}
+	} else {
+		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg);
+		map_kbm(aux);
+	}
 	sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
 } else {
 	for(ridx=mdbg->beg+mdbg->t_idx;ridx<mdbg->end;ridx+=mdbg->n_cpu){
@@ -609,7 +637,7 @@ if(mdbg->task == 1){
 					one_bitvec(rdflags, hit->tidx);
 				}
 				if(mdbg->raw){
-					hit2rdregs_graph(g, regs, hit, mdbg->aux->cigars, maps);
+					hit2rdregs_graph(g, regs, 0, hit, mdbg->aux->cigars, maps);
 				} else {
 					push_kbmmapv(g->pwalns, *hit);
 					peer_kbmmapv(g->pwalns)->cgoff += cgoff;
@@ -1083,27 +1111,340 @@ void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u4i ncpu, u8i u
 	thread_end_close(mupd);
 }
 
+u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdregv *regs, u4v *maps[3]){
+	u4v *cgs;
+	kbm_map_t *hit, HIT;
+	cuhash_t *cu;
+	u8i nhit;
+	u4i i, rid;
+	int qlen, val, flg, nwarn, mwarn, ncol;
+	char *cgstr, *qtag;
+	mwarn = 20;
+	nwarn = 0;
+	cgs = init_u4v(4);
+	memset(&HIT, 0, sizeof(kbm_map_t));
+	hit = &HIT;
+	nhit = 0;
+	while((ncol = readtable_filereader(pws)) != -1){
+		if((pws->n_line % 100000) == 0){
+			fprintf(KBM_LOGF, "\r%llu", pws->n_line); fflush(KBM_LOGF);
+		}
+		if(pws->line->buffer[0] == '#'){
+			if(strncasecmp(pws->line->buffer, "#corr_mode=1", 12) == 0){
+				g->corr_mode = 1;
+			}
+			continue;
+		}
+		if(ncol < 15) continue;
+		if((cu = get_cuhash(g->kbm->tag2idx, get_col_str(pws, 0))) == NULL){
+			if(nwarn < mwarn){
+				fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(pws, 0), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				nwarn ++;
+			}
+			continue;
+		} else rid = cu->val;
+		hit->qidx = rid;
+		qtag = get_col_str(pws, 0);
+		hit->qdir = (get_col_str(pws, 1)[0] == '-');
+		qlen = atoi(get_col_str(pws, 2));
+		if(!g->corr_mode && qlen != (int)g->kbm->reads->buffer[hit->qidx].rdlen){
+			if(nwarn < mwarn){
+				fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				nwarn ++;
+			}
+			//continue;
+		}
+		hit->qb = atoi(get_col_str(pws, 3));
+		hit->qe = atoi(get_col_str(pws, 4));
+		if((cu = get_cuhash(g->kbm->tag2idx, get_col_str(pws, 5))) == NULL){
+			if(nwarn < mwarn){
+				fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(pws, 5), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				nwarn ++;
+			}
+			continue;
+		} else rid = cu->val;
+		if(hit->qidx >= rid) continue;
+		hit->tidx = rid;
+		hit->tdir = 0; // col 6 always eq '+'
+		// skil col 7
+		hit->tb = atoi(get_col_str(pws, 8));
+		hit->te = atoi(get_col_str(pws, 9));
+		// skip col 10-13
+		hit->mat = atoi(get_col_str(pws, 10));
+		if(hit->mat < g->par->min_mat) continue;
+		hit->aln = atoi(get_col_str(pws, 11));
+		if(hit->aln < g->par->min_aln) continue;
+		if(hit->mat < hit->aln * g->par->min_sim) continue;
+		if(num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(g->par->aln_var * hit->aln, 1.0)) continue;
+		hit->cnt = atoi(get_col_str(pws, 12));
+		hit->gap = atoi(get_col_str(pws, 13));
+		hit->cgoff = g->cigars->size;
+		clear_u4v(cgs);
+		cgstr = get_col_str(pws, 14);
+		if(cgstr[0] == '*'){ // no cigar
+			continue;
+		}
+		val = 0;
+		while(cgstr[0]){
+			if(cgstr[0] >= '0' && cgstr[0] <= '9'){
+				val = val * 10 + (cgstr[0] - '0');
+			} else {
+				flg = -1;
+				switch(cgstr[0]){
+					case 'M': flg = 0; break;
+					case 'I': flg = 1; break;
+					case 'D': flg = 2; break;
+					case 'm': flg = 4; break;
+					case 'i': flg = 5; break;
+					case 'd': flg = 6; break;
+					default:
+						fprintf(stderr, " -- Bad cigar '%c' \"%s\" in LINE:%llu in %s -- %s:%d --\n", cgstr[0], get_col_str(pws, 14), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+						exit(1);
+				}
+				if(val == 0) val = 1;
+				push_u4v(cgs, (val << 8) | flg);
+				val = 0;
+			}
+			cgstr ++;
+		}
+		for(i=cgs->size;i>0;i--){
+			val = cgs->buffer[i - 1] >> 8;
+			flg = cgs->buffer[i - 1] & 0xFF;
+			while(val > 0){
+				push_bitsvec(g->cigars, flg);
+				val --;
+			}
+		}
+		hit->cglen = g->cigars->size - hit->cgoff;
+		nhit ++;
+		if(raw){
+			hit2rdregs_graph(g, regs, qlen, hit, g->cigars, maps);
+			clear_bitsvec(g->cigars);
+		} else {
+			push_kbmmapv(g->pwalns, *hit);
+		}
+	}
+	fprintf(KBM_LOGF, "\r%llu lines, %llu hits\n", pws->n_line, nhit);
+	free_u4v(cgs);
+	return nhit;
+}
+
+void read_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs, u4v *maps[3], char *prefix, char *dump_kbm){
+	kbm_map_t *hit;
+	kbm_read_t *pb;
+	BitVec *rdflags;
+	BufferedWriter *bw;
+	FILE *alno, *kmlog;
+	u8i nbp, mbp, nhit;
+	u4i rid, i, ib, ie, qb, qe;
+	int reset_kbm, n_cpu;
+	thread_prepare(mdbg);
+	if(KBM_LOG) n_cpu = 1;
+	else n_cpu = ncpu;
+	ib = 0;
+	ie = g->kbm->bins->size;
+	if(g->corr_mode){
+		mbp = g->genome_size * g->corr_gcov;
+		qb = qe = g->kbm->reads->size / 2;
+		nbp = g->kbm->reads->buffer[qb].rdlen;
+		while(nbp < mbp && qb && qe + 1 < g->kbm->reads->size){
+			qb --;
+			qe ++;
+			nbp += g->kbm->reads->buffer[qb].rdlen;
+			nbp += g->kbm->reads->buffer[qe].rdlen;
+		}
+		if(qe < g->kbm->reads->size) qe ++;
+		fprintf(KBM_LOGF, "[%s] turn correct-mode on, reads[%u ~ %u = %u] (%llu bp), genome-size=%llu, corr-gcov=%0.2f, corr-dep=[%d,%d,%0.2f]\n", date(), qb, qe, qe - qb, nbp, g->genome_size, g->corr_gcov, g->corr_min, g->corr_max, g->corr_cov); fflush(KBM_LOGF);
+	} else {
+		qb = 0;
+		qe = g->reads->size;
+	}
+	alno = open_file_for_write(prefix, ".alignments.gz", 1);
+	bw = zopen_bufferedwriter(alno, 1024 * 1024, ncpu, 0);
+	if(g->corr_mode){
+		beg_bufferedwriter(bw);
+		fprintf(bw->out, "#corr_mode=1\n");
+		end_bufferedwriter(bw);
+	}
+	rdflags = (!g->corr_mode && g->par->skip_contained)? init_bitvec(g->kbm->reads->size) : NULL;
+	thread_beg_init(mdbg, n_cpu);
+	mdbg->g = g;
+	memset((void*)&mdbg->reg, 0, sizeof(reg_t));
+	mdbg->reg.closed = 1;
+	mdbg->aux = init_kbmaux(g->kbm);
+	if(g->corr_mode){
+		KBMBlock *kb;
+		kb = init_kbmblock(g->corr_bsize, g->corr_bstep);
+		mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, g->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE);
+	} else {
+		mdbg->cc = NULL;
+	}
+	mdbg->aux->par = (KBMPar*)malloc(sizeof(KBMPar));
+	memcpy(mdbg->aux->par, g->par, sizeof(KBMPar));
+	mdbg->regs = regs;
+	mdbg->rdflags = rdflags;
+	mdbg->beg = 0;
+	mdbg->end = 0;
+	mdbg->raw = raw;
+	mdbg->alno = alno;
+	thread_end_init(mdbg);
+	nbp = ((u8i)(ie - ib)) * KBM_BSIZE;
+	if(g->kbm->seeds->size == 0){
+		reset_index_kbm(g->kbm);
+		fprintf(KBM_LOGF, "[%s] indexing bins[%u,%u] (%llu bp), %d threads\n", date(), ib, ie, nbp, ncpu); fflush(KBM_LOGF);
+		kmlog = open_file_for_write(prefix, ".kmerdep", 1);
+		index_kbm(g->kbm, ib, ie, ncpu, kmlog);
+		fclose(kmlog);
+		kmlog = NULL;
+		reset_kbm = 1;
+		fprintf(KBM_LOGF, "[%s] Done\n", date()); fflush(KBM_LOGF);
+		if(dump_kbm){
+			FILE *dump;
+			fprintf(KBM_LOGF, "[%s] dump kbm index to %s ...", date(), dump_kbm); fflush(KBM_LOGF);
+			dump = open_file_for_write(dump_kbm, NULL, 1);
+			mem_dump_obj_file(g->kbm, 1, &kbm_obj_desc, 1, 0, dump);
+			fclose(dump);
+			fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
+		}
+	} else {
+		reset_kbm = 0;
+	}
+	ib = ie;
+	//fix_node = 0;
+	{
+		u4i *deps, hidx;
+		kmlog = open_file_for_write(prefix, ".binkmer", 1);
+		deps = calloc(KBM_BIN_SIZE + 1, 4);
+		for(hidx=0;hidx<g->kbm->bins->size;hidx++){
+			deps[g->kbm->bins->buffer[hidx].degree] ++;
+		}
+		for(hidx=0;hidx<KBM_BIN_SIZE;hidx++){
+			fprintf(kmlog, "%u\n", deps[hidx]);
+		}
+		fclose(kmlog);
+		free(deps);
+		if(!g->minimal_output){
+			kbm_bin_t *bn;
+			kmlog = open_file_for_write(prefix, ".closed_bins", 1);
+			for(hidx=0;hidx<g->kbm->bins->size;hidx++){
+				bn = ref_kbmbinv(g->kbm->bins, hidx);
+				if(bn->closed){
+					fprintf(kmlog, "%s_F_%d_%d\t%d\n", g->kbm->reads->buffer[bn->ridx].tag, bn->off * KBM_BIN_SIZE, KBM_BIN_SIZE, bn->degree);
+				}
+			}
+			fclose(kmlog);
+		}
+	}
+	nhit = 0;
+	if(0){
+		thread_beg_iter(mdbg);
+		mdbg->beg = qb;
+		mdbg->end = qe;
+		mdbg->task = 2;
+		thread_wake(mdbg);
+		thread_end_iter(mdbg);
+	} else {
+		thread_beg_iter(mdbg);
+		mdbg->task = 1;
+		thread_end_iter(mdbg);
+		for(rid=qb;rid<=qe+ncpu;rid++){
+			if(rid < qe){
+				if(!KBM_LOG && ((rid - qb) % 2000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", rid - qb, nhit); fflush(KBM_LOGF); }
+				thread_wait_one(mdbg);
+			} else {
+				thread_wait_next(mdbg);
+				pb = NULL;
+			}
+			if(mdbg->reg.closed == 0){
+				u8i cgoff = g->cigars->size;
+				if(raw){
+				} else {
+					if(1){
+						append_bitsvec(g->cigars, mdbg->aux->cigars, 0, mdbg->aux->cigars->size);
+					} else {
+						for(i=0;i<mdbg->aux->cigars->size;i++){
+							push_bitsvec(g->cigars, get_bitsvec(mdbg->aux->cigars, i));
+						}
+					}
+				}
+				if(alno){
+					beg_bufferedwriter(bw);
+					if(g->corr_mode && mdbg->cc->cns->size){
+						fprintf(bw->out, "#corrected\t%s\t%u\t", mdbg->cc->tag->string, (u4i)mdbg->cc->cns->size);
+						println_fwdseq_basebank(mdbg->cc->cns, 0, mdbg->cc->cns->size, bw->out);
+					}
+					for(i=0;i<mdbg->aux->hits->size;i++){
+						hit = ref_kbmmapv(mdbg->aux->hits, i);
+						fprint_hit_kbm(mdbg->aux, i, bw->out);
+					}
+					end_bufferedwriter(bw);
+				}
+				for(i=0;i<mdbg->aux->hits->size;i++){
+					hit = ref_kbmmapv(mdbg->aux->hits, i);
+					if(hit->mat == 0) continue;
+					if(rdflags
+						&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
+						&& (hit->tb <= KBM_BSIZE && hit->te + KBM_BSIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE))
+						&& (hit->qb > KBM_BSIZE || hit->qe + KBM_BSIZE < (int)(g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BSIZE))
+						){
+						one_bitvec(rdflags, hit->tidx);
+					}
+					nhit ++;
+					if(raw){
+						hit2rdregs_graph(g, regs, g->corr_mode? mdbg->cc->cns->size : 0, hit, mdbg->aux->cigars, maps);
+					} else {
+						push_kbmmapv(g->pwalns, *hit);
+						peer_kbmmapv(g->pwalns)->cgoff += cgoff;
+					}
+				}
+				if(KBM_LOG){
+					fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
+					for(i=0;i<mdbg->aux->hits->size;i++){
+						hit = ref_kbmmapv(mdbg->aux->hits, i);
+						fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te, hit->aln, hit->mat);
+					}
+				}
+				mdbg->reg.closed = 1;
+			}
+			if(rid < qe && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
+				pb = ref_kbmreadv(g->kbm->reads, rid);
+				mdbg->reg = (reg_t){0, rid, 0, 0, pb->rdlen, 0, 0};
+				thread_wake(mdbg);
+			}
+		}
+	}
+	thread_beg_close(mdbg);
+	free(mdbg->aux->par);
+	free_kbmaux(mdbg->aux);
+	if(g->corr_mode){
+		free_kbmblock((KBMBlock*)mdbg->cc->obj);
+		free_ctgcns(mdbg->cc);
+	}
+	thread_end_close(mdbg);
+	if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", qe - qb, (u8i)g->pwalns->size);
+	if(bw) close_bufferedwriter(bw);
+	if(alno) fclose(alno);
+	if(rdflags) free_bitvec(rdflags);
+	if(reset_kbm){
+		reset_index_kbm(g->kbm);
+	}
+}
+
 void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdclip, int uniq_hit, char *prefix, char *dump_kbm){
 	kbm_map_t *hit, HIT;
-	BitVec *rks, *rdflags;
+	BitVec *rks;
 	u4v *maps[3];
-	BufferedWriter *bw;
-	FILE *alno, *clplog, *kmlog;
-	cuhash_t *cu;
-	u8i idx, rank, kcnts[256], upds[3], nbp, fix_node;
-	u4i nqry, rid, i, dep, ib, ie, mi, max_node_cov, round;
-	int n_cpu, ncol, reset_kbm, raw;
-	kbm_read_t *pb;
+	FILE *clplog;
+	u8i idx, rank, kcnts[256], upds[3], fix_node;
+	u4i rid, i, dep;
+	int raw;
 	rdregv *regs;
 	rnkrefv *nds;
 	rnk_ref_t *nd;
-	thread_preprocess(mdbg);
 	thread_preprocess(mclp);
-	if(KBM_LOG) n_cpu = 1;
-	else n_cpu = ncpu;
 	regs = init_rdregv(1024);
 	nds = init_rnkrefv(1024);
-	free_rdhitv(g->rdhits); g->rdhits = init_rdhitv(1024);
+	renew_rdhitv(g->rdhits, 1024);
 	maps[0] = init_u4v(4);
 	maps[1] = init_u4v(4);
 	maps[2] = init_u4v(4);
@@ -1114,283 +1455,16 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	clear_kbmmapv(g->pwalns);
 	clear_bitsvec(g->cigars);
 	raw = !(g->chainning_hits || (g->bestn > 0) || rdclip);
+	//TODO: should merge wtdbg2.2 with wtdbg.2.huge. But now, nastily set raw = 1 when g->corr_mode == 1
+	if(g->corr_mode){
+		raw = 1;
+	}
 	fix_node = 0; // TODO: new code hasn't coped with contigs+longreads mode
 	if(pws){
-		u4v *cgs;
-		u8i nhit;
-		int qlen, val, flg, nwarn, mwarn;
-		char *cgstr, *qtag;
-		mwarn = 20;
-		nwarn = 0;
-		cgs = init_u4v(4);
-		memset(&HIT, 0, sizeof(kbm_map_t));
-		hit = &HIT;
-		nhit = 0;
-		while((ncol = readtable_filereader(pws)) != -1){
-			if((pws->n_line % 100000) == 0){
-				fprintf(KBM_LOGF, "\r%llu", pws->n_line); fflush(KBM_LOGF);
-			}
-			if(pws->line->buffer[0] == '#') continue;
-			if(ncol < 15) continue;
-			if((cu = get_cuhash(g->kbm->tag2idx, get_col_str(pws, 0))) == NULL){
-				if(nwarn < mwarn){
-					fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(pws, 0), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-					nwarn ++;
-				}
-				continue;
-			} else rid = cu->val;
-			hit->qidx = rid;
-			qtag = get_col_str(pws, 0);
-			hit->qdir = (get_col_str(pws, 1)[0] == '-');
-			qlen = atoi(get_col_str(pws, 2));
-			if(qlen != (int)g->kbm->reads->buffer[hit->qidx].rdlen){
-				if(nwarn < mwarn){
-					fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-					nwarn ++;
-				}
-				//continue;
-			}
-			hit->qb = atoi(get_col_str(pws, 3));
-			hit->qe = atoi(get_col_str(pws, 4));
-			if((cu = get_cuhash(g->kbm->tag2idx, get_col_str(pws, 5))) == NULL){
-				if(nwarn < mwarn){
-					fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(pws, 5), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-					nwarn ++;
-				}
-				continue;
-			} else rid = cu->val;
-			if(hit->qidx >= rid) continue;
-			hit->tidx = rid;
-			hit->tdir = 0; // col 6 always eq '+'
-			// skil col 7
-			hit->tb = atoi(get_col_str(pws, 8));
-			hit->te = atoi(get_col_str(pws, 9));
-			// skip col 10-13
-			hit->mat = atoi(get_col_str(pws, 10));
-			if(hit->mat < g->par->min_mat) continue;
-			hit->aln = atoi(get_col_str(pws, 11));
-			if(hit->aln < g->par->min_aln) continue;
-			if(hit->mat < hit->aln * g->par->min_sim) continue;
-			if(num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(g->par->aln_var * hit->aln, 1.0)) continue;
-			hit->cnt = atoi(get_col_str(pws, 12));
-			hit->gap = atoi(get_col_str(pws, 13));
-			hit->cgoff = g->cigars->size;
-			clear_u4v(cgs);
-			cgstr = get_col_str(pws, 14);
-			if(cgstr[0] == '*'){ // no cigar
-				continue;
-			}
-			val = 0;
-			while(cgstr[0]){
-				if(cgstr[0] >= '0' && cgstr[0] <= '9'){
-					val = val * 10 + (cgstr[0] - '0');
-				} else {
-					flg = -1;
-					switch(cgstr[0]){
-						case 'M': flg = 0; break;
-						case 'I': flg = 1; break;
-						case 'D': flg = 2; break;
-						case 'm': flg = 4; break;
-						case 'i': flg = 5; break;
-						case 'd': flg = 6; break;
-						default:
-							fprintf(stderr, " -- Bad cigar '%c' \"%s\" in LINE:%llu in %s -- %s:%d --\n", cgstr[0], get_col_str(pws, 14), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-							exit(1);
-					}
-					if(val == 0) val = 1;
-					push_u4v(cgs, (val << 8) | flg);
-					val = 0;
-				}
-				cgstr ++;
-			}
-			for(i=cgs->size;i>0;i--){
-				val = cgs->buffer[i - 1] >> 8;
-				flg = cgs->buffer[i - 1] & 0xFF;
-				while(val > 0){
-					push_bitsvec(g->cigars, flg);
-					val --;
-				}
-			}
-			hit->cglen = g->cigars->size - hit->cgoff;
-			nhit ++;
-			if(raw){
-				hit2rdregs_graph(g, regs, hit, g->cigars, maps);
-				clear_bitsvec(g->cigars);
-			} else {
-				push_kbmmapv(g->pwalns, *hit);
-			}
-		}
-		fprintf(KBM_LOGF, "\r%llu lines, %llu hits\n", pws->n_line, nhit);
-		free_u4v(cgs);
+		load_alignments_core(g, pws, raw, regs, maps);
 	} else {
-		nqry = g->only_fix? g->n_fix : g->reads->size;
-		ib = g->only_fix? g->kbm->reads->buffer[g->n_fix].binoff : 0;
-		mi = g->kbm->bins->size;
-		ie = 0;
-		if(maxbp < g->kbm->rdseqs->size){
-			max_node_cov = 1.0 * g->max_node_cov * maxbp / g->kbm->rdseqs->size;
-			if(max_node_cov < 10) max_node_cov = 10;
-		} else max_node_cov = g->max_node_cov;
-		round = 0;
-		alno   = open_file_for_write(prefix, ".alignments.gz", 1);
-		bw = zopen_bufferedwriter(alno, 1024 * 1024, ncpu, 0);
-		rdflags = g->par->skip_contained? init_bitvec(g->kbm->reads->size) : NULL;
-		thread_beg_init(mdbg, n_cpu);
-		mdbg->g = g;
-		memset((void*)&mdbg->reg, 0, sizeof(reg_t));
-		mdbg->reg.closed = 1;
-		mdbg->aux = init_kbmaux(g->kbm);
-		mdbg->aux->par = g->par;
-		mdbg->regs = regs;
-		mdbg->rdflags = rdflags;
-		mdbg->beg = 0;
-		mdbg->end = 0;
-		mdbg->raw = raw;
-		mdbg->alno = alno;
-		thread_end_init(mdbg);
-		reset_kbm = 0;
-		while(ib < mi){
-			nbp = 0;
-			round ++;
-			ie = num_min(ib + maxbp / KBM_BIN_SIZE, mi);
-			nbp = ((u8i)(ie - ib)) * KBM_BSIZE;
-			if(round == 1 && g->kbm->seeds->size){
-				// already indexed, maybe loaded from kbm-index file
-				reset_kbm = 0;
-			} else {
-				reset_index_kbm(g->kbm);
-				fprintf(KBM_LOGF, "[%s] indexing bins[%u,%u] (%llu bp), %d threads\n", date(), ib, ie, nbp, ncpu); fflush(KBM_LOGF);
-				if(round == 1){
-					kmlog = open_file_for_write(prefix, ".kmerdep", 1);
-				} else {
-					kmlog = NULL;
-				}
-				index_kbm(g->kbm, ib, ie, ncpu, kmlog);
-				if(kmlog){
-					fclose(kmlog);
-					kmlog = NULL;
-				}
-				reset_kbm = 1;
-				fprintf(KBM_LOGF, "[%s] Done\n", date()); fflush(KBM_LOGF);
-				if(round == 1 && dump_kbm){
-					FILE *dump;
-					fprintf(KBM_LOGF, "[%s] dump kbm index to %s ...", date(), dump_kbm); fflush(KBM_LOGF);
-					dump = open_file_for_write(dump_kbm, NULL, 1);
-					mem_dump_obj_file(g->kbm, 1, &kbm_obj_desc, 1, 0, dump);
-					fclose(dump);
-					fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
-				}
-			}
-			ib = ie;
-			if(round == 1) fix_node = 0;
-			if(round == 1){
-				u4i *deps, hidx;
-				kmlog = open_file_for_write(prefix, ".binkmer", 1);
-				deps = calloc(KBM_BIN_SIZE + 1, 4);
-				for(hidx=0;hidx<g->kbm->bins->size;hidx++){
-					deps[g->kbm->bins->buffer[hidx].degree] ++;
-				}
-				for(hidx=0;hidx<KBM_BIN_SIZE;hidx++){
-					fprintf(kmlog, "%u\n", deps[hidx]);
-				}
-				fclose(kmlog);
-				free(deps);
-				if(!g->minimal_output){
-					kbm_bin_t *bn;
-					kmlog = open_file_for_write(prefix, ".closed_bins", 1);
-					for(hidx=0;hidx<g->kbm->bins->size;hidx++){
-						bn = ref_kbmbinv(g->kbm->bins, hidx);
-						if(bn->closed){
-							fprintf(kmlog, "%s_F_%d_%d\t%d\n", g->kbm->reads->buffer[bn->ridx].tag, bn->off * KBM_BIN_SIZE, KBM_BIN_SIZE, bn->degree);
-						}
-					}
-					fclose(kmlog);
-				}
-			}
-			if(0){
-				thread_beg_iter(mdbg);
-				mdbg->beg = 0;
-				mdbg->end = nqry;
-				mdbg->task = 2;
-				thread_wake(mdbg);
-				thread_end_iter(mdbg);
-			} else {
-				thread_beg_iter(mdbg);
-				mdbg->task = 1;
-				thread_end_iter(mdbg);
-				for(rid=0;rid<=nqry+ncpu;rid++){
-					if(rid < nqry){
-						if(!KBM_LOG && (rid % 2000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", rid, (u8i)g->pwalns->size); fflush(KBM_LOGF); }
-						thread_wait_one(mdbg);
-					} else {
-						thread_wait_next(mdbg);
-						pb = NULL;
-					}
-					if(mdbg->reg.closed == 0){
-						u8i cgoff = g->cigars->size;
-						if(raw){
-						} else {
-							if(1){
-								append_bitsvec(g->cigars, mdbg->aux->cigars, 0, mdbg->aux->cigars->size);
-							} else {
-								for(i=0;i<mdbg->aux->cigars->size;i++){
-									push_bitsvec(g->cigars, get_bitsvec(mdbg->aux->cigars, i));
-								}
-							}
-						}
-						if(alno){
-							beg_bufferedwriter(bw);
-							for(i=0;i<mdbg->aux->hits->size;i++){
-								hit = ref_kbmmapv(mdbg->aux->hits, i);
-								fprint_hit_kbm(mdbg->aux, i, bw->out);
-							}
-							end_bufferedwriter(bw);
-						}
-						for(i=0;i<mdbg->aux->hits->size;i++){
-							hit = ref_kbmmapv(mdbg->aux->hits, i);
-							if(hit->mat == 0) continue;
-							if(rdflags
-								&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
-								&& (hit->tb <= KBM_BSIZE && hit->te + KBM_BSIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE))
-								&& (hit->qb > KBM_BSIZE || hit->qe + KBM_BSIZE < (int)(g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BSIZE))
-								){
-								one_bitvec(rdflags, hit->tidx);
-							}
-							if(raw){
-								hit2rdregs_graph(g, regs, hit, mdbg->aux->cigars, maps);
-							} else {
-								push_kbmmapv(g->pwalns, *hit);
-								peer_kbmmapv(g->pwalns)->cgoff += cgoff;
-							}
-						}
-						if(KBM_LOG){
-							fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
-							for(i=0;i<mdbg->aux->hits->size;i++){
-								hit = ref_kbmmapv(mdbg->aux->hits, i);
-								fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te, hit->aln, hit->mat);
-							}
-						}
-						mdbg->reg.closed = 1;
-					}
-					if(rid < nqry && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
-						pb = ref_kbmreadv(g->kbm->reads, rid);
-						mdbg->reg = (reg_t){0, rid, 0, 0, pb->rdlen, 0, 0};
-						thread_wake(mdbg);
-					}
-				}
-			}
-			if(ib < mi && !KBM_LOG) fprintf(KBM_LOGF, "\r");
-		}
-		thread_beg_close(mdbg);
-		free_kbmaux(mdbg->aux);
-		thread_end_close(mdbg);
-		if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", nqry, (u8i)g->pwalns->size);
-		if(bw) close_bufferedwriter(bw);
-		if(alno) fclose(alno);
-		if(rdflags) free_bitvec(rdflags);
-		if(reset_kbm){
-			reset_index_kbm(g->kbm);
-		}
+		UNUSED(maxbp);
+		read_alignments_core(g, ncpu, raw, regs, maps, prefix, dump_kbm);
 	}
 	print_proc_stat_info(0);
 	if(raw){
@@ -1516,7 +1590,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			for(idx=0;idx<g->pwalns->size;idx++){
 				hit = ref_kbmmapv(g->pwalns, idx);
 				if(hit->mat == 0) continue;
-				hit2rdregs_graph(g, regs, hit, g->cigars, maps);
+				hit2rdregs_graph(g, regs, 0, hit, g->cigars, maps);
 			}
 		} else {
 			thread_fast_run(mhit, ncpu, EXPR(
@@ -1531,7 +1605,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 					hit = ref_kbmmapv(g->pwalns, i);
 					if(hit->mat == 0) continue;
 					clear_rdregv(rs);
-					hit2rdregs_graph(g, rs, ref_kbmmapv(g->pwalns, i), g->cigars, ms);
+					hit2rdregs_graph(g, rs, 0, ref_kbmmapv(g->pwalns, i), g->cigars, ms);
 					if(rs->size){
 						thread_beg_syn(mhit);
 						append_rdregv(regs, rs);
@@ -1552,18 +1626,20 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	free_u4v(maps[2]);
 	fprintf(KBM_LOGF, "[%s] generated %llu regs\n", date(), (u8i)regs->size);
 	// add node itself
-	rks = init_bitvec(g->kbm->bins->size);
-	for(idx=0;idx<regs->size;idx++){
-		one_bitvec(rks, regs->buffer[idx].node);
-	}
-	for(idx=0;idx<g->kbm->bins->size;idx++){
-		if(get_bitvec(rks, idx)){
-			rid = g->kbm->bins->buffer[idx].ridx;
-			kbm_read_t *rd = ref_kbmreadv(g->kbm->reads, rid);
-			push_rdregv(regs, (rd_reg_t){idx, rid, 0, (idx - rd->binoff) * g->reglen, (idx + 1 - rd->binoff) * g->reglen, 0});
+	if(!g->corr_mode){
+		rks = init_bitvec(g->kbm->bins->size);
+		for(idx=0;idx<regs->size;idx++){
+			one_bitvec(rks, regs->buffer[idx].node);
 		}
+		for(idx=0;idx<g->kbm->bins->size;idx++){
+			if(get_bitvec(rks, idx)){
+				rid = g->kbm->bins->buffer[idx].ridx;
+				kbm_read_t *rd = ref_kbmreadv(g->kbm->reads, rid);
+				push_rdregv(regs, (rd_reg_t){idx, rid, 0, (idx - rd->binoff) * g->reglen, (idx + 1 - rd->binoff) * g->reglen, 0});
+			}
+		}
+		free_bitvec(rks);
 	}
-	free_bitvec(rks);
 	// generating nodes
 	fprintf(KBM_LOGF, "[%s] sorting regs ... ", date()); fflush(KBM_LOGF);
 	psort_array(regs->buffer, regs->size, rd_reg_t, ncpu, num_cmpgtxx((a.node << 26) | a.rid, (b.node << 26) | b.rid, a.beg, b.beg, b.end, a.end));
@@ -1579,7 +1655,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			rd1 = ref_kbmreadv(g->kbm->reads, g->kbm->bins->buffer[r->node].ridx);
 			rd2 = ref_kbmreadv(g->kbm->reads, r->rid);
 			fprintf(stdout, "%s\t%c\t%d\t%d\t%s\t%c\t%d\t%d\n", rd1->tag, '+', (int)((r->node) - rd1->binoff) * g->reglen,
-					(int)(r->node - rd1->binoff + 1) * g->reglen, 
+					(int)(r->node - rd1->binoff + 1) * g->reglen,
 					rd2->tag, "+-"[r->dir], r->beg, r->end);
 		}
 		if(regs->buffer[idx].node != rank){
@@ -6398,6 +6474,11 @@ static struct option prog_opts[] = {
 	{"aln-min-similarity",               1, 0, 's'},
 	{"aln-max-var",                      1, 0, 2004},
 	{"corr-mode",                        1, 0, 2010},
+	{"corr-min",                         1, 0, 2012},
+	{"corr-max",                         1, 0, 2013},
+	{"corr-aln-cov",                     1, 0, 2014},
+	{"corr-block-size",                  1, 0, 2015},
+	{"corr-block-step",                  1, 0, 2016},
 	{"keep-multiple-alignment-parts",    1, 0, 2011},
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
@@ -6460,11 +6541,12 @@ int usage(int level){
 	" -f          Force to overwrite output files\n"
 	" -x <string> Presets, comma delimited, []\n"
 	"            rsII/rs: -p 21 -S 4 -s 0.05 -L 5000\n"
-	//"          sequel/sq: -p 19 -AS 2 -s 0.05 -L 10000\n"
-	"          sequel/sq: -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
-	"       nanopore/ont: -p 19 -AS 2 -s 0.05 -L 5000\n"
+	"          sequel/sq\n"
+	"       nanopore/ont:\n"
+	"            (genome size < 1G)  -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
+	"            (genome size >= 1G) -p 19 -AS 2 -s 0.05 -L 5000\n"
 	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 5000\n"
-	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be infered by seq depth, -S will be 1\n"
+	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be 3, -S will be 1\n"
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
 	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50]\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> [0]\n"
@@ -6548,6 +6630,21 @@ int usage(int level){
 	"   <prefix>.alignments always store all alignments\n"
 	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
+	//" --corr-mode <float>\n"
+	//"   Default: 0.0. If set > 0 and set --g <genome_size>, will turn on correct-align mode.\n"
+	//"   Wtdbg will select <genome_size> * <corr-mode> bases from reads of middle length, and align them aginst all reads.\n"
+	//"   Then, wtdbg will correct them using POACNS, and query corrected sequences against all reads again\n"
+	//"   In correct-align mode, --aln-bestn = unlimited, --no-read-clip, --no-chaining-clip. Will support those features in future\n"
+	//" --corr-min <int>\n"
+	//" --corr-max <int>\n"
+	//"   For each read to be corrected, uses at least <corr-min> alignments, and at most <corr-max> alignments\n"
+	//"   Default: --corr_min = 5, --corr-max = 10\n"
+	//" --corr-cov <float>\n"
+	//"   Default: 0.75. When aligning reads to be corrected, the alignments should cover at least <corr-cov> of read length\n"
+	//" --corr-block-size <int>\n"
+	//"   Default: 2048. MUST be times of 256bp. Used in POACNS\n"
+	//" --corr-block-step <int>\n"
+	//"   Default: 1536. MUST be times of 256bp. Used in POACNS\n"
 	" --keep-multiple-alignment-parts\n"
 	"   By default, wtdbg will keep only the best alignment between two reads after chainning. This option will disable it, and keep multiple\n"
 	" --verbose +\n"
@@ -6662,15 +6759,15 @@ int main(int argc, char **argv){
 	FILE *evtlog;
 	char *prefix, *dump_seqs, *load_seqs, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
 	char regtag[14];
-	int len, tag_size, asyn_read;
+	int len, tag_size, asyn_read, seq_type;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
 	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
-	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_mode;
+	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep;
 	double genome_size, genome_depx;
-	float node_drop, node_mrg, ttr_e_cov, fval;
+	float node_drop, node_mrg, ttr_e_cov, fval, corr_mode, corr_cov;
 	pbs = init_cplist(4);
 	ngs = init_cplist(4);
 	pws = init_cplist(4);
@@ -6678,11 +6775,17 @@ int main(int argc, char **argv){
 	ncpu = 4;
 	tidy_reads = 0;
 	tidy_rdtag = -1;
+	seq_type = 0; // 0, unknown; 1: rs; 2: sq; 3: ont; 4: ccs
 	genome_size = 0;
 	genome_depx = 50.0;
 	filter_rd_strategy = 0;
 	fast_mode = 0;
-	corr_mode = 0; // 505 means 5X reads * 5X aligments
+	corr_mode = 0;
+	corr_min = 5;
+	corr_max = 10;
+	corr_cov = 0.75;
+	corr_bsize = 2048;
+	corr_bstep = 2048 - 512;
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
 	reglen = 1024;
@@ -6760,32 +6863,13 @@ int main(int argc, char **argv){
 								fprintf(KBM_LOGF, " -- Preset: '%s' --", beg); fflush(KBM_LOGF);
 							}
 							if(strcasecmp(beg, "rs") == 0 || strcasecmp(beg, "rsII") == 0){
-								par->ksize = 0;
-								par->psize = 21;
-								par->kmer_mod = 4 * KBM_N_HASH;
-								par->min_sim = 0.05;
-								par->skip_contained = 1;
-								tidy_reads = 5000;
+								seq_type = 1;
 							} else if(strcasecmp(beg, "sq") == 0 || strcasecmp(beg, "sequel") == 0){
-								par->ksize = 15;
-								par->psize = 0;
-								par->kmer_mod = 2 * KBM_N_HASH;
-								par->min_sim = 0.05;
-								par->skip_contained = 0;
-								tidy_reads = 5000;
+								seq_type = 2;
 							} else if(strcasecmp(beg, "ont") == 0 || strcasecmp(beg, "nanopore") == 0){
-								par->ksize = 0;
-								par->psize = 19;
-								par->kmer_mod = 2 * KBM_N_HASH;
-								par->min_sim = 0.05;
-								par->skip_contained = 0;
-								tidy_reads = 5000;
+								seq_type = 3;
 							} else if(strcasecmp(beg, "ccs") == 0 || strcasecmp(beg, "corrected") == 0){
-								par->ksize = 19;
-								par->psize = 0;
-								par->kmer_mod = 4 * KBM_N_HASH;
-								par->min_sim = 0.5;
-								par->skip_contained = 0;
+								seq_type = 4;
 								tidy_reads = 5000;
 							} else {
 								fprintf(stderr, " ** ERROR: cannot recognize '%s' in '-x %s'\n", beg, optarg);
@@ -6818,14 +6902,19 @@ int main(int argc, char **argv){
 			case 'l': par->min_aln = atoi(optarg); break;
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 2004: par->aln_var = atof(optarg); break;
-			case 's': par->min_sim = atof(optarg); break;
-			case 2010: corr_mode = atoi(optarg); break;
+			case 's': par->min_sim = atof(optarg); opt_flags |= (1 << 3); break;
+			case 2010: corr_mode = atof(optarg); break;
+			case 2012: corr_min = atoi(optarg); break;
+			case 2013: corr_max = atoi(optarg); break;
+			case 2014: corr_cov = atof(optarg); break;
+			case 2015: corr_bsize = atoi(optarg); break;
+			case 2016: corr_bstep = atoi(optarg); break;
 			case 2011: uniq_hit = 0; break;
 			case 'v': KBM_LOG ++; break;
 			case 'q': quiet = 1; break;
 			case 'h': return usage(0);
 			case 1000: return usage(1);
-			case 'L':  tidy_reads = atoi(optarg); break;
+			case 'L':  tidy_reads = atoi(optarg); opt_flags |= (1 << 4); break;
 			case 1001: tidy_rdtag = 0; break;
 			case 1002: only_fix = 1; break;
 			case 1003: max_bp = atol(optarg); break;
@@ -6859,7 +6948,7 @@ int main(int argc, char **argv){
 			case 1027: bestn = atoi(optarg); break;
 			case 1028: par->max_hit = atoi(optarg); break;
 			case 1029: par->ksampling = atoi(optarg); break;
-			case 'A':  par->skip_contained = 0; break;
+			case 'A':  par->skip_contained = 0; opt_flags |= (1 << 5); break;
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
@@ -6867,8 +6956,8 @@ int main(int argc, char **argv){
 			default: return usage(-1);
 		}
 	}
-	if (optind == 1) return usage(-1);
-	if (optind < argc){
+	if(optind == 1) return usage(-1);
+	if(optind < argc){
 		fprintf(stderr, "WARNING: unused command-line arguments. For multiple input files, please apply multiple -i.\n");
 		fprintf(stderr, "WARNING: try to recognize and add to input files list\n");
 		for(c=optind;c<argc;c++){
@@ -6895,6 +6984,41 @@ int main(int argc, char **argv){
 		return usage(-1);
 	}
 	if(max_idx_bp == 0) max_idx_bp = 0xFFFFFFFFFFFFFFFFLLU;
+	switch(seq_type){
+		case 1:
+			if(!(opt_flags & (1 << 1))) par->ksize = 0;
+			if(!(opt_flags & (1 << 0))) par->psize = 21;
+			if(!(opt_flags & (1 << 2))) par->kmer_mod = 4 * KBM_N_HASH;
+			if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
+			if(!(opt_flags & (1 << 5))) par->skip_contained = 1;
+			if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
+			break;
+		case 2:
+		case 3:
+			if(genome_size && genome_size < 1000000000LLU){
+				if(!(opt_flags & (1 << 1))) par->ksize = 15;
+				if(!(opt_flags & (1 << 0))) par->psize = 0;
+				if(!(opt_flags & (1 << 2))) par->kmer_mod = 2 * KBM_N_HASH;
+				if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
+				if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
+				if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
+			} else {
+				if(!(opt_flags & (1 << 1))) par->ksize = 0;
+				if(!(opt_flags & (1 << 0))) par->psize = 19;
+				if(!(opt_flags & (1 << 2))) par->kmer_mod = 2 * KBM_N_HASH;
+				if(!(opt_flags & (1 << 3))) par->min_sim = 0.05;
+				if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
+				if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
+			}
+			break;
+		case 4:
+			if(!(opt_flags & (1 << 1))) par->ksize = 19;
+			if(!(opt_flags & (1 << 0))) par->psize = 0;
+			if(!(opt_flags & (1 << 2))) par->kmer_mod = 4 * KBM_N_HASH;
+			if(!(opt_flags & (1 << 3))) par->min_sim = 0.5;
+			if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
+			if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
+	}
 	if(par->ksize + par->psize > KBM_MAX_KSIZE){
 		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > %d in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize, KBM_MAX_KSIZE,  __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		return 1;
@@ -7101,8 +7225,20 @@ int main(int argc, char **argv){
 		}
 		fprintf(KBM_LOGF, "[%s] Set --edge-cov to %d\n", date(), edge_cov); fflush(KBM_LOGF);
 	}
+	if(genome_size <= 0 && corr_mode > 0){
+		fprintf(KBM_LOGF, "[%s] MUST set -g <?> with --corr-mode %f\n", date(), corr_mode); fflush(KBM_LOGF);
+		return 1;
+	}
 	if(node_cov == 0) node_cov = edge_cov;
 	g = init_graph(kbm);
+	g->genome_size = genome_size;
+	g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
+	g->corr_gcov = corr_mode;
+	g->corr_min = corr_min;
+	g->corr_max = corr_max;
+	g->corr_cov = corr_cov;
+	g->corr_bsize = corr_bsize;
+	g->corr_bstep = corr_bstep;
 	g->node_order = node_order;
 	g->reglen = reglen;
 	g->regovl = regovl;
