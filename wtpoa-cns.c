@@ -108,7 +108,7 @@ int main(int argc, char **argv){
 			case 'S': use_sse = atoi(optarg); break;
 			case 'B': bandwidth = atoi(optarg); break;
 			case 'W': winlen = atoi(optarg); break;
-			case 'w': winmin = atoi(optarg); break;
+			case 'w': wsize = winmin = atoi(optarg); break;
 			case 'A': fail_skip = 0; break;
 			case 'M': M = atoi(optarg); break;
 			case 'X': X = atoi(optarg); break;
@@ -178,8 +178,8 @@ int main(int argc, char **argv){
 		}
 		free_biosequence(seq);
 		close_filereader(db);
-		sb = init_samblock(refs, fr, winmin, reglen, sam_present);
-		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, winmin - reglen);
+		sb = init_samblock(refs, fr, wsize, reglen, sam_present);
+		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, UInt((wsize - reglen) * 1.2 + 100));
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
