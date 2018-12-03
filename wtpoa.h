@@ -309,6 +309,10 @@ static inline int iter_ctgcns(CTGCNS *cc){
 	nrun = flag = 0;
 	bk = &cc->BK;
 	if(cc->sq){
+		cc->chridx = cc->sq->chridx;
+		cc->cidx ++;
+		cc->bidx = MAX_U4;
+		cc->infocns(cc->obj, cc->sq, bk);
 		clear_string(cc->tag);
 		if(bk->reftag){
 			append_string(cc->tag, bk->reftag, strlen(bk->reftag));
@@ -326,7 +330,7 @@ static inline int iter_ctgcns(CTGCNS *cc){
 				cc->sq = cc->itercns(cc->obj);
 			}
 			if(cc->sq == NULL || cc->sq->chridx != cc->chridx){
-				if(cc->sq){
+				if(cc->sq && cc->chridx == MAX_U4){
 					cc->chridx = cc->sq->chridx;
 					cc->cidx ++;
 					cc->bidx = MAX_U4;
@@ -359,6 +363,9 @@ static inline int iter_ctgcns(CTGCNS *cc){
 				next = 2;
 			} else { // end of one contig consensus
 				if(cc->sq == NULL){
+					if(!cns_debug && cc->print_progress){
+						fprintf(stderr, "\r%u contigs %llu edges\n", cc->cidx, cc->widx); fflush(stderr);
+					}
 					cc->state = 0;
 				} else {
 					cc->state = 1;
