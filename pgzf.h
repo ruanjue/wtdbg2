@@ -167,7 +167,7 @@ static inline u4i _pgzf_deflate(u1v *dst, u1v *src, int level){
 }
 
 static inline int _read_pgzf_header(FILE *in, u1v *src, u4i *hoff, u4i *zsval, u8i *zxval){
-	u4i off, val, sl;
+	u4i off, val, sl, end;
 	int ch, is_pgzf, xflag;
 	char si1, si2;
 	is_pgzf = 0;
@@ -194,15 +194,16 @@ static inline int _read_pgzf_header(FILE *in, u1v *src, u4i *hoff, u4i *zsval, u
 		if(src->size < off + 2) return PGZF_FILETYPE_UNKNOWN;
 		val = _bytes2num_pgzf(src->buffer + off, 2);
 		off += 2;
+		end = off + val;
 		if(val > 0 && val < 4) return PGZF_FILETYPE_UNKNOWN;
 		if(src->size < off + val){
 			encap_u1v(src, val);
 			sl = fread(src->buffer + src->size, 1, off + val - src->size, in);
 			src->size += sl;
+			if(src->size < off + val) return PGZF_FILETYPE_UNKNOWN;
 		}
-		if(src->size < off + val) return PGZF_FILETYPE_UNKNOWN;
 		//parse TAGs
-		while(off < src->size){
+		while(off < end){
 			si1 = src->buffer[off + 0];
 			si2 = src->buffer[off + 1];
 			sl = _bytes2num_pgzf(src->buffer + off + 2, 2);
@@ -397,10 +398,11 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 			if(pz->step == 0){
 				//TODO: parse gzip header
 				ret = _read_pgzf_header(pz->file, pgz->src, &pgz->soff, &pgz->zsval, &pgz->zxval);
-				if(ret != PGZF_FILETYPE_GZ || ret != PGZF_FILETYPE_PGZF){
+				if(ret != PGZF_FILETYPE_GZ && ret != PGZF_FILETYPE_PGZF){
 					if(pgz->src->size == pgz->soff){
 						pz->eof = 1;
 					} else {
+						fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 						pz->error = 1;
 					}
 					break;
@@ -427,6 +429,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 					pz->step = 2;
 					continue;
 				} else if(ret != Z_OK){
+					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					pz->error = 1;
 					break;
 				}
