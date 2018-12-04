@@ -264,23 +264,13 @@ int pgzf_inflate_raw_core(z_stream *z, u1i *dst, u4i *dlen, u1i *src, u4i *slen,
 	ret = Z_OK;
 	dl = *dlen;
 	sl = *slen;
-	*dlen = 0;
-	*slen = 0;
-	do {
-		if(z->avail_in == 0){
-			if(sl == (*slen)) return ret;
-			z->avail_in = sl - (*slen);
-			z->next_in  = src + (*slen);
-		}
-		z->avail_out = (dl - (*dlen));
-		z->next_out  = dst + (*dlen);
-		ret = inflate(z, flush);
-		*dlen = dl - z->avail_out;
-		*slen = sl - z->avail_in;
-		if(ret != Z_OK){
-			return ret;
-		}
-	} while((*dlen) < dl);
+	z->avail_in = sl;
+	z->next_in  = src;
+	z->avail_out = dl;
+	z->next_out  = dst;
+	ret = inflate(z, flush);
+	*dlen = dl - z->avail_out;
+	*slen = sl - z->avail_in;
 	return ret;
 }
 
@@ -383,7 +373,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 	} else if(pz->rw_mode == PGZF_MODE_R_GZ){
 		bufsize = pz->bufsize? pz->bufsize : PGZF_DEFAULT_BUFF_SIZE;
 		encap_u1v(pgz->dst, bufsize);
-		while(1){
+		while(!pz->error){
 			if(pgz->src->size == pgz->soff){
 				pgz->soff = pgz->src->size = 0;
 				encap_u1v(pgz->src, 1024 * 1024);
@@ -402,7 +392,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 					if(pgz->src->size == pgz->soff){
 						pz->eof = 1;
 					} else {
-						fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+						fprintf(stderr, " -- failed in read gzip header, ret = %d in %s -- %s:%d --\n", ret, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 						pz->error = 1;
 					}
 					break;
@@ -413,23 +403,24 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 				if(pgz->src->size >= pgz->soff + PGZF_TAIL_SIZE){
 					pgz->soff += PGZF_TAIL_SIZE;
 					pz->step = 0;
+					inflateReset(pz->z);
 					continue;
 				} else if(pz->eof){
 					pz->error = 2;
 					break;
 				}
 			}
-			dsz = bufsize - pgz->dst->size;
-			ssz = pgz->src->size - pgz->soff;
-			if(dsz){
+			while(pgz->dst->size < bufsize && pgz->soff < pgz->src->size){
+				dsz = bufsize - pgz->dst->size;
+				ssz = pgz->src->size - pgz->soff;
 				ret = pgzf_inflate_raw_core(pz->z, pgz->dst->buffer + pgz->dst->size, &dsz, pgz->src->buffer + pgz->soff, &ssz, Z_NO_FLUSH);
 				pgz->dst->size += dsz;
 				pgz->soff += ssz;
 				if(ret == Z_STREAM_END){
 					pz->step = 2;
-					continue;
+					break;
 				} else if(ret != Z_OK){
-					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+					fprintf(stderr, " -- ZERROR: %d in %s -- %s:%d --\n", ret, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					pz->error = 1;
 					break;
 				}
