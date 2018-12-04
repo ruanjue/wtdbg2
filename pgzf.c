@@ -160,6 +160,10 @@ int main(int argc, char **argv){
 			while((nbyte = read_pgzf(pz, buff, bufsize))){
 				fwrite(buff, 1, nbyte, out);
 			}
+			if(pz->error){
+				fprintf(stderr, " ** ERROR: error code (%d)'\n", pz->error);
+				return 1;
+			}
 			close_pgzf(pz);
 			if(in != stdin){
 				fclose(in);
