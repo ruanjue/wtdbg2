@@ -175,7 +175,7 @@ static inline int _read_pgzf_header(FILE *in, u1v *src, u4i *hoff, u4i *zsval, u
 	*zsval = 0;
 	*zxval  = 0;
 	if(src->size < off + 10){
-		clear_and_encap_u1v(src, 10);
+		encap_u1v(src, 10);
 		src->size += fread(src->buffer + src->size, 1, off + 10 - src->size, in);
 	}
 	// At least give 10 bytes
@@ -332,7 +332,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 		nano_sleep(10);
 		if(pz->eof || pz->error) break;
 	}
-	if(pz->eof) break;
+	//if(pz->eof) break;
 	if(pz->error) break;
 	if(pz->rw_mode == PGZF_MODE_R){
 		if(pgz->src->size){ // loaded header, had set zsval and zxval
@@ -371,22 +371,29 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 		pgz->dst->size = dsz;
 		clear_u1v(pgz->src);
 	} else if(pz->rw_mode == PGZF_MODE_R_GZ){
+		u4i bsz;
+		bsz = 1024 * 1024;
 		bufsize = pz->bufsize? pz->bufsize : PGZF_DEFAULT_BUFF_SIZE;
 		encap_u1v(pgz->dst, bufsize);
 		while(!pz->error){
 			if(pgz->src->size == pgz->soff){
 				pgz->soff = pgz->src->size = 0;
-				encap_u1v(pgz->src, 1024 * 1024);
-				rsize = fread(pgz->src->buffer, 1, 1024 * 1024, pz->file);
-				if(rsize < 1024 * 1024){
+			}
+			if(pgz->src->size < bsz){
+				encap_u1v(pgz->src, bsz - pgz->src->size);
+				rsize = fread(pgz->src->buffer + pgz->src->size, 1, bsz - pgz->src->size, pz->file);
+				if(rsize < bsz - pgz->src->size){
 					pz->eof = 1;
 				}
-				if(rsize == 0) break;
 				pz->tot_in += rsize;
-				pgz->src->size = rsize;
+				pgz->src->size += rsize;
+			}
+			if(pgz->src->size == pgz->soff){
+				break;
 			}
 			if(pz->step == 0){
-				//TODO: parse gzip header
+				u4i tsz;
+				tsz = pgz->src->size;
 				ret = _read_pgzf_header(pz->file, pgz->src, &pgz->soff, &pgz->zsval, &pgz->zxval);
 				if(ret != PGZF_FILETYPE_GZ && ret != PGZF_FILETYPE_PGZF){
 					if(pgz->src->size == pgz->soff){
@@ -396,6 +403,8 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 						pz->error = 1;
 					}
 					break;
+				} else {
+					pz->tot_in += pgz->src->size - tsz;
 				}
 				pz->step = 1;
 				continue;
@@ -408,6 +417,10 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 				} else if(pz->eof){
 					pz->error = 2;
 					break;
+				} else {
+					memmove(pgz->src->buffer, pgz->src->buffer + pgz->soff, pgz->src->size - pgz->soff);
+					pgz->src->size -= pgz->soff;
+					pgz->soff = 0;
 				}
 			}
 			while(pgz->dst->size < bufsize && pgz->soff < pgz->src->size){
@@ -434,11 +447,9 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 							abort();
 						}
 						append_array_u1v(pz->srcs[next], pgz->src->buffer + pgz->soff, pgz->src->size - pgz->soff);
-						pgz->soff = pgz->src->size = 0;
 					}
-				} else {
-					pgz->soff = pgz->src->size = 0;
 				}
+				pgz->soff = pgz->src->size = 0;
 				break;
 			}
 		}
@@ -639,6 +650,7 @@ static inline PGZF* open_pgzf_reader(FILE *in, u4i bufsize, int ncpu){
 	hoff = 0;
 	pz->srcs[0] = init_u1v(1024);
 	ftype = _read_pgzf_header(pz->file, pz->srcs[0], &hoff, &zsval, &zxval);
+	pz->tot_in = pz->srcs[0]->size;
 	switch(ftype){
 		case PGZF_FILETYPE_GZ: pz->step = 1; pz->rw_mode = PGZF_MODE_R_GZ; break;
 		case PGZF_FILETYPE_PGZF: pz->rw_mode = PGZF_MODE_R; break;
@@ -729,8 +741,10 @@ static inline off_t seek_pgzf(PGZF *pz, u8i offset){
 
 static inline size_t read_pgzf(PGZF *pz, void *dat, size_t len){
 	size_t off;
+	u4i nrun;
 	thread_prepare(pgz);
 	thread_import(pgz, pz);
+	nrun = 0;
 	for(off=0;off<len;){
 		thread_beg_operate(pgz, pz->widx % pz->ncpu);
 		thread_wait(pgz);
@@ -749,8 +763,11 @@ static inline size_t read_pgzf(PGZF *pz, void *dat, size_t len){
 			pgz->task = PGZF_TASK_INFLATE;
 			thread_wake(pgz);
 			pz->widx ++;
-		} else {
-			break;
+		} else if(pz->eof){
+			nrun ++;
+			if(nrun >= pz->ncpu){
+				break;
+			}
 		}
 	}
 	return off;
