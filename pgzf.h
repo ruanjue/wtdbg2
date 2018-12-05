@@ -330,9 +330,13 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 	clear_u1v(pgz->dst);
 	while((pz->ridx % pz->ncpu) != UInt(pgz->t_idx)){
 		nano_sleep(10);
-		if(pz->eof || pz->error) break;
+		if(pz->error) break;
+		//if(pz->eof){
+			//if(pz->rw_mode != PGZF_MODE_R_GZ){
+				//break;
+			//}
+		//}
 	}
-	//if(pz->eof) break;
 	if(pz->error) break;
 	if(pz->rw_mode == PGZF_MODE_R){
 		if(pgz->src->size){ // loaded header, had set zsval and zxval
