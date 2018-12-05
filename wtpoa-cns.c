@@ -27,7 +27,7 @@ int usage(){
 	"Usage: wtpoa-cns [options]\n"
 	"Options:\n"
 	" -t <int>    Number of threads, [4]\n"
-	" -d <string> Reference sequences for SAM input, will invoke sorted-SAM input mode and auto set '-j 100 -W 0 -w 1000'\n"
+	" -d <string> Reference sequences for SAM input, will invoke sorted-SAM input mode\n"
 	" -u          Only process reference regions present in/between SAM alignments\n"
 	" -r          Force to use reference mode\n"
 	" -p <string> Similar with -d, but translate SAM into wtdbg layout file\n"
@@ -98,7 +98,7 @@ int main(int argc, char **argv){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
 			case 'p': print_lay = 1;
-			case 'd': push_cplist(dbfs, optarg); reglen = 100; winlen = 0; winmin = 1000; break;
+			case 'd': push_cplist(dbfs, optarg); break;
 			case 'u': sam_present = 1; break;
 			case 'r': refmode = 1; break;
 			case 'i': push_cplist(infs, optarg); break;
@@ -170,6 +170,10 @@ int main(int argc, char **argv){
 	} else {
 		SAMBlock *sb;
 		BioSequence *seq;
+		if(reglen > wsize || 2 * reglen < wsize){
+			fprintf(stderr, " -- SAM Input mode: -w wsize(%d), -j reglen(%d), MUST has reglen <= wsize and 2 * reglen >= wsize in %s -- %s:%d --\n", wsize, reglen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+			return 1;
+		}
 		refs = init_seqbank();
 		db = open_all_filereader(dbfs->size, dbfs->buffer, 1);
 		seq = init_biosequence();
