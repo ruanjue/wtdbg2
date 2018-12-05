@@ -7230,8 +7230,8 @@ int main(int argc, char **argv){
 		return 1;
 	}
 	if(node_cov == 0) node_cov = edge_cov;
-	fprintf(KBM_LOGF, "KEY PARAMETERS: -k %d -p %d -K %f %s-S %f -g %llu -X %f -e %d\n",
-		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "-A " : "", ((double)par->kmer_mod) / KBM_N_HASH, (u8i)genome_size, genome_depx, edge_cov);
+	fprintf(KBM_LOGF, "KEY PARAMETERS: -k %d -p %d -K %f %s-S %f -g %llu -X %f -e %d -L %d\n",
+		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "-A " : "", ((double)par->kmer_mod) / KBM_N_HASH, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
 	g = init_graph(kbm);
 	g->genome_size = genome_size;
 	g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
