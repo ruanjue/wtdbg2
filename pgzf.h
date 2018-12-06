@@ -346,11 +346,13 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 			ret = _read_pgzf_header(pz->file, pgz->src, &pgz->soff, &pgz->zsval, &pgz->zxval);
 			if(pgz->src->size == 0){
 				pz->eof = 1;
+				pz->ridx ++;
 				break;
 			}
 			if(ret != PGZF_FILETYPE_PGZF){
 				fprintf(stderr, " -- Error: not a PGZF format at %u block, in %s -- %s:%d --\n", pz->ridx, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 				pz->error = 1;
+				pz->ridx ++;
 				break;
 			}
 		}
@@ -360,6 +362,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 		if(rsize < pgz->zsval - pgz->src->size){
 			fprintf(stderr, " -- Error: read %u < %u at %u block, in %s -- %s:%d --\n", UInt(pgz->src->size + rsize), pgz->zsval, pz->ridx, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			pz->error = 1;
+			pz->ridx ++;
 			break;
 		}
 		pgz->src->size += rsize;
@@ -464,6 +467,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 		if(pgz->src->size > bufsize){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			pz->error = 1;
+			pz->ridx ++;
 			break;
 		} else if(pgz->src->size){
 			append_u1v(pgz->dst, pgz->src);
