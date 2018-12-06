@@ -60,7 +60,7 @@ int kbm_usage(){
 	fprintf(stdout, " -y <int>    penalty for BIN deviation, [-21]\n");
 	fprintf(stdout, " -l <int>    Min alignment length, [2048]\n");
 	fprintf(stdout, " -m <int>    Min matched length, [200]\n");
-	fprintf(stdout, " -s <float>  Max length variation of two aligned fragments, [0.05]\n");
+	fprintf(stdout, " -s <float>  Min similarity, calculated by kmer matched length / aligned length, [0.05]\n");
 	fprintf(stdout, " -r <float>  Max length variation of two aligned fragments, [0.2]\n");
 	fprintf(stdout, " -c          Insist to query contained reads against all\n");
 	fprintf(stdout, " -C          Chainning alignments\n");
