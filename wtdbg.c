@@ -222,7 +222,7 @@ typedef struct {
 	lnkv     *lnks;
 	edgerefv *lrefs;
 	tracev   *traces;
-	
+
 	u8i      genome_size;
 	u4i      corr_mode, corr_min, corr_max;
 	u4i      corr_bsize, corr_bstep;
@@ -6545,7 +6545,7 @@ int usage(int level){
 	"       nanopore/ont:\n"
 	"            (genome size < 1G)  -p 0 -k 15 -AS 2 -s 0.05 -L 5000\n"
 	"            (genome size >= 1G) -p 19 -AS 2 -s 0.05 -L 5000\n"
-	"      corrected/ccs: -p 0 -k 19 -AS 4 -s 0.5 -L 5000\n"
+	"      corrected/ccs: -p 21 -k 0 -AS 4 -K 0.05 -s 0.5\n"
 	"             Example: '-e 3 -x ont -S 1' in parsing order, -e will be 3, -S will be 1\n"
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
 	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50]\n"
@@ -6889,7 +6889,7 @@ int main(int argc, char **argv){
 					break;
 			case 'k': par->ksize = atoi(optarg); opt_flags |= (1 << 1); break;
 			case 'p': par->psize = atoi(optarg); opt_flags |= (1 << 0); break;
-			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; break;
+			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; opt_flags |= (1 << 6); break;
 			case 'E': par->kmin = atoi(optarg); break;
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
 			case 'g': genome_size = mm_parse_num(optarg); break;
@@ -7012,12 +7012,13 @@ int main(int argc, char **argv){
 			}
 			break;
 		case 4:
-			if(!(opt_flags & (1 << 1))) par->ksize = 19;
-			if(!(opt_flags & (1 << 0))) par->psize = 0;
+			if(!(opt_flags & (1 << 1))) par->ksize = 0;
+			if(!(opt_flags & (1 << 0))) par->psize = 21;
 			if(!(opt_flags & (1 << 2))) par->kmer_mod = 4 * KBM_N_HASH;
 			if(!(opt_flags & (1 << 3))) par->min_sim = 0.5;
 			if(!(opt_flags & (1 << 5))) par->skip_contained = 0;
-			if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
+			if(!(opt_flags & (1 << 6))){ par->kmax = 0; par->ktop = 0.05; }
+			//if(!(opt_flags & (1 << 4))) tidy_reads = 5000;
 	}
 	if(par->ksize + par->psize > KBM_MAX_KSIZE){
 		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > %d in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize, KBM_MAX_KSIZE,  __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
@@ -7231,7 +7232,7 @@ int main(int argc, char **argv){
 	}
 	if(node_cov == 0) node_cov = edge_cov;
 	fprintf(KBM_LOGF, "KEY PARAMETERS: -k %d -p %d -K %f %s-S %f -g %llu -X %f -e %d -L %d\n",
-		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "-A " : "", ((double)par->kmer_mod) / KBM_N_HASH, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
+		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "" : " -A", ((double)par->kmer_mod) / KBM_N_HASH, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
 	g = init_graph(kbm);
 	g->genome_size = genome_size;
 	g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
