@@ -1718,7 +1718,7 @@ static inline void end_pog(POG *g){
 		u = ref_pognodev(g->nodes, POG_HEAD_NODE);
 		reflen = g->seqs->rdlens->buffer[0];
 		for(i=0;i<g->sbegs->size;i++){
-			if(g->sbegs->buffer[i] < 10) continue;
+			if(g->sbegs->buffer[i] < 10 || g->sbegs->buffer[i] + 10U >= reflen) continue;
 			nidx = POG_TAIL_NODE + 1 + (reflen - 1 - g->sbegs->buffer[i]);
 			v = ref_pognodev(g->nodes, nidx);
 			eidx = u->edge;
@@ -1742,7 +1742,7 @@ static inline void end_pog(POG *g){
 		}
 		v = ref_pognodev(g->nodes, POG_TAIL_NODE);
 		for(i=0;i<g->sends->size;i++){
-			if(g->sends->buffer[i] == 0 || g->sends->buffer[i] + 10U >= reflen) continue;
+			if(g->sends->buffer[i] < 10 || g->sends->buffer[i] + 10U >= reflen) continue;
 			nidx = POG_TAIL_NODE + 1 + (reflen - g->sends->buffer[i]);
 			u = ref_pognodev(g->nodes, nidx);
 			eidx = u->edge;
