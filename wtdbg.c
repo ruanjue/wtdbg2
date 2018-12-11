@@ -660,62 +660,6 @@ free_u4v(maps[1]);
 free_u4v(maps[2]);
 thread_end_func(mdbg);
 
-thread_beg_def(mbio);
-int     bidx;
-FILE  *bios[2], *out;
-size_t  buf_size;
-thread_end_def(mbio);
-
-thread_beg_func(mbio);
-char   *buffs[2];
-size_t  blens[2], bsize[2];
-int bidx;
-mbio->once = 0;
-mbio->bidx = 0;
-buffs[0] = NULL;
-buffs[1] = NULL;
-blens[0] = 0;
-blens[1] = 0;
-mbio->bios[0] = open_memstream(buffs + 0, blens + 0);
-mbio->bios[1] = open_memstream(buffs + 1, blens + 1);
-mbio->bidx = 0;
-thread_beg_loop(mbio);
-bidx = mbio->bidx;
-bsize[0] = ftell(mbio->bios[0]);
-bsize[1] = ftell(mbio->bios[1]);
-if(bsize[bidx] >= mbio->buf_size){
-	thread_beg_syn(mbio);
-}
-if(bsize[!bidx]){
-	fwrite(buffs[!bidx], 1, bsize[!bidx], mbio->out);
-	fseek(mbio->bios[!bidx], 0, SEEK_SET);
-}
-if(bsize[bidx] >= mbio->buf_size){
-	mbio->bidx = !bidx;
-	thread_end_syn(mbio);
-} else if(bsize[bidx]){
-	thread_beg_syn(mbio);
-	mbio->bidx = !bidx;
-	thread_end_syn(mbio);
-}
-thread_end_loop(mbio);
-{
-	bsize[0] = ftell(mbio->bios[0]);
-	bsize[1] = ftell(mbio->bios[1]);
-	bidx = mbio->bidx;
-	if(bsize[!bidx]){
-		fwrite(buffs[!bidx], 1, bsize[!bidx], mbio->out);
-	}
-	if(bsize[bidx]){
-		fwrite(buffs[bidx], 1, bsize[bidx], mbio->out);
-	}
-}
-fclose(mbio->bios[0]);
-fclose(mbio->bios[1]);
-if(buffs[0]) free(buffs[0]);
-if(buffs[1]) free(buffs[1]);
-thread_end_func(mbio);
-
 typedef struct {
 	int pos:19;
 	u4i dir:1, spur:1, dep:11;
@@ -7476,7 +7420,7 @@ int main(int argc, char **argv){
 	free_cplist(pbs);
 	free_cplist(ngs);
 	free_cplist(pws);
-	free_kbm(kbm);
+	if(load_kbm == NULL) free_kbm(kbm);
 	free_kbmpar(par);
 	free_graph(g);
 	fprintf(KBM_LOGF, "[%s] Program Done\n", date());
