@@ -190,10 +190,7 @@ int kbm_main(int argc, char **argv){
 			case 't': ncpu = atoi(optarg); break;
 			case 'k': par->ksize = atoi(optarg); opt_flags |= (1 << 1); break;
 			case 'p': par->psize = atoi(optarg); opt_flags |= (1 << 0); break;
-			case 'K': fval = atof(optarg);
-					if(fval > 1) par->kmax = fval;
-					else par->ktop = fval;
-					break;
+			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; break;
 			case 'E': par->kmin = atoi(optarg); break;
 			case 'F': par->use_kf = 1; break;
 			case 'O': par->min_bin_degree = atoi(optarg); break;
