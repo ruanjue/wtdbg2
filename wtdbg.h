@@ -1381,16 +1381,6 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 				if(g->corr_mode && mdbg->cc->cns->size){
 					g->reads->buffer[mdbg->reg.rid].corr_bincnt = mdbg->cc->cns->size / KBM_BIN_SIZE;
 				}
-				if(raw){
-				} else {
-					if(1){
-						append_bitsvec(g->cigars, mdbg->aux->cigars, 0, mdbg->aux->cigars->size);
-					} else {
-						for(i=0;i<mdbg->aux->cigars->size;i++){
-							push_bitsvec(g->cigars, get_bitsvec(mdbg->aux->cigars, i));
-						}
-					}
-				}
 				if(alno){
 					beg_bufferedwriter(bw);
 					if(g->corr_mode && mdbg->cc->cns->size){
@@ -1408,8 +1398,8 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 					if(hit->mat == 0) continue;
 					if(rdflags
 						&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
-						&& (hit->tb <= KBM_BSIZE && hit->te + KBM_BSIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE))
-						&& (hit->qb > KBM_BSIZE || hit->qe + KBM_BSIZE < (int)(g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BSIZE))
+						&& (hit->tb <= 1 && hit->te + 1 >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt))
+						&& (hit->qb > 1 || hit->qe + 1 < (int)(g->kbm->reads->buffer[hit->qidx].bincnt))
 						){
 						one_bitvec(rdflags, hit->tidx);
 					}
@@ -1527,7 +1517,7 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			fclose(clplog);
 			fprintf(KBM_LOGF, "%.2f%% bases\n", ((tot - clp) * 100.0) / tot); fflush(KBM_LOGF);
 		}
-		fprintf(KBM_LOGF, "[%s] generating regs ...\n", date()); fflush(KBM_LOGF);
+		fprintf(KBM_LOGF, "[%s] generating regs ... ", date()); fflush(KBM_LOGF);
 		rd_hit_t *rh;
 		u8i cgoff;
 		cgoff = 0;
@@ -1545,7 +1535,7 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			hit->qidx = rh->frgs[0].rid;
 			hit->tidx = rh->frgs[1].rid;
 			hit->qdir = rh->frgs[0].dir;
-			hit->tdir = rh->frgs[0].dir;
+			hit->tdir = rh->frgs[1].dir;
 			hit->qb = rh->frgs[0].beg;
 			hit->qe = rh->frgs[0].end;
 			hit->tb = rh->frgs[1].beg;
