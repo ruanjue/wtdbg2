@@ -1,4 +1,4 @@
-VERSION=2.2
+VERSION=2.3
 
 CC  := gcc
 BIN := /usr/local/bin
@@ -8,7 +8,7 @@ TIMESTAMP=$(shell date)
 endif
 
 ifeq (1, ${DEBUG})
-CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O0 -DTIMESTAMP="$(TIMESTAMP)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -mpopcnt -msse4.2
+CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O0 -DDEBUG=1 -DTIMESTAMP="$(TIMESTAMP)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -mpopcnt -msse4.2
 else
 CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DTIMESTAMP="$(TIMESTAMP)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -mpopcnt -msse4.2
 endif
@@ -23,7 +23,7 @@ all: $(PROGS)
 kbm2: $(GENERIC_SRC) kbm.c kbm.h kbmpoa.h wtpoa.h tripoa.h poacns.h kswx.h ksw.h ksw.c
 	$(CC) $(CFLAGS) -o $@ kbm.c ksw.c $(GLIBS)
 
-wtdbg2: $(GENERIC_SRC) wtdbg.c kbm.h kswx.h ksw.h ksw.c kbmpoa.h wtpoa.h tripoa.h poacns.h
+wtdbg2: $(GENERIC_SRC) wtdbg.c wtdbg-graph.h wtdbg.h kbm.h kswx.h ksw.h ksw.c kbmpoa.h wtpoa.h tripoa.h poacns.h
 	$(CC) $(CFLAGS) -o $@ wtdbg.c ksw.c $(GLIBS)
 
 wtdbg-cns: $(GENERIC_SRC) wtdbg-cns.c kswx.h ksw.h ksw.c dbgcns.h dagcns.h queue.h general_graph.h
