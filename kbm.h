@@ -183,7 +183,7 @@ typedef struct {
 	u8i max_bcnt; // 0xFFFF
 	int pgap, pvar; // -7, -21
 	u4i max_hit; // 1000
-	int min_aln, min_mat; // 2048, 200
+	int min_aln, min_mat; // 2048/256, 200
 	float aln_var; // 0.2
 	float min_sim; // kmer similarity: 0.05
 	int test_mode; // see codes
@@ -301,7 +301,7 @@ static inline KBMPar* init_kbmpar(){
 	par->pgap = -7;
 	par->pvar = -21;
 	par->max_hit = 1000;
-	par->min_aln = 2048;
+	par->min_aln = 2048 / KBM_BIN_SIZE;
 	par->min_mat = 200;
 	par->min_sim = 0.05;
 	par->aln_var = 0.2;
@@ -1613,7 +1613,7 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	hit->te = p->end / aux->qnbin;
 	hit->aln = num_min(hit->qe - hit->qb, hit->te - hit->tb);
 	hit->aln ++;
-	if(hit->aln * KBM_BIN_SIZE < aux->par->min_aln){
+	if(hit->aln < aux->par->min_aln){
 		aux->hits->size --;
 		return 0;
 	}
@@ -1644,7 +1644,7 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	cglen = aux->cigars->size - cgoff;
 	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * KBM_BSIZE * aux->par->min_sim)
 		|| gap > (u4i)(hit->aln * aux->par->max_gap)
-		|| hit->aln * KBM_BSIZE < (int)aux->par->min_aln
+		|| hit->aln < (int)aux->par->min_aln
 		|| num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(aux->par->aln_var * hit->aln, 1.0)){
 		aux->hits->size --;
 		aux->cigars->size = cgoff;
@@ -1671,11 +1671,9 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 			}
 		}
 	}
-	hit->qb = hit->qb * KBM_BIN_SIZE;
-	hit->qe = (hit->qe + 1) * KBM_BIN_SIZE;
-	hit->tb = (dp->boff + hit->tb - aux->kbm->reads->buffer[hit->tidx].binoff) * KBM_BIN_SIZE;
-	hit->te = (dp->boff + hit->te - aux->kbm->reads->buffer[hit->tidx].binoff + 1) * KBM_BIN_SIZE;
-	hit->aln = hit->aln * KBM_BIN_SIZE;
+	hit->qe = (hit->qe + 1);
+	hit->tb = (dp->boff + hit->tb - aux->kbm->reads->buffer[hit->tidx].binoff);
+	hit->te = (dp->boff + hit->te - aux->kbm->reads->buffer[hit->tidx].binoff + 1);
 	hit->mat = mat;
 	hit->cnt = cnt;
 	hit->gap = gap;
@@ -1684,8 +1682,8 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	//if(hit->qe > (int)aux->qlen) hit->qe = aux->qlen;
 	//if(hit->te > (int)aux->kbm->reads->buffer[hit->tidx].rdlen) hit->te = aux->kbm->reads->buffer[hit->tidx].rdlen;
 	if(dir){
-		tmp = aux->slen - hit->qb;
-		hit->qb = aux->slen - hit->qe;
+		tmp = aux->qnbin - hit->qb;
+		hit->qb = aux->qnbin - hit->qe;
 		hit->qe = tmp;
 	}
 #if __DEBUG__
@@ -1698,91 +1696,30 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	return 1;
 }
 
-static inline void fprint_hit_kbm(KBMAux *aux, u4i hidx, FILE *out){
-	kbm_map_t *hit;
-	u8i coff;
-	u4i clen, len, bt, _bt;
-	hit = ref_kbmmapv(aux->hits, hidx);
-	if(hit->mat == 0) return;
-	bt = len = 0;
-	coff = hit->cgoff;
-	clen = hit->cglen;
-	{
-		clear_string(aux->str);
-		while(clen){
-			_bt = get_bitsvec(aux->cigars, coff + clen - 1);
-			if(_bt == bt){
-				len ++;
-			} else {
-				if(len > 1){
-					add_int_string(aux->str, len);
-					add_char_string(aux->str, "MID?mid?"[bt]);
-				} else if(len == 1){
-					add_char_string(aux->str, "MID?mid?"[bt]);
-				}
-				bt = _bt;
-				len = 1;
-			}
-			clen --;
-		}
-		if(len > 1){
-			add_int_string(aux->str, len);
-			add_char_string(aux->str, "MID?mid?"[bt]);
-		} else if(len == 1){
-			add_char_string(aux->str, "MID?mid?"[bt]);
-		}
-		fprintf(out, "%s\t%c\t%d\t%d\t%d\t%s\t%c\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", aux->qtag, "+-"[hit->qdir], aux->qlen, hit->qb, hit->qe,
-			aux->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], aux->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te,
-			hit->mat, hit->aln, hit->cnt, hit->gap,
-			aux->str->string);
-	}
-	if(0){
-		u8i bb, be;
-		u4i i, j;
-		bb = aux->kbm->reads->buffer[hit->tidx].binoff;
-		be = bb + hit->te / KBM_BSIZE;
-		bb = bb + hit->tb / KBM_BSIZE;
-		for(i=0;i<aux->refs->size;i++){
-			int pass = 0;
-			kbm_ref_t *ref = ref_kbmrefv(aux->refs, i);
-			if(ref->closed) continue;
-			if(ref->poffs[0] >= (u4i)hit->qb && ref->poffs[0] < (u4i)hit->qe){
-				for(j=0;j<ref->aux->cnt;j++){
-					u8i bidx;
-					int dir;
-					bidx = getval_bidx(aux->kbm, ref->aux->off + j);
-					dir  = aux->kbm->sauxs->buffer[ref->aux->off + j].dir;
-					if(bidx >= bb && bidx < be && (dir ^ ref->dir) == hit->qdir){
-						pass = 1;
-						break;
-					}
-				}
-				fprintf(out, "#%s\t%d\t%c\t%d\t%d\n", aux->qtag, ref->poffs[0], "+-"[ref->dir], (int)ref->aux->cnt, pass);
-			}
-		}
-	}
-}
-
-static inline void print_hit_kbm(KBM *kbm, kbm_map_t *hit, BitsVec *cigars, FILE *out){
+static inline void print_hit_kbm(KBM *kbm, kbm_map_t *hit, BitsVec *cigars, String *_str, FILE *out){
+	String *str;
 	u8i coff;
 	u4i clen, len, bt, _bt;
 	if(hit->mat == 0) return;
-	fprintf(out, "%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->qidx].tag, "+-"[hit->qdir], kbm->reads->buffer[hit->qidx].rdlen, hit->qb, hit->qe);
-	fprintf(out, "\t%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te);
-	fprintf(out, "\t%d\t%d\t%d\t%d\t", hit->mat, hit->aln, hit->cnt, hit->gap);
+	fprintf(out, "%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->qidx].tag, "+-"[hit->qdir], kbm->reads->buffer[hit->qidx].rdlen, hit->qb * KBM_BIN_SIZE, hit->qe * KBM_BIN_SIZE);
+	fprintf(out, "\t%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], kbm->reads->buffer[hit->tidx].rdlen, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE);
+	fprintf(out, "\t%d\t%d\t%d\t%d\t", hit->mat, hit->aln * KBM_BIN_SIZE, hit->cnt, hit->gap);
 	if(cigars){
+		str = _str? _str : init_string(64);
 		bt = len = 0;
 		coff = hit->cgoff;
 		clen = hit->cglen;
+		clear_string(str);
 		while(clen){
 			_bt = get_bitsvec(cigars, coff + clen - 1);
 			if(_bt == bt){
 				len ++;
 			} else {
 				if(len > 1){
-					fprintf(out, "%d%c", len, "MID?mid?"[bt]);
+					add_int_string(str, len);
+					add_char_string(str, "MID?mid?"[bt]);
 				} else if(len == 1){
-					fprintf(out, "%c", "MID?mid?"[bt]);
+					add_char_string(str, "MID?mid?"[bt]);
 				}
 				bt = _bt;
 				len = 1;
@@ -1790,14 +1727,24 @@ static inline void print_hit_kbm(KBM *kbm, kbm_map_t *hit, BitsVec *cigars, FILE
 			clen --;
 		}
 		if(len > 1){
-			fprintf(out, "%d%c", len, "MID?mid?"[bt]);
+			add_int_string(str, len);
+			add_char_string(str, "MID?mid?"[bt]);
 		} else if(len == 1){
-			fprintf(out, "%c", "MID?mid?"[bt]);
+			add_char_string(str, "MID?mid?"[bt]);
 		}
+		fputs(str->string, out);
+		if(_str == NULL) free_string(str);
 	} else {
-		fprintf(out, "*");
+		fputc('*', out);
 	}
 	fprintf(out, "\n");
+}
+
+static inline void fprint_hit_kbm(KBMAux *aux, u4i hidx, FILE *out){
+	kbm_map_t *hit;
+	hit = ref_kbmmapv(aux->hits, hidx);
+	if(hit->mat == 0) return;
+	print_hit_kbm(aux->kbm, hit, aux->cigars, aux->str, out);
 }
 
 static inline int _dp_path2map_kbm(KBMAux *aux, int dir){
@@ -1836,7 +1783,7 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 			return;
 		}
 		e = ref_kbmdpev(dp->kms, dp->kms->size - 1);
-		if((int)dp->km_len < aux->par->min_mat || e->bidx + 1 < dp->kms->buffer[0].bidx + aux->par->min_aln / KBM_BIN_SIZE){
+		if((int)dp->km_len < aux->par->min_mat || e->bidx + 1 < dp->kms->buffer[0].bidx + aux->par->min_aln){
 			clear_kbmdpev(dp->kms);
 			dp->km_len = aux->par->ksize + aux->par->psize;
 			return;
@@ -1863,7 +1810,7 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 #endif
 		}
 		if(e->bidx + aux->par->max_bgap + 1 < p->bidx || dp->kms->buffer[0].bidx + aux->par->max_bcnt < p->bidx || aux->kbm->bins->buffer[e->bidx].ridx != aux->kbm->bins->buffer[p->bidx].ridx){
-			if(Int(dp->km_len) < aux->par->min_mat || e->bidx + 1 < dp->kms->buffer[0].bidx + aux->par->min_aln / KBM_BIN_SIZE){
+			if(Int(dp->km_len) < aux->par->min_mat || e->bidx + 1 < dp->kms->buffer[0].bidx + aux->par->min_aln){
 				clear_kbmdpev(dp->kms);
 				push_kbmdpev(dp->kms, *p);
 				dp->km_len = aux->par->ksize + aux->par->psize;
@@ -2093,10 +2040,10 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 		dst->mat += hit->mat;
 		dst->cnt += hit->cnt;
 		dst->gap += hit->gap;
-		dst->gap += num_max(x, y) / KBM_BIN_SIZE;
+		dst->gap += num_max(x, y);
 		z = num_min(x, y);
 		f = 0x4 | 0; // diagonal GAP
-		pushs_bitsvec(dst_cigars, f, z / KBM_BIN_SIZE);
+		pushs_bitsvec(dst_cigars, f, z);
 		x -= z;
 		y -= z;
 		if(x > y){
@@ -2106,7 +2053,7 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 			z = y;
 			f = 0x4 | 2;
 		}
-		pushs_bitsvec(dst_cigars, f, z / KBM_BIN_SIZE);
+		pushs_bitsvec(dst_cigars, f, z);
 		append_bitsvec(dst_cigars, src_cigars, hit->cgoff, hit->cglen);
 	}
 	dst->aln = num_min(dst->qe - dst->qb, dst->te - dst->tb);
