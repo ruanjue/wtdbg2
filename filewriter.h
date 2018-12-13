@@ -192,8 +192,8 @@ static inline size_t close_bufferedwriter(BufferedWriter *bw){
 	}
 	fclose(bw->bios[0]);
 	fclose(bw->bios[1]);
-	if(bw->blens[0]) free(bw->buffs[0]);
-	if(bw->blens[1]) free(bw->buffs[1]);
+	if(bw->buffs[0]) free(bw->buffs[0]);
+	if(bw->buffs[1]) free(bw->buffs[1]);
 	if(bw->_close){
 		bw->_close(bw->_file);
 	}
