@@ -472,7 +472,7 @@ int kbm_main(int argc, char **argv){
 				maln->corr_mode = 1;
 				KBMBlock *kb;
 				kb = init_kbmblock(2048, 2048 - 512);
-				maln->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, maln->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, 512);
+				maln->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, 1, maln->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, 512);
 				maln->lay = maln->out;
 				thread_end_iter(maln);
 			} else if(strcasecmp(fr->line->string, "#print_read") == 0){

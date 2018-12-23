@@ -41,6 +41,7 @@ typedef struct {
 	f4v *kords;
 	BaseBank *cns;
 	int is_tripog, ref_mode;
+	int shuffle; // 0: no shuffling, 1: by kmer, 2, random
 } TriPOG;
 
 static inline TriPOG* init_tripog(u4i seqmax, int ref_mode, int winlen, int winmin, int fail_skip, int M, int X, int I, int D, int W, int use_sse, int rW, u4i min_cnt, float min_freq){
@@ -82,6 +83,7 @@ static inline TriPOG* init_tripog(u4i seqmax, int ref_mode, int winlen, int winm
 		tp->matrix[i] = ((i / 4) == (i % 4))? M : X;
 	}
 	tp->is_tripog = 0;
+	tp->shuffle = 1;
 	return tp;
 }
 
@@ -112,6 +114,7 @@ static inline void beg_tripog(TriPOG *tp){
 }
 
 static inline void push_tripog(TriPOG *tp, char *seq, u4i len, u2i refbeg, u2i refend){
+	if(!tp->shuffle && tp->seqs->nseq >= tp->seqmax) return;
 	push_seqbank(tp->seqs, NULL, 0, seq, len);
 	push_u2v(tp->rbegs, refbeg);
 	push_u2v(tp->rends, refend);
@@ -121,6 +124,7 @@ static inline void push_tripog(TriPOG *tp, char *seq, u4i len, u2i refbeg, u2i r
 }
 
 static inline void fwdbitpush_tripog(TriPOG *tp, u8i *bits, u8i off, u4i len, u2i refbeg, u2i refend){
+	if(!tp->shuffle && tp->seqs->nseq >= tp->seqmax) return;
 	fwdbitpush_seqbank(tp->seqs, NULL, 0, bits, off, len);
 	push_u2v(tp->rbegs, refbeg);
 	push_u2v(tp->rends, refend);
@@ -130,6 +134,7 @@ static inline void fwdbitpush_tripog(TriPOG *tp, u8i *bits, u8i off, u4i len, u2
 }
 
 static inline void revbitpush_tripog(TriPOG *tp, u8i *bits, u8i off, u4i len, u2i refbeg, u2i refend){
+	if(!tp->shuffle && tp->seqs->nseq >= tp->seqmax) return;
 	revbitpush_seqbank(tp->seqs, NULL, 0, bits, off, len);
 	push_u2v(tp->rbegs, refbeg);
 	push_u2v(tp->rends, refend);
@@ -167,7 +172,7 @@ static inline void direct_run_tripog(TriPOG *tp){
 	}
 }
 
-static inline void shuffle_reads_tripog(TriPOG *tp){
+static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 	SeqBank *sb;
 	uuhash *khash;
 	u4v *kidxs;
@@ -178,12 +183,15 @@ static inline void shuffle_reads_tripog(TriPOG *tp){
 	u4i ridx, i, ksize, kmer, kmask, rlen, khit, mincnt;
 	int exists;
 	sb = tp->seqs;
+	if(sb->nseq == 0) return;
 	khash = tp->khash;
 	kidxs = tp->kidxs;
 	kords = tp->kords;
 	rbegs = tp->rbegs;
 	rends = tp->rends;
 	ksize = tp->ksize;
+	clear_u4v(kidxs);
+	clear_f4v(kords);
 	clear_uuhash(khash);
 	kmask = MAX_U4 >> ((16 - ksize) << 1);
 	mincnt = tp->ref_mode? 1 : 2;
@@ -209,8 +217,6 @@ static inline void shuffle_reads_tripog(TriPOG *tp){
 		}
 		if(tp->ref_mode) break;
 	}
-	clear_u4v(kidxs);
-	clear_f4v(kords);
 	for(ridx=0;ridx<sb->nseq;ridx++){
 		rlen = sb->rdlens->buffer[ridx];
 		kmer = 0;
@@ -263,11 +269,70 @@ static inline void shuffle_reads_tripog(TriPOG *tp){
 	}
 }
 
+static inline void subsample_reads_tripog(TriPOG *tp){
+	SeqBank *sb;
+	u4v *kidxs;
+	u2v *rbegs, *rends;
+	f4v *kords;
+	u4i ridx, i;
+	f4i cutoff;
+	sb = tp->seqs;
+	if(sb->nseq == 0 || sb->nseq <= tp->seqmax) return;
+	kidxs = tp->kidxs;
+	kords = tp->kords;
+	rbegs = tp->rbegs;
+	rends = tp->rends;
+	clear_u4v(kidxs);
+	clear_f4v(kords);
+	if(tp->ref_mode){
+		push_u4v(kidxs, 0);
+		push_f4v(kords, 200.0);
+		ridx = 1;
+	} else {
+		ridx = 0;
+	}
+	for(;ridx<sb->nseq;ridx++){
+		push_u4v(kidxs, ridx);
+		push_f4v(kords, 100.0 * drand48());
+	}
+	sort_array(kidxs->buffer, kidxs->size, u4i, num_cmpgt(kords->buffer[b], kords->buffer[a]));
+	cutoff = kords->buffer[kidxs->buffer[tp->seqmax - 1]];
+	clear_u4v(kidxs);
+	for(i=0;i<kords->size;i++){
+		if(kords->buffer[i] >= cutoff){
+			push_u4v(kidxs, i);
+		}
+	}
+	if(cns_debug > 1){
+		fprintf(stderr, "RANDOM CUTOFF = %f\n", cutoff);
+		for(i=0;i<kidxs->size;i++){
+			fprintf(stderr, "SHUFFLE[%u] %u\t%0.4f\n", i, kidxs->buffer[i], kords->buffer[kidxs->buffer[i]]);
+		}
+	}
+	for(i=0;i<kidxs->size;i++){
+		push_u8v(sb->rdoffs, sb->rdoffs->buffer[kidxs->buffer[i]]);
+		push_u4v(sb->rdlens, sb->rdlens->buffer[kidxs->buffer[i]]);
+		push_u2v(rbegs, rbegs->buffer[kidxs->buffer[i]]);
+		push_u2v(rends, rends->buffer[kidxs->buffer[i]]);
+	}
+	remove_array_u8v(sb->rdoffs, 0, kords->size);
+	remove_array_u4v(sb->rdlens, 0, kords->size);
+	remove_array_u2v(rbegs, 0, kords->size);
+	remove_array_u2v(rends, 0, kords->size);
+	sb->nseq = tp->seqmax;
+	if(cns_debug > 1){
+		fprintf(stderr, "SEQMAX: %u -> %u\n", sb->nseq, tp->seqmax);
+	}
+}
+
 static inline void end_tripog(TriPOG *tp){
 	POG *g;
 	kswr_t R;
 	u4i ridx, rlen, b, e, failed;
-	shuffle_reads_tripog(tp);
+	switch(tp->shuffle){
+		case 1: shuffle_reads_by_kmers_tripog(tp); break;
+		case 2: subsample_reads_tripog(tp); break;
+	}
 	if(tp->winlen == 0){
 		return direct_run_tripog(tp);
 	}
