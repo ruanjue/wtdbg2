@@ -1,3 +1,7 @@
+## <a name="update"></a>Updates
+* wtdbg 2.3 2018-12-23<br>
+No limitation on read length and read count.
+
 ## <a name="start"></a>Getting Started
 ```sh
 git clone https://github.com/ruanjue/wtdbg2
@@ -84,8 +88,7 @@ machines may differ.
 
 ## Limitations
 
-* Read length
-~~Wtdbg2 doesn't work with reads longer than 0x3FFFF (256kb). Longer reads will be split into multiple parts.~~
+* ~~Wtdbg2 doesn't work with reads longer than 0x3FFFF (256kb). Longer reads will be split into multiple parts.~~
 
 * ~~Wtdbg2 only works with up to 0x3FFFFFF (64 million) reads. If you have more reads, please filter short or low-quality reads first.~~
 
