@@ -844,8 +844,13 @@ static inline lay_seq_t* iter_wtlayblock(void *obj){
 				wb->key->rdidx  = wb->rdidx ++;
 				wb->key->rddir  = (get_col_str(wb->fr, 2)[0] == '-');
 				wb->key->rdoff  = atoi(get_col_str(wb->fr, 3));
-				wb->key->rbeg   = 0;
-				wb->key->rend   = 0;
+				if(c >= 8){
+					wb->key->rbeg = atoi(get_col_str(wb->fr, 6));
+					wb->key->rend = atoi(get_col_str(wb->fr, 7));
+				} else {
+					wb->key->rbeg = 0;
+					wb->key->rend = 0;
+				}
 				seq2basebank(wb->key->seq, ss, sl);
 				return wb->key;
 		}
