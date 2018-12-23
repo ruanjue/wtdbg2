@@ -36,7 +36,7 @@
 static int cns_debug = 0;
 
 #define POG_RDLEN_MAX	0x7FF8
-#define POG_RDCNT_MAX	0x3F
+#define POG_RDCNT_MAX	0x3FFF
 #define POG_HEAD_NODE	0
 #define POG_TAIL_NODE	1
 #define POG_DP_BT_M	0
@@ -84,7 +84,7 @@ typedef struct {
 	b2v *rows;
 	u4v *rowr;
 	b2v *btds;
-	u1v *btvs;
+	u2v *btvs;
 	u4v *btxs;
 	u4v *stack;
 	u4i msa_len;
@@ -121,7 +121,7 @@ static inline POG* init_pog(int refmode, int M, int X, int I, int D, int W, int 
 	g->rows  = init_b2v(16 * 1024);
 	g->rowr  = init_u4v(64);
 	g->btds  = init_b2v(16 * 1024);
-	g->btvs  = init_u1v(8 * 1024 * 1024);
+	g->btvs  = init_u2v(8 * 1024 * 1024);
 	g->btxs  = init_u4v(1024);
 	g->stack = init_u4v(32);
 	g->msa_len = 0;
@@ -149,7 +149,7 @@ static inline void renew_pog(POG *g){
 	renew_b2v(g->rows, 16 * 1024);
 	renew_u4v(g->rowr, 64);
 	renew_b2v(g->btds, 16 * 1024);
-	renew_u1v(g->btvs, 8 * 1024 * 1024);
+	renew_u2v(g->btvs, 8 * 1024 * 1024);
 	renew_u4v(g->btxs, 16 * 1024);
 	renew_u4v(g->stack, 32);
 	renew_u1v(g->msa, 16 * 1024);
@@ -174,7 +174,7 @@ static inline void free_pog(POG *g){
 	free_b2v(g->rows);
 	free_u4v(g->rowr);
 	free_b2v(g->btds);
-	free_u1v(g->btvs);
+	free_u2v(g->btvs);
 	free_u4v(g->btxs);
 	free_u4v(g->stack);
 	free_u1v(g->msa);
@@ -601,8 +601,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	u4i seqoff, seqlen, seqlex, slen, seqinc;
 	b4i score, x, xb, xe;
 	b2i *qp, *row, *btds;
-	__m128i SMASK, BTD, BTV;
-	union {__m128i V; u8i vals[2]; u2i v2[8]; u1i v1[16]; } V16;
+	__m128i SMASK;
 	u8i rmax;
 	u4i nidx, xidx, eidx, coff, roff, btx, vst, bt, mnode;
 	u4i i, j, flag, bb, bl;
@@ -727,8 +726,8 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		bb += v->nin;
 		if(i < 2) bb ++; // in case of add mnode
 	}
-	clear_u1v(g->btvs);
-	inc_u1v(g->btvs, 8);
+	clear_u2v(g->btvs);
+	inc_u2v(g->btvs, 8);
 	clear_and_inc_u4v(g->btxs, bb + 1);
 	//g->btxs->buffer[0] = 0;
 	memset(g->btxs->buffer, 0, (bb + 1) * sizeof(u4i));
@@ -794,7 +793,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			if(g->rowr->size){
 				coff = roff = g->rowr->buffer[-- g->rowr->size];
 			} else {
-#if 0
+#if DEBUG
 				if(g->rows->size + seqinc + g->rows->n_head > g->rows->cap){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					abort();
@@ -817,7 +816,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 			v->vst ++;
 			if(v->vst == v->nin){
 				push_u4v(g->stack, e->node);
-#if 0
+#if DEBUG
 			} else if(v->vst > v->nin){
 				fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 				abort();
@@ -827,12 +826,15 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		push_u4v(g->rowr, u->roff);
 		{ // compress-copy btds into btvs
 			u->voff = g->btvs->size;
-			inc_u1v(g->btvs, u->rend - u->rbeg);
+			inc_u2v(g->btvs, u->rend - u->rbeg);
 			if(0){
 				for(i=u->rbeg;i<u->rend;i++){
 					g->btvs->buffer[u->voff + i - u->rbeg] = (u1i)g->btds->buffer[u->coff + i];
 				}
 			} else {
+#if 0
+				__m128i BTD, BTV;
+				union {__m128i V; u8i vals[2]; u2i v2[8]; u1i v1[16]; } V16;
 				for(i=u->rbeg;i<u->rend;i+=8){
 					BTD = _mm_load_si128((__m128i*)(g->btds->buffer + u->coff + i));
 					BTV = _mm_shuffle_epi8(BTD, SMASK);
@@ -841,19 +843,22 @@ static inline int align_rd_pog(POG *g, u2i rid){
 					((u8i*)(g->btvs->buffer + u->voff + (i - u->rbeg)))[0] = V16.vals[0];
 				}
 				// TODO: check the results
-				if(0){
+#if DEBUG
 					for(i=u->rbeg;i<u->rend;i++){
-						if(g->btvs->buffer[u->voff + i - u->rbeg] != (u1i)g->btds->buffer[u->coff + i]){
+						if(g->btvs->buffer[u->voff + i - u->rbeg] != g->btds->buffer[u->coff + i]){
 							fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 							abort();
 						}
 					}
-				}
+#endif
+#else
+					memcpy(g->btvs->buffer + u->voff, g->btds->buffer + u->coff + u->rbeg, (u->rend - u->rbeg) * sizeof(u2i));
+#endif
 			}
 		}
 	}
 	v = ref_pognodev(g->nodes, POG_TAIL_NODE);
-#if 0
+#if DEBUG
 	if(v->roff == 0){
 		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		abort();
@@ -1709,7 +1714,7 @@ static inline void end_pog(POG *g){
 	pog_node_t *u, *v, *x;
 	pog_edge_t *e, *f;
 	u1i *r;
-	u4i i, ridx, nidx, eidx, xidx, moff, ready, beg, end, reflen;
+	u4i i, ridx, nidx, eidx, xidx, moff, ready, beg, end, reflen, margin;
 	int score;
 	if(g->seqs->nseq == 0) return;
 	score = align_rd_pog(g, 0);
@@ -1717,8 +1722,9 @@ static inline void end_pog(POG *g){
 		// add edges to refbeg and refend, to make sure reads can be aligned quickly and correctly within small bandwidth
 		u = ref_pognodev(g->nodes, POG_HEAD_NODE);
 		reflen = g->seqs->rdlens->buffer[0];
+		margin = 5;
 		for(i=0;i<g->sbegs->size;i++){
-			if(g->sbegs->buffer[i] < 10 || g->sbegs->buffer[i] + 10U >= reflen) continue;
+			if(g->sbegs->buffer[i] < margin || g->sbegs->buffer[i] + margin >= reflen) continue;
 			nidx = POG_TAIL_NODE + 1 + (reflen - 1 - g->sbegs->buffer[i]);
 			v = ref_pognodev(g->nodes, nidx);
 			eidx = u->edge;
@@ -1742,7 +1748,7 @@ static inline void end_pog(POG *g){
 		}
 		v = ref_pognodev(g->nodes, POG_TAIL_NODE);
 		for(i=0;i<g->sends->size;i++){
-			if(g->sends->buffer[i] < 10 || g->sends->buffer[i] + 10U >= reflen) continue;
+			if(g->sends->buffer[i] < margin || g->sends->buffer[i] + margin >= reflen) continue;
 			nidx = POG_TAIL_NODE + 1 + (reflen - g->sends->buffer[i]);
 			u = ref_pognodev(g->nodes, nidx);
 			eidx = u->edge;
