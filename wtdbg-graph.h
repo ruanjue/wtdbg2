@@ -2094,6 +2094,7 @@ static inline u8i trim_tip_core_graph(Graph *g, uint16_t max_step, tracev *path,
 	t->edges[0] = EDGE_REF_NULL;
 	t->edges[1] = EDGE_REF_NULL;
 	t->dir = dir;
+	msg1 = WT_TRACE_MSG_ZERO;
 	step = linear_trace_graph(g, path, max_step, &msg1) + 1;
 	if(step > max_step) return 0;
 	//if(msg1 != -1 - WT_TRACE_MSG_MORE && msg1 != WT_TRACE_MSG_MORE) return 0;
