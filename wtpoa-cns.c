@@ -46,7 +46,7 @@ int usage(){
 	" -w <int>    Min size of aligned size in window, [$W * 0.5]\n"
 	"             In sorted-SAM input mode, -w is the sliding window size [2000]\n"
 	" -A          Abort TriPOA when any read cannot be fast aligned, then try POA\n"
-	//" -S <int>    SSE speedup in graph alignment, [1]\n"
+	" -S <int>    Shuffle mode, 0: don't shuffle reads, 1: by shared kmers, 2: subsampling. [1]\n"
 	" -R <int>    Realignment bandwidth, 0: disable, [16]\n"
 	" -C <int>    Min count of bases to call a consensus base, [3]\n"
 	" -F <float>  Min frequency of non-gap bases to call a consensus base, [0.5]\n"
@@ -66,12 +66,13 @@ int main(int argc, char **argv){
 	FILE *out;
 	char *outf;
 	u4i i;
-	int reglen, use_sse, refmode, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax, wsize, print_lay, sam_present;
+	int reglen, use_sse, refmode, shuffle, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax, wsize, print_lay, sam_present;
 	float minfreq;
 	int c, ncpu, overwrite;
 	ncpu = 4;
 	use_sse = 2;
 	refmode = 0;
+	shuffle = 1;
 	seqmax = 20;
 	bandwidth = 96;
 	winlen = 200;
@@ -105,7 +106,7 @@ int main(int argc, char **argv){
 			case 'o': outf = optarg; break;
 			case 'f': overwrite = 1; break;
 			case 'j': reglen = atoi(optarg); break;
-			case 'S': use_sse = atoi(optarg); break;
+			case 'S': shuffle = atoi(optarg); break;
 			case 'B': bandwidth = atoi(optarg); break;
 			case 'W': winlen = atoi(optarg); break;
 			case 'w': wsize = winmin = atoi(optarg); break;
@@ -148,7 +149,7 @@ int main(int argc, char **argv){
 	if(dbfs->size == 0){
 		WTLAYBlock *wb;
 		wb = init_wtlayblock(fr);
-		cc = init_ctgcns(wb, iter_wtlayblock, info_wtlayblock, ncpu, refmode, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen);
+		cc = init_ctgcns(wb, iter_wtlayblock, info_wtlayblock, ncpu, refmode, shuffle, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen);
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
@@ -183,7 +184,7 @@ int main(int argc, char **argv){
 		free_biosequence(seq);
 		close_filereader(db);
 		sb = init_samblock(refs, fr, wsize, reglen, sam_present);
-		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, UInt((wsize - reglen) * 1.2 + 100));
+		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, shuffle, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, UInt((wsize - reglen) * 1.2 + 100));
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
