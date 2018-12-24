@@ -554,7 +554,7 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 static inline lay_seq_t* iter_samblock(void *obj){
 	SAMBlock *sb;
 	lay_seq_t *sc, *sl;
-	u4i chr, chridx, off, rdlen, rddir, rdoff, nxt, val, len, op;
+	u4i chr, chridx, off, minlen, rddir, rdoff, nxt, val, len, op;
 	char *ptr, *str;
 	int c;
 	sb = (SAMBlock*)obj;
@@ -589,13 +589,12 @@ static inline lay_seq_t* iter_samblock(void *obj){
 			} else {
 				chridx = sb->chridx;
 			}
-			off = atol(get_col_str(sb->fr, 3));
+			off = atol(get_col_str(sb->fr, 3)) - 1;
 			ptr = get_col_str(sb->fr, 5);
 			if((*ptr) == '*') continue;
 			sb->rdidx ++;
 			rdoff = 0;
-			rdlen = get_col_len(sb->fr, 9);
-			//TODO: discard frag < 1/2 rdlen and < 1/2 bsize
+			minlen = num_min(get_col_len(sb->fr, 9), sb->bsize) / 2;
 			rddir = (atol(get_col_str(sb->fr, 1)) & 0x10) >> 4;
 			str = get_col_str(sb->fr, 9);
 			{
@@ -683,7 +682,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 					}
 					if(off == nxt){
 						if(sl){
-							if(sl->rend > sl->rbeg){
+							if(sl->rend >= sl->rbeg + minlen){
 								sl = _push_padding_ref_samblock(sb, sl);
 								if(sb->lidx == MAX_U4){
 									sb->lidx = offset_layseqr(sb->seqs, sl);
@@ -713,7 +712,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 					}
 				}
 			}
-			if(sl && sl->rend > sl->rbeg){
+			if(sl && sl->rend >= sl->rbeg + minlen){
 				sl = _push_padding_ref_samblock(sb, sl);
 				if(sb->lidx == MAX_U4){
 					sb->lidx = offset_layseqr(sb->seqs, sl);
@@ -722,7 +721,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 					num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
 						ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, a)->rdidx, ref_layseqr(sb->seqs, b)->rdidx));
 			}
-			if(sc && sc->rend > sc->rbeg){
+			if(sc && sc->rend >= sc->rbeg + minlen){
 				sc = _push_padding_ref_samblock(sb, sc);
 				if(sb->lidx == MAX_U4){
 					sb->lidx = offset_layseqr(sb->seqs, sc);
