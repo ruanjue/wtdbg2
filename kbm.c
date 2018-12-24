@@ -17,8 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "kbm-x.h"
-#include "kbmpoa-x.h"
+#include "kbm.h"
+#include "kbmpoa.h"
 #include <regex.h>
 
 int kbm_usage(){

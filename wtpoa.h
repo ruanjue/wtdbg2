@@ -554,7 +554,7 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 static inline lay_seq_t* iter_samblock(void *obj){
 	SAMBlock *sb;
 	lay_seq_t *sc, *sl;
-	u4i chr, chridx, off, rddir, rdoff, nxt, val, len, op;
+	u4i chr, chridx, off, rdlen, rddir, rdoff, nxt, val, len, op;
 	char *ptr, *str;
 	int c;
 	sb = (SAMBlock*)obj;
@@ -594,6 +594,8 @@ static inline lay_seq_t* iter_samblock(void *obj){
 			if((*ptr) == '*') continue;
 			sb->rdidx ++;
 			rdoff = 0;
+			rdlen = get_col_len(sb->fr, 9);
+			//TODO: discard frag < 1/2 rdlen and < 1/2 bsize
 			rddir = (atol(get_col_str(sb->fr, 1)) & 0x10) >> 4;
 			str = get_col_str(sb->fr, 9);
 			{

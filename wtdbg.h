@@ -20,7 +20,7 @@
 #ifndef __WTDBG_H_RJ
 #define __WTDBG_H_RJ
 
-#include "kbm-x.h"
+#include "kbm.h"
 #include "kbmpoa.h"
 #include "filewriter.h"
 #include "pgzf.h"
