@@ -40,11 +40,12 @@ typedef struct {
 	u4v *kidxs;
 	f4v *kords;
 	BaseBank *cns;
-	int is_tripog, ref_mode;
+	int is_tripog, refmode;
 	int shuffle; // 0: no shuffling, 1: by kmer, 2, random
 } TriPOG;
 
-static inline TriPOG* init_tripog(u4i seqmax, int ref_mode, int winlen, int winmin, int fail_skip, int M, int X, int I, int D, int W, int use_sse, int rW, u4i min_cnt, float min_freq){
+//static inline TriPOG* init_tripog(u4i seqmax, int refmode, int winlen, int winmin, int fail_skip, int M, int X, int I, int D, int W, int use_sse, int rW, u4i min_cnt, float min_freq){
+static inline TriPOG* init_tripog(u4i seqmax, int shuffle, int winlen, int winmin, int fail_skip, POGPar *par){
 	TriPOG *tp;
 	u4i i;
 	tp = malloc(sizeof(TriPOG));
@@ -53,7 +54,6 @@ static inline TriPOG* init_tripog(u4i seqmax, int ref_mode, int winlen, int winm
 	tp->rends = init_u2v(32);
 	tp->seqmax = seqmax;
 	tp->longest_idx = 0;
-	tp->ref_mode = ref_mode;
 	tp->ksize = 11;
 	tp->kdup = 0.1;
 	tp->keqs = 0.2;
@@ -62,28 +62,38 @@ static inline TriPOG* init_tripog(u4i seqmax, int ref_mode, int winlen, int winm
 	tp->qry  = init_u1v(1024);
 	tp->regs[0] = init_u2v(32);
 	tp->regs[1] = init_u2v(32);
+	tp->refmode = par->refmode;
 	tp->fail_skip = fail_skip;
+	tp->winlen = winlen;
+	tp->winmin = winmin;
+	tp->pogs[0] = init_pog(*par);
+#if 0
 	if(winlen > 0){
 		tp->winlen = winlen;
 		tp->winmin = winmin;
-		tp->pogs[0] = init_pog(ref_mode, M, X, I, D, 0, 0, use_sse, 0, min_cnt, min_freq);
+		tp->pogs[0] = init_pog(refmode, M, X, I, D, 0, 0, use_sse, 0, min_cnt, min_freq);
 	} else {
 		tp->winlen = 0;
 		tp->winmin = 0;
-		tp->pogs[0] = init_pog(ref_mode, M, X, I, D, W, - winlen, use_sse, rW, min_cnt, min_freq);
+		tp->pogs[0] = init_pog(refmode, M, X, I, D, W, - winlen, use_sse, rW, min_cnt, min_freq);
 	}
-	tp->pogs[1] = init_pog(ref_mode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
-	tp->pogs[2] = init_pog(ref_mode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
+#endif
+	tp->pogs[1] = init_pog(*par);
+	tp->pogs[1]->par->W_score = 0;
+	tp->pogs[2] = init_pog(*par);
+	tp->pogs[1]->par->W_score = 0;
+	//tp->pogs[1] = init_pog(refmode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
+	//tp->pogs[2] = init_pog(refmode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
 	//tp->pogs[1]->near_dialog = 1;
 	//tp->pogs[2]->near_dialog = 1;
 	tp->kidxs = init_u4v(32);
 	tp->kords = init_f4v(32);
 	tp->cns = init_basebank();
 	for(i=0;i<16;i++){
-		tp->matrix[i] = ((i / 4) == (i % 4))? M : X;
+		tp->matrix[i] = ((i / 4) == (i % 4))? par->M : par->X;
 	}
 	tp->is_tripog = 0;
-	tp->shuffle = 1;
+	tp->shuffle = shuffle;
 	return tp;
 }
 
@@ -147,11 +157,11 @@ static inline void direct_run_tripog(TriPOG *tp){
 	POG *g;
 	u4i ridx;
 	clear_basebank(tp->cns);
-	if(tp->ref_mode){
+	if(tp->refmode){
 	} else {
-		tp->pogs[0]->W = tp->pogs[1]->W;
-		tp->pogs[0]->rW = tp->pogs[1]->rW;
-		tp->pogs[0]->W_score = tp->pogs[1]->W * tp->pogs[1]->M * 8;
+		tp->pogs[0]->par->W = tp->pogs[1]->par->W;
+		tp->pogs[0]->par->rW = tp->pogs[1]->par->rW;
+		tp->pogs[0]->par->W_score = tp->pogs[1]->par->W * tp->pogs[1]->par->M * 8;
 	}
 	g = tp->pogs[0];
 	beg_pog(g);
@@ -164,11 +174,11 @@ static inline void direct_run_tripog(TriPOG *tp){
 	} else {
 		fast_fwdbits2basebank(tp->cns, g->cns->bits, 0, g->cns->size);
 	}
-	if(tp->ref_mode){
+	if(tp->refmode){
 	} else {
-		tp->pogs[0]->W = 0;
-		tp->pogs[0]->rW = 0;
-		tp->pogs[0]->W_score = 0;
+		tp->pogs[0]->par->W = 0;
+		tp->pogs[0]->par->rW = 0;
+		tp->pogs[0]->par->W_score = 0;
 	}
 }
 
@@ -194,7 +204,7 @@ static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 	clear_f4v(kords);
 	clear_uuhash(khash);
 	kmask = MAX_U4 >> ((16 - ksize) << 1);
-	mincnt = tp->ref_mode? 1 : 2;
+	mincnt = tp->refmode? 1 : 2;
 	for(ridx=0;ridx<sb->nseq;ridx++){
 		rlen = sb->rdlens->buffer[ridx];
 		kmer = 0;
@@ -215,7 +225,7 @@ static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 				u->val = (0U << 31) | ((ridx + 1) << 16) | 1;
 			}
 		}
-		if(tp->ref_mode) break;
+		if(tp->refmode) break;
 	}
 	for(ridx=0;ridx<sb->nseq;ridx++){
 		rlen = sb->rdlens->buffer[ridx];
@@ -230,7 +240,7 @@ static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 				khit ++;
 			}
 		}
-		if(tp->ref_mode){
+		if(tp->refmode){
 			if(ridx == 0){
 				push_f4v(kords, 3e+38F);
 			} else {
@@ -284,7 +294,7 @@ static inline void subsample_reads_tripog(TriPOG *tp){
 	rends = tp->rends;
 	clear_u4v(kidxs);
 	clear_f4v(kords);
-	if(tp->ref_mode){
+	if(tp->refmode){
 		push_u4v(kidxs, 0);
 		push_f4v(kords, 200.0);
 		ridx = 1;
@@ -319,10 +329,10 @@ static inline void subsample_reads_tripog(TriPOG *tp){
 	remove_array_u4v(sb->rdlens, 0, kords->size);
 	remove_array_u2v(rbegs, 0, kords->size);
 	remove_array_u2v(rends, 0, kords->size);
-	sb->nseq = tp->seqmax;
 	if(cns_debug > 1){
 		fprintf(stderr, "SEQMAX: %u -> %u\n", sb->nseq, tp->seqmax);
 	}
+	sb->nseq = tp->seqmax;
 }
 
 static inline void end_tripog(TriPOG *tp){
@@ -418,7 +428,7 @@ static inline void end_tripog(TriPOG *tp){
 		rlen = tp->seqs->rdlens->buffer[ridx];
 		clear_and_encap_u1v(tp->ref, rlen);
 		bitseq_basebank(tp->seqs->rdseqs, tp->seqs->rdoffs->buffer[ridx], rlen, tp->ref->buffer);
-		R = ksw_align(tp->winlen, tp->qry->buffer, rlen, tp->ref->buffer, 4, tp->matrix, - (tp->pogs[0]->I + tp->pogs[0]->D)/2, 1, KSW_XSTART, NULL);
+		R = ksw_align(tp->winlen, tp->qry->buffer, rlen, tp->ref->buffer, 4, tp->matrix, - (tp->pogs[0]->par->I + tp->pogs[0]->par->D)/2, 1, KSW_XSTART, NULL);
 		if(R.qb <= -1 || R.tb <= -1 || R.qe <= -1 || R.te <= -1){
 			if(cns_debug > 1){
 				fprintf(stderr, "FAILED_ALIGN: READ%u [%d,%d=%d][%d,%d=%d]\n", ridx, R.qb, R.qe, R.qe - R.qb, R.tb, R.te, R.te - R.tb);
@@ -453,7 +463,7 @@ static inline void end_tripog(TriPOG *tp){
 	}
 	// building cns for fast aligned regions
 	g = tp->pogs[0];
-	g->aln_mode = POG_ALNMODE_GLOBAL;
+	g->par->alnmode = POG_ALNMODE_GLOBAL;
 	beg_pog(g);
 	for(ridx=0;ridx<tp->seqs->nseq;ridx++){
 		if(tp->regs[0]->buffer[ridx] == MAX_U2) continue;
@@ -463,7 +473,7 @@ static inline void end_tripog(TriPOG *tp){
 		print_seqs_pog(g, "p0.fa", NULL);
 	}
 	end_pog(g);
-	g->aln_mode = POG_ALNMODE_OVERLAP;
+	g->par->alnmode = POG_ALNMODE_OVERLAP;
 	// finding a best break point
 	{
 		u2v *rs;
