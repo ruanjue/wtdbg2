@@ -36,6 +36,7 @@ int usage(){
 	" -o <string> Output files, [STDOUT]\n"
 	" -f          Force overwrite\n"
 	" -j <int>    Expected max length of node, or say the overlap length of two adjacent units in layout file, [1500] bp\n"
+	" -b <int>    Bonus for tri-bases match, [0]\n"
 	" -M <int>    Match score, [2]\n"
 	" -X <int>    Mismatch score, [-5]\n"
 	" -I <int>    Insertion score, [-2]\n"
@@ -59,6 +60,7 @@ int usage(){
 }
 
 int main(int argc, char **argv){
+	POGPar par;
 	CTGCNS *cc;
 	SeqBank *refs;
 	FileReader *fr, *db;
@@ -66,59 +68,50 @@ int main(int argc, char **argv){
 	FILE *out;
 	char *outf;
 	u4i i;
-	int reglen, use_sse, refmode, shuffle, bandwidth, rW, winlen, winmin, fail_skip, M, X, I, D, E, mincnt, seqmax, wsize, print_lay, sam_present;
-	float minfreq;
+	int reglen, shuffle, winlen, winmin, fail_skip;
+	int seqmax, wsize, print_lay, sam_present;
 	int c, ncpu, overwrite;
+	par = DEFAULT_POG_PAR;
 	ncpu = 4;
-	use_sse = 2;
-	refmode = 0;
 	shuffle = 1;
 	seqmax = 20;
-	bandwidth = 96;
 	winlen = 200;
 	winmin = 0;
 	fail_skip = 1;
 	reglen = 1500;
 	wsize = 2000; // used for SAM input
-	M = 2;
-	X = -5;
-	I = -2;
-	D = -4;
-	E = -1;
-	rW = 16;
-	mincnt = 3;
-	minfreq = 0.5;
 	infs = init_cplist(4);
 	dbfs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
 	print_lay = 0;
 	sam_present = 0;
-	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:AM:X:I:D:E:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:Ab:M:X:I:D:E:R:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
 			case 'p': print_lay = 1;
 			case 'd': push_cplist(dbfs, optarg); break;
 			case 'u': sam_present = 1; break;
-			case 'r': refmode = 1; break;
+			case 'r': par.refmode = 1; break;
 			case 'i': push_cplist(infs, optarg); break;
 			case 'o': outf = optarg; break;
 			case 'f': overwrite = 1; break;
 			case 'j': reglen = atoi(optarg); break;
 			case 'S': shuffle = atoi(optarg); break;
-			case 'B': bandwidth = atoi(optarg); break;
+			case 'B': par.W = atoi(optarg); break;
 			case 'W': winlen = atoi(optarg); break;
 			case 'w': wsize = winmin = atoi(optarg); break;
 			case 'A': fail_skip = 0; break;
-			case 'M': M = atoi(optarg); break;
-			case 'X': X = atoi(optarg); break;
-			case 'I': I = atoi(optarg); break;
-			case 'D': D = atoi(optarg); break;
-			case 'E': E = atoi(optarg); break;
-			case 'R': rW = atoi(optarg); break;
-			case 'C': mincnt = atoi(optarg); break;
-			case 'F': minfreq = atof(optarg); break;
+			case 'b': par.tribase = atoi(optarg); break;
+			case 'M': par.M = atoi(optarg); break;
+			case 'X': par.X = atoi(optarg); break;
+			case 'I': par.I = atoi(optarg); break;
+			case 'D': par.D = atoi(optarg); break;
+			case 'E': par.E = atoi(optarg); break;
+			case 'R': par.rW = atoi(optarg); break;
+			case 'C': par.msa_min_cnt = atoi(optarg); break;
+			case 'F': par.msa_min_freq = atof(optarg); break;
 			case 'N': seqmax = atoi(optarg); break;
 			case 'v': cns_debug ++; break;
 			case 'V': fprintf(stdout, "wtpoa-cns 1.2\n"); return 0;
@@ -146,10 +139,13 @@ int main(int argc, char **argv){
 	if(outf){
 		out = open_file_for_write(outf, NULL, 1);
 	} else out = stdout;
+	if(shuffle == 2){
+		srand48(13);
+	}
 	if(dbfs->size == 0){
 		WTLAYBlock *wb;
 		wb = init_wtlayblock(fr);
-		cc = init_ctgcns(wb, iter_wtlayblock, info_wtlayblock, ncpu, refmode, shuffle, seqmax, winlen, winmin, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, reglen);
+		cc = init_ctgcns(wb, iter_wtlayblock, info_wtlayblock, ncpu, shuffle, seqmax, winlen, winmin, fail_skip, reglen, &par);
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
@@ -184,7 +180,7 @@ int main(int argc, char **argv){
 		free_biosequence(seq);
 		close_filereader(db);
 		sb = init_samblock(refs, fr, wsize, reglen, sam_present);
-		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, 1, shuffle, seqmax, 0, 0, fail_skip, bandwidth, M, X, I, D, -1, rW, mincnt, minfreq, UInt((wsize - reglen) * 1.2 + 100));
+		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, shuffle, seqmax, 0, 0, fail_skip, UInt((wsize - reglen) * 1.2 + 100), &par);
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
