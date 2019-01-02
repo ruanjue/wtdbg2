@@ -109,9 +109,8 @@ typedef struct CTGCNS {
 	u4i cidx, eidx, chridx, bidx;
 	int state;
 	u4i seqmax;
-	int winlen, winmin, fail_skip, rW, mincnt;
-	int refmode, W, M, X, I, D, E, reglen;
-	float minfreq;
+	int winlen, winmin, fail_skip;
+	int M, X, I, D, E, reglen;
 	u8i tri_rets[2];
 	u4i print_progress;
 	thread_def_shared_vars(mcns);
@@ -187,7 +186,8 @@ free_u8list(mem_cache);
 free_u32list(cigars[0]);
 thread_end_func(mcns);
 
-static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_block infocns, u4i ncpu, int refmode, int shuffle_rds, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen){
+//static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_block infocns, u4i ncpu, int refmode, int shuffle_rds, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen){
+static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_block infocns, u4i ncpu, int shuffle_rds, u4i seqmax, int winlen, int winmin, int fail_skip, int reglen, POGPar *par){
 	CTGCNS *cc;
 	thread_prepare(mcns);
 	cc = malloc(sizeof(CTGCNS));
@@ -208,24 +208,18 @@ static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_bl
 	cc->eidx = 0;
 	cc->state = 1;
 	cc->seqmax = seqmax;
-	cc->refmode = refmode;
 	cc->winlen = winlen;
 	cc->winmin = winmin;
 	cc->fail_skip = fail_skip;
-	cc->W = W;
-	cc->M = M;
-	cc->X = X;
-	cc->I = I;
-	cc->D = D;
-	cc->E = E;
-	cc->rW = rW;
-	cc->mincnt = mincnt;
-	cc->minfreq = minfreq;
+	cc->M = par->M;
+	cc->X = par->X;
+	cc->I = par->I;
+	cc->D = par->D;
+	cc->E = par->E;
 	cc->reglen = reglen;
 	thread_beg_init(mcns, ncpu);
 	mcns->cc = cc;
-	mcns->g = init_tripog(seqmax, refmode, winlen, winmin, fail_skip, M, X, I, D, W, 2, rW, mincnt, minfreq);
-	mcns->g->shuffle = shuffle_rds;
+	mcns->g = init_tripog(seqmax, shuffle_rds, winlen, winmin, fail_skip, par);
 	ZEROS(&(mcns->edge));
 	thread_end_init(mcns);
 	cc->tri_rets[0] = 0;
