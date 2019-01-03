@@ -74,18 +74,22 @@ typedef struct {
 define_list(pogedgev, pog_edge_t);
 
 typedef struct {
+	int cnsmode; // 0: gen_cns_pog, 1: dp_call_cns_pog
 	int refmode;
 	int alnmode;
 	int tribase;
 	int sse;
 	int near_dialog;
 	int W_score;
-	int M, X, I, D, E, T, W, rW;
+	int W, rW;
+	int M, X, I, D, E;
+	float H; // homopolymer merge
+	int T; // bonus for end
 	u4i msa_min_cnt;
 	float msa_min_freq;
 } POGPar;
 
-static const POGPar DEFAULT_POG_PAR = (POGPar){0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 2, -5, -2, -4, -1, 20, 96, 16, 3, 0.5};
+static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 96, 16, 2, -5, -2, -4, -1, -1.5, 20, 3, 0.5};
 
 typedef struct {
 	SeqBank  *seqs;
@@ -104,6 +108,7 @@ typedef struct {
 	u1v *msa;
 	u2v *bcnts[7];
 	u2v *hcovs;
+	u1v *cbts;
 	BaseBank *cns;
 	u8i ncall;
 } POG;
@@ -135,6 +140,7 @@ static inline POG* init_pog(POGPar par){
 	g->bcnts[5] = init_u2v(4 * 1024);
 	g->bcnts[6] = init_u2v(4 * 1024);
 	g->hcovs = init_u2v(4 * 1024);
+	g->cbts  = init_u1v(5 * 2 * 1024);
 	g->cns = init_basebank();
 	g->ncall = 0;
 	return g;
@@ -162,6 +168,7 @@ static inline void renew_pog(POG *g){
 	renew_u2v(g->bcnts[5], 4 * 1024);
 	renew_u2v(g->bcnts[6], 4 * 1024);
 	renew_u2v(g->hcovs, 4 * 1024);
+	renew_u1v(g->cbts, 5 * 2 * 1024);
 	free_basebank(g->cns); g->cns = init_basebank();
 }
 
@@ -187,6 +194,7 @@ static inline void free_pog(POG *g){
 	free_u2v(g->bcnts[5]);
 	free_u2v(g->bcnts[6]);
 	free_u2v(g->hcovs);
+	free_u1v(g->cbts);
 	free_basebank(g->cns);
 	free(g->par);
 	free(g);
@@ -1596,6 +1604,166 @@ static inline void msa2dag_cns_pog(POG *g){
 }
 */
 
+static inline void dp_call_cns_pog(POG *g){
+	u1i *s, *r, bts[5];
+	u4i mcnt;
+	int bcnts[5];
+	u2i *hcovs, *rexs;
+	u4i rid, beg, end, x, val, fidx, col, dep;
+	u4i mx, mi, i, j;
+	float dps[2 * 5], *dp1, *dp2, DP_MIN, score0, score1;
+	DP_MIN = - (MAX_B4 >> 1);
+	mcnt = num_min(g->par->msa_min_cnt, g->seqs->nseq);
+	clear_and_encap_u1v(g->cbts, g->msa_len * 5);
+	// scan read end
+	clear_u4v(g->btxs);
+	clear_u2v(g->btvs); // whether read cov current column
+	hcovs = g->hcovs->buffer;
+	memset(hcovs, 0, g->msa_len * sizeof(u2i));
+	for(rid=0;rid<g->seqs->nseq;rid++){
+		push_u2v(g->btvs, 0);
+		r = ref_u1v(g->msa, g->msa_len * rid);
+		beg = 0;
+		while(beg < g->msa_len && r[beg] == 4) beg ++;
+		push_u4v(g->btxs, (0U << 31) | (rid << 16) | beg);
+		end = g->msa_len;
+		while(end > beg && r[end - 1] == 4) end --;
+		push_u4v(g->btxs, (1U << 31) | (rid << 16) | end);
+		for(i=beg;i<end;i++) hcovs[i] ++;
+	}
+	sort_array(g->btxs->buffer, g->btxs->size, u4i, num_cmpgt(a & 0xFFFF, b & 0xFFFF));
+	memset(dps, 0, 2 * 5 * sizeof(float));
+	fidx = 0;
+	dep = 0;
+	mx = 0;
+	rexs = g->btvs->buffer;
+	for(col=0;col<g->msa_len;col++){
+		fidx = !fidx;
+		dp1 = dps + fidx * 5;
+		dp2 = dps + (!fidx) * 5;
+		// collect read coverage
+		while(mx < g->btxs->size){
+			val = g->btxs->buffer[mx];
+			if((val & 0xFFFF) <= col){
+				rid = (val << 1) >> 17;
+				if(val & (1U << 31)){
+#if DEBUG
+					if(rexs[rid] == 0){
+						fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+						abort();
+					}
+#endif
+					rexs[rid] = 0;
+					dep --;
+				} else {
+#if DEBUG
+					if(rexs[rid] == 1){
+						fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+						abort();
+					}
+#endif
+					rexs[rid] = 1;
+					dep ++;
+				}
+				mx ++;
+			} else {
+				break;
+			}
+		}
+		bts[0] = bts[1] = bts[2] = bts[3] = bts[4] = 4;
+		dp2[0] = DP_MIN;
+		dp2[1] = DP_MIN;
+		dp2[2] = DP_MIN;
+		dp2[3] = DP_MIN;
+		dp2[4] = DP_MIN;
+		memset(bcnts, 0, sizeof(int) * 5);
+		for(rid=0;rid<g->seqs->nseq;rid++){
+			if(rexs[rid] == 0){
+				continue;
+			}
+			r = ref_u1v(g->msa, g->msa_len * rid);
+			bcnts[r[col]] ++;
+		}
+		if(dep < mcnt && !(g->par->refmode && rexs[0])){
+			mi = 4;
+			for(i=0;i<4;i++){
+				if(dp1[i] > dp1[mi]){
+					mi = i;
+				}
+			}
+			dp2[4] = dp1[mi];
+			bts[4] = mi;
+		} else {
+			for(i=0;i<=4;i++){
+				score0 = dp1[i];
+				for(j=0;j<=4;j++){
+					score1 = score0;
+					for(x=0;x<=4;x++){
+						if(j == 4){
+							if(x != 4){
+								score1 += bcnts[x] * g->par->I;
+							}
+						} else {
+							if(x == 4){
+								if(i == j){
+									score1 += bcnts[x] * g->par->H;
+								} else {
+									score1 += bcnts[x] * g->par->D;
+								}
+							} else if(x == j){
+								score1 += bcnts[x] * g->par->M;
+							} else {
+								score1 += bcnts[x] * g->par->X;
+							}
+						}
+					}
+					if(score1 > dp2[j]){
+						dp2[j] = score1;
+						bts[j] = i;
+					}
+				}
+			}
+			// Prior to the first read
+			for(rid=0;rid<g->seqs->nseq;rid++){
+				if(rexs[i] == 0){
+					continue;
+				}
+				r = ref_u1v(g->msa, g->msa_len * rid);
+				dp2[r[col]] += 0.1;
+				break;
+			}
+		}
+		for(i=0;i<=4;i++){
+			push_u1v(g->cbts, bts[i]);
+		}
+		if(cns_debug > 2){
+			fprintf(stderr, "[DPCNS%03u]\t%d\t[%d]\t[%2d, %2d, %2d, %2d, %2d]", col, dep, mx, bcnts[0], bcnts[1], bcnts[2], bcnts[3], bcnts[4]);
+			fprintf(stderr, "\t[%0.1f, %0.1f, %0.1f, %0.1f, %0.1f]", dp1[0], dp1[1], dp1[2], dp1[3], dp1[4]);
+			fprintf(stderr, "\t[%0.1f:%d, %0.1f:%d, %0.1f:%d, %0.1f:%d, %0.1f:%d]\n", dp2[0], bts[0], dp2[1], bts[1], dp2[2], bts[2], dp2[3], bts[3], dp2[4], bts[4]);
+		}
+	}
+	// Backtrace consensus sequence
+	dp2 = dps + (!fidx) * 5;
+	mx = 4;
+	for(i=0;i<4;i++){
+		if(dp2[i] > dp2[mx]){
+			mx = i;
+		}
+	}
+	x = g->msa_len;
+	s = ref_u1v(g->msa, g->msa_len * g->seqs->nseq);
+	while(x){
+		x --;
+		s[x] = mx;
+		mx = g->cbts->buffer[x * 5 + mx];
+	}
+	for(i=0;i<g->msa_len;i++){
+		if(s[i] < 4){
+			bit2basebank(g->cns, s[i]);
+		}
+	}
+}
+
 static inline void gen_cns_pog(POG *g){
 	u1i *s, *r;
 	u4i idx, lst, lsv, lsx, rid, max, i, mcnt, min_cnt, max_cnt, runlen, cnl, beg, end, cbeg, cend;
@@ -2023,7 +2191,11 @@ static inline void end_pog(POG *g){
 	//// realignment again
 	//realign_msa_pog(g);
 	// gen consensus line
-	gen_cns_pog(g);
+	if(g->par->cnsmode == 1){
+		dp_call_cns_pog(g);
+	} else {
+		gen_cns_pog(g);
+	}
 	if(cns_debug > 1){
 		print_msa_pog(g, stderr);
 	}

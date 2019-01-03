@@ -41,6 +41,7 @@ int usage(){
 	" -X <int>    Mismatch score, [-5]\n"
 	" -I <int>    Insertion score, [-2]\n"
 	" -D <int>    Deletion score, [-4]\n"
+	" -H <float>  Homopolymer merge score used in dp-call-cns mode, [-1.5]\n"
 	" -B <int>    Bandwidth, [96]\n"
 	" -W <int>    Window size in the middle of the first read for fast align remaining reads, [200]\n"
 	"             If $W is negative, will disable fast align, but use the abs($W) as Band align score cutoff\n"
@@ -49,6 +50,7 @@ int usage(){
 	" -A          Abort TriPOA when any read cannot be fast aligned, then try POA\n"
 	" -S <int>    Shuffle mode, 0: don't shuffle reads, 1: by shared kmers, 2: subsampling. [1]\n"
 	" -R <int>    Realignment bandwidth, 0: disable, [16]\n"
+	" -c <int>    Consensus mode: 0, run-length; 1, dp-call-cns, [0]\n"
 	" -C <int>    Min count of bases to call a consensus base, [3]\n"
 	" -F <float>  Min frequency of non-gap bases to call a consensus base, [0.5]\n"
 	" -N <int>    Max number of reads in PO-MSA [20]\n"
@@ -86,7 +88,7 @@ int main(int argc, char **argv){
 	overwrite = 0;
 	print_lay = 0;
 	sam_present = 0;
-	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:Ab:M:X:I:D:E:R:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
@@ -109,7 +111,9 @@ int main(int argc, char **argv){
 			case 'I': par.I = atoi(optarg); break;
 			case 'D': par.D = atoi(optarg); break;
 			case 'E': par.E = atoi(optarg); break;
+			case 'H': par.H = atof(optarg); break;
 			case 'R': par.rW = atoi(optarg); break;
+			case 'c': par.cnsmode = atoi(optarg); break;
 			case 'C': par.msa_min_cnt = atoi(optarg); break;
 			case 'F': par.msa_min_freq = atof(optarg); break;
 			case 'N': seqmax = atoi(optarg); break;
