@@ -119,6 +119,10 @@ int main(int argc, char **argv){
 		}
 	}
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
+	if(winlen < 0){
+		par.W_score = - winlen;
+		winlen = 0;
+	}
 	if(winmin <= 0){
 		winmin = winlen * 0.5;
 	}

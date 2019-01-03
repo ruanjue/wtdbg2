@@ -81,7 +81,7 @@ static inline TriPOG* init_tripog(u4i seqmax, int shuffle, int winlen, int winmi
 	tp->pogs[1] = init_pog(*par);
 	tp->pogs[1]->par->W_score = 0;
 	tp->pogs[2] = init_pog(*par);
-	tp->pogs[1]->par->W_score = 0;
+	tp->pogs[2]->par->W_score = 0;
 	//tp->pogs[1] = init_pog(refmode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
 	//tp->pogs[2] = init_pog(refmode, M, X, I, D, W, 0, use_sse, rW, min_cnt, min_freq);
 	//tp->pogs[1]->near_dialog = 1;
