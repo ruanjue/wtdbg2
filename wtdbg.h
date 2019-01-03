@@ -1302,8 +1302,12 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	mdbg->aux = init_kbmaux(g->kbm);
 	if(g->corr_mode){
 		KBMBlock *kb;
+		POGPar par;
 		kb = init_kbmblock(g->corr_bsize, g->corr_bstep);
-		mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, 1, g->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE);
+		//mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, 1, g->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE);
+		par = DEFAULT_POG_PAR;
+		par.refmode = 1;
+		mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, g->corr_max, 200, 100, 1, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE, &par);
 	} else {
 		mdbg->cc = NULL;
 	}
