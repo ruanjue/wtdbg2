@@ -89,7 +89,7 @@ typedef struct {
 	float msa_min_freq;
 } POGPar;
 
-static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 96, 16, 2, -5, -2, -4, -1, -1.5, 20, 3, 0.5};
+static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 96, 16, 2, -5, -2, -4, -1, -3, 20, 3, 0.5};
 
 typedef struct {
 	SeqBank  *seqs;
@@ -857,7 +857,7 @@ static inline int _alignment2graph_pog(POG *g, u4i rid, int xb, int xe){
 	x = xe;
 	nidx = POG_TAIL_NODE;
 	v = ref_pognodev(g->nodes, nidx);
-	int my_print = (cns_debug > 2);
+	int my_print = (cns_debug > 3);
 	if(x + 1 < (int)seqlen){
 		for(i=seqlen-1;(int)i>x;i--){
 			if(my_print){
@@ -1088,7 +1088,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	score = POG_SCORE_MIN;
 	mnode = POG_TAIL_NODE; // point to POG_TAIL
 	x = seqlen - 1;
-	int my_print = (cns_debug > 2);
+	int my_print = (cns_debug > 3);
 	while(pop_u4v(g->stack, &nidx)){
 		u = ref_pognodev(g->nodes, nidx);
 		u->rmax = g->rows->buffer[u->roff + seqlex];
@@ -1377,7 +1377,7 @@ static inline u4i realign_msa_pog_core(POG *g, u4i ridx, int W){
 		}
 		row2[end] = 0;
 		bs[end] = 0;
-		if(cns_debug > 2){
+		if(cns_debug > 3){
 			fprintf(stderr, "ROW[%u] '%c' %03d-%03d:", i, "ACGT-"[s[i]], beg, end);
 			for(j=beg;j<end;j++){
 				fprintf(stderr, " %5u[%d]", row2[j], bs[j]);
@@ -1398,7 +1398,7 @@ static inline u4i realign_msa_pog_core(POG *g, u4i ridx, int W){
 			case 1: x --; break;
 			case 2: r[y] = 4; y --; break;
 		}
-		if(cns_debug > 2 && bt){
+		if(cns_debug > 3 && bt){
 			fprintf(stderr, " -- x = %d y = %d bt = %d in %s -- %s:%d --\n", x, y, bt, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		}
 	}
@@ -1737,8 +1737,8 @@ static inline void dp_call_cns_pog(POG *g){
 			push_u1v(g->cbts, bts[i]);
 		}
 		if(cns_debug > 2){
-			fprintf(stderr, "[DPCNS%03u]\t%d\t[%d]\t[%2d, %2d, %2d, %2d, %2d]", col, dep, mx, bcnts[0], bcnts[1], bcnts[2], bcnts[3], bcnts[4]);
-			fprintf(stderr, "\t[%0.1f, %0.1f, %0.1f, %0.1f, %0.1f]", dp1[0], dp1[1], dp1[2], dp1[3], dp1[4]);
+			fprintf(stderr, "[DPCNS%03u]\t[%2d, %2d, %2d, %2d, %2d]", col, bcnts[0], bcnts[1], bcnts[2], bcnts[3], bcnts[4]);
+			//fprintf(stderr, "\t[%0.1f, %0.1f, %0.1f, %0.1f, %0.1f]", dp1[0], dp1[1], dp1[2], dp1[3], dp1[4]);
 			fprintf(stderr, "\t[%0.1f:%d, %0.1f:%d, %0.1f:%d, %0.1f:%d, %0.1f:%d]\n", dp2[0], bts[0], dp2[1], bts[1], dp2[2], bts[2], dp2[3], bts[3], dp2[4], bts[4]);
 		}
 	}
