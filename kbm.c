@@ -391,7 +391,7 @@ int kbm_main(int argc, char **argv){
 					seq = seqs[k];
 				}
 				tag_size = seq->tag->size;
-				for(i=0;(int)i<seq->seq->size;i+=KBM_MAX_RDLEN){
+				for(i=0;i<UInt(seq->seq->size);i+=KBM_MAX_RDLEN){
 					len = num_min(seq->seq->size - i, KBM_MAX_RDLEN);
 					if(i){
 						append_string(seq->tag, "_V", 2);
