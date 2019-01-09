@@ -85,8 +85,9 @@ the assembly step:
 |[A. thaliana][at]       |125Mb |PB x75  |-x sq -g125m -t32  |  11h26m|   4h57m|  49m35s|   25.7G|
 |[Human NA12878][na12878]|3Gb   |ONT x36 |-x ont -g3g -t32   | 793h11m|  97h46m|  31h03m|  221.8G|
 |[Human NA19240][na19240]|3Gb   |ONT x35 |-x ont -g3g -t32   | 935h31m|  89h17m|  35h20m|  215.0G|
-|[Human CHM1][chm1]      |3Gb   |PB x60  |                   |        |        |        |        |
-|[Axolotl][axosra]       |32Gb  |PB x32  |                   |        |        |        |        |
+|[Human CHM1][chm1]      |3Gb   |PB x60  |-x rs -g3g         |        |        |        |        |
+|[Human HG00733][hg00733]|3Gb   |PB ?    |-x sq -g3g         |        |        |        |        |
+|[Axolotl][axosra]       |32Gb  |PB x32  |-x rs -g32g        |        |        |        |        |
 
 The timing was obtained on three local servers with different hardware
 configurations. There are also run-to-run fluctuations. Exact timing on your
@@ -119,3 +120,4 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [at]: https://downloads.pacbcloud.com/public/SequelData/ArabidopsisDemoData/
 [dm1]: https://www.ebi.ac.uk/ena/data/view/SRR6702603
 [dm2]: https://www.ebi.ac.uk/ena/data/view/SRR5439404
+[hg00733]: https://www.ebi.ac.uk/ena/data/view/SRR7615963
