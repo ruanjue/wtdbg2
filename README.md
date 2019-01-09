@@ -81,7 +81,7 @@ the assembly step:
 |[E. coli][pbcr]         |4.6Mb |PB x20  |-x rs -g4.6m -t16  |     53s|   8m54s|     42s|    1.0G|
 |[C. elegans][ce]        |100Mb |PB x80  |-x rs -g100m -t32  |   1h07m|   5h06m|  13m42s|   11.6G|
 |[D. melanogaster A4][dm2]| 144m|PB x120 |-x rs -g144m -t32  |   2h06m|   5h11m|  26m17s|   19.4G|
-|[D. melanogaster ISO1][dm1]|144m|ONT x32|-x ont -g144m -t32 |   5h12m|   4h30m|  25m59s|   17.3G|
+|[D. melanogaster ISO1][dm1]|144m|ONT x32|-xont -g144m -t32  |   5h12m|   4h30m|  25m59s|   17.3G|
 |[A. thaliana][at]       |125Mb |PB x75  |-x sq -g125m -t32  |  11h26m|   4h57m|  49m35s|   25.7G|
 |[Human NA12878][na12878]|3Gb   |ONT x36 |-x ont -g3g -t32   | 793h11m|  97h46m|  31h03m|  221.8G|
 |[Human NA19240][na19240]|3Gb   |ONT x35 |-x ont -g3g -t32   | 935h31m|  89h17m|  35h20m|  215.0G|
@@ -90,7 +90,10 @@ the assembly step:
 
 The timing was obtained on three local servers with different hardware
 configurations. There are also run-to-run fluctuations. Exact timing on your
-machines may differ. The assembled contigs can be found at [this FTP][ftp].
+machines may differ. The assembled contigs can be found at the following FTP:
+```txt
+ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
+```
 
 ## Limitations
 
@@ -115,4 +118,4 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [issue]: https://github.com/ruanjue/wtdbg2/issues
 [at]: https://downloads.pacbcloud.com/public/SequelData/ArabidopsisDemoData/
 [dm1]: https://www.ebi.ac.uk/ena/data/view/SRR6702603
-[ftp]: ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
+[dm2]: https://www.ebi.ac.uk/ena/data/view/SRR5439404
