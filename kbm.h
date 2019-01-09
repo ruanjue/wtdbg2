@@ -1051,7 +1051,7 @@ static inline void index_kbm(KBM *kbm, u8i beg, u8i end, u4i ncpu, FILE *kmstat)
 	free_kbmbauxv(kbm->sauxs);
 	kbm->sauxs = init_kbmbauxv(off + 1);
 	kbm->sauxs->size = off;
-	kavg = Nrem / nrem;
+	kavg = Nrem / (nrem + 1);
 	fprintf(KBM_LOGF, "[%s] - Total kmers = %llu\n", date(), ktot);
 	fprintf(KBM_LOGF, "[%s] - average kmer depth = %d\n", date(), kavg);
 	fprintf(KBM_LOGF, "[%s] - %llu low frequency kmers (<%d)\n", date(), none, kbm->par->kmin);
@@ -1696,12 +1696,12 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	return 1;
 }
 
-static inline void print_hit_kbm(KBM *kbm, kbm_map_t *hit, BitsVec *cigars, String *_str, FILE *out){
+static inline void print_hit_kbm(KBM *kbm, char *qtag, u4i qlen, kbm_map_t *hit, BitsVec *cigars, String *_str, FILE *out){
 	String *str;
 	u8i coff;
 	u4i clen, len, bt, _bt;
 	if(hit->mat == 0) return;
-	fprintf(out, "%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->qidx].tag, "+-"[hit->qdir], kbm->reads->buffer[hit->qidx].rdlen, hit->qb * KBM_BIN_SIZE, hit->qe * KBM_BIN_SIZE);
+	fprintf(out, "%s\t%c\t%d\t%d\t%d", qtag, "+-"[hit->qdir], qlen, hit->qb * KBM_BIN_SIZE, hit->qe * KBM_BIN_SIZE);
 	fprintf(out, "\t%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], kbm->reads->buffer[hit->tidx].rdlen, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE);
 	fprintf(out, "\t%d\t%d\t%d\t%d\t", hit->mat, hit->aln * KBM_BIN_SIZE, hit->cnt, hit->gap);
 	if(cigars){
@@ -1744,7 +1744,7 @@ static inline void fprint_hit_kbm(KBMAux *aux, u4i hidx, FILE *out){
 	kbm_map_t *hit;
 	hit = ref_kbmmapv(aux->hits, hidx);
 	if(hit->mat == 0) return;
-	print_hit_kbm(aux->kbm, hit, aux->cigars, aux->str, out);
+	print_hit_kbm(aux->kbm, aux->qtag, aux->slen, hit, aux->cigars, aux->str, out);
 }
 
 static inline int _dp_path2map_kbm(KBMAux *aux, int dir){

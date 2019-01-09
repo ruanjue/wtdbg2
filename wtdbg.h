@@ -495,7 +495,7 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 #if DEBUG
 		if(x + 1 + hit->qb != hit->qe || y + 1 + hit->tb != hit->te){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-			print_hit_kbm(g->kbm, hit, cigars, NULL, stderr);
+			print_hit_kbm(g->kbm, g->kbm->reads->buffer[hit->qidx].tag, g->kbm->reads->buffer[hit->qidx].rdlen, hit, cigars, NULL, stderr);
 			abort();
 		}
 #endif
