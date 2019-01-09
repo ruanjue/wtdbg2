@@ -7,13 +7,14 @@ No limitation on read length and read count.
 git clone https://github.com/ruanjue/wtdbg2
 cd wtdbg2 && make
 # assemble long reads
-./wtdbg2 -t 16 -i reads.fa.gz -fo prefix -L 5000
+./wtdbg2 -x rs -g 4.6m -i reads.fa.gz -t16 -fo prefix
 # derive consensus
-./wtpoa-cns -t 16 -i prefix.ctg.lay -fo prefix.ctg.lay.fa
+./wtpoa-cns -t16 -i prefix.ctg.lay.gz -fo prefix.ctg.fa
+
 # polish consensus, not necessary if you want to polish the assemblies using other tools
-minimap2 -t 16 -x map-pb -a prefix.ctg.lay.fa reads.fa.gz | samtools view -Sb - >prefix.ctg.lay.map.bam
-samtools sort prefix.ctg.lay.map.bam prefix.ctg.lay.map.srt
-samtools view prefix.ctg.lay.map.srt.bam | ./wtpoa-cns -t 16 -d prefix.ctg.lay.fa -i - -fo prefix.ctg.lay.2nd.fa
+minimap2 -t 16 -x map-pb -a prefix.ctg.fa reads.fa.gz | samtools view -Sb - >prefix.ctg.map.bam
+samtools sort prefix.ctg.map.bam prefix.ctg.map.srt
+samtools view prefix.ctg.map.srt.bam | ./wtpoa-cns -t 16 -d prefix.ctg.fa -i - -fo prefix.ctg.2nd.fa
 ```
 
 ## <a name="intro"></a>Introduction
@@ -45,16 +46,19 @@ directory.
 
 Wtdbg2 has two key components: an assembler **wtdg2** and a consenser
 **wtpoa-cns**. Executable **wtdbg2** assembles raw reads and generates the
-contig layout and edge sequences in a file "*prefix*.ctg.lay". Executable
+contig layout and edge sequences in a file "*prefix*.ctg.lay.gz". Executable
 **wtpoa-cns** takes this file as input and produces the final consensus in
 FASTA. A typical workflow looks like this:
 ```sh
-./wtdbg2 -t 16 -i reads.fa.gz -fo prefix
-./wtpoa-cns -t 16 -i prefix.ctg.lay -fo prefix.ctg.lay.fa
+./wtdbg2 -x rs -g 4.6m -t 16 -i reads.fa.gz -fo prefix
+./wtpoa-cns -t 16 -i prefix.ctg.lay.gz -fo prefix.ctg.fa
 ```
-where `-t` specifies the number of CPU cores (`-t 0` to use all processors).
-When the default doesn't work well, you may need to apply more options briefly
-explained as follows.
+where `-g` is the estimated genome size and `-x` specifies the sequencing
+technology, which could take value "rs" for PacBio RSII, "sq" for PacBio
+Sequel, "ccs" for PacBio CCS reads and "ont" for Oxford Nanopore. This option
+sets multiple parameters and should be **applied before other parameters**.
+When you are unable to get a good assembly, you may need to tune other
+parameters as follows.
 
 Wtdbg2 combines normal k-mers and homopolymer-compressed (HPC) k-mers to find
 read overlaps. Option `-k` specifies the length of normal k-mers, while `-p`
@@ -74,23 +78,24 @@ the assembly step:
 
 |Dataset                 |GSize |Cov     |Asm options        |CPU asm |CPU cns |Real tot|     RAM|
 |:-----------------------|-----:|-------:|:------------------|-------:|-------:|-------:|-------:|
-|[E. coli][pbcr]         |4.6Mb |PB x20  |-t32 -L5000        |     39s|  10m34s|     29s|    1.1G|
-|[C. elegans][ce]        |100Mb |PB x80  |-t32 -L5000 -e4    |   1h00m|   5h06m|  16m16s|    9.5G|
-|[Human NA12878][na12878]|3Gb   |ONT x36 |-t36 -p19 -AS2 -e2<br/>-L5000|822h28m|115h59m|27h42m|182.1G|
-|[Human NA19240][na19240]|3Gb   |ONT x35 |-t32 -p19 -AS2 -e2 | 706h30m| 114h45m|  27h33m|  177.5G|
-|[C. elegans][ce]        |100Mb |PB x80  |-t64 -L5000        |   1h46m|   5h27m|  14m17s|   10.1G|
-|[Human CHM1][chm1]      |3Gb   |PB x60  |-t64 -L10000       | 186h15m| 131h52m|   7h41m|  265.2G|
-|[Axolotl][axosra]       |32Gb  |PB x32  |-t96 -L5000 -AS2   |3076h13m|1180h03m| 88h01m| 1626.7G|
+|[E. coli][pbcr]         |4.6Mb |PB x20  |-x rs -g4.6m -t16  |     53s|   8m54s|     42s|    1.0G|
+|[C. elegans][ce]        |100Mb |PB x80  |-x rs -g100m -t32  |   1h07m|   5h06m|  13m42s|   11.6G|
+|[D. melanogaster A4][dm2]| 144m|PB x120 |-x rs -g144m -t32  |   2h06m|   5h11m|  26m17s|   19.4G|
+|[D. melanogaster ISO1][dm1]|144m|ONT x32|-x ont -g144m -t32 |   5h12m|   4h30m|  25m59s|   17.3G|
+|[A. thaliana][at]       |125Mb |PB x75  |-x sq -g125m -t32  |  11h26m|   4h57m|  49m35s|   25.7G|
+|[Human NA12878][na12878]|3Gb   |ONT x36 |-x ont -g3g -t32   | 793h11m|  97h46m|  31h03m|  221.8G|
+|[Human NA19240][na19240]|3Gb   |ONT x35 |-x ont -g3g -t32   | 935h31m|  89h17m|  35h20m|  215.0G|
+|[Human CHM1][chm1]      |3Gb   |PB x60  |                   |        |        |        |        |
+|[Axolotl][axosra]       |32Gb  |PB x32  |                   |        |        |        |        |
 
 The timing was obtained on three local servers with different hardware
 configurations. There are also run-to-run fluctuations. Exact timing on your
-machines may differ.
+machines may differ. The assembled contigs can be found at [this FTP][ftp].
 
 ## Limitations
 
-* ~~Wtdbg2 doesn't work with reads longer than 0x3FFFF (256kb). Longer reads will be split into multiple parts.~~
-
-* ~~Wtdbg2 only works with up to 0x3FFFFFF (64 million) reads. If you have more reads, please filter short or low-quality reads first.~~
+* For Nanopore data, wtdbg2 may produce an assembly smaller than the true
+  genome.
 
 ## Getting Help
 
@@ -108,3 +113,6 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [ce]: https://github.com/PacificBiosciences/DevNet/wiki/C.-elegans-data-set
 [axosra]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA378970
 [issue]: https://github.com/ruanjue/wtdbg2/issues
+[at]: https://downloads.pacbcloud.com/public/SequelData/ArabidopsisDemoData/
+[dm1]: https://www.ebi.ac.uk/ena/data/view/SRR6702603
+[ftp]: ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
