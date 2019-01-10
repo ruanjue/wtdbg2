@@ -83,10 +83,11 @@ the assembly step:
 |[D. melanogaster A4][dm2]| 144m|PB x120 |-x rs -g144m -t32  |   2h06m|   5h11m|  26m17s|   19.4G|
 |[D. melanogaster ISO1][dm1]|144m|ONT x32|-xont -g144m -t32  |   5h12m|   4h30m|  25m59s|   17.3G|
 |[A. thaliana][at]       |125Mb |PB x75  |-x sq -g125m -t32  |  11h26m|   4h57m|  49m35s|   25.7G|
-|[Human NA12878][na12878]|3Gb   |ONT x36 |-x ont -g3g -t32   | 793h11m|  97h46m|  31h03m|  221.8G|
-|[Human NA19240][na19240]|3Gb   |ONT x35 |-x ont -g3g -t32   | 935h31m|  89h17m|  35h20m|  215.0G|
+|[Human NA12878][na12878]|3Gb   |ONT x36 |-x ont -g3g -t31   | 793h11m|  97h46m|  31h03m|  221.8G|
+|[Human NA19240][na19240]|3Gb   |ONT x35 |-x ont -g3g -t31   | 935h31m|  89h17m|  35h20m|  215.0G|
+|[Human HG00733][hg00733]|3Gb   |PB x93  |-x sq -g3g -t47    |2114h26m| 152h24m|  52h22m|  338.1G|
+|[Human NA24385][na24385]|3Gb   |CCS x28 |-x ccs -g3g -t31   | 231h25m|  58h48m|  10h14m|  112.9G|
 |[Human CHM1][chm1]      |3Gb   |PB x60  |-x rs -g3g         |        |        |        |        |
-|[Human HG00733][hg00733]|3Gb   |PB ?    |-x sq -g3g         |        |        |        |        |
 |[Axolotl][axosra]       |32Gb  |PB x32  |-x rs -g32g        |        |        |        |        |
 
 The timing was obtained on three local servers with different hardware
@@ -121,3 +122,4 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [dm1]: https://www.ebi.ac.uk/ena/data/view/SRR6702603
 [dm2]: https://www.ebi.ac.uk/ena/data/view/SRR5439404
 [hg00733]: https://www.ebi.ac.uk/ena/data/view/SRR7615963
+[na24385]: https://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_CCS_15kb/
