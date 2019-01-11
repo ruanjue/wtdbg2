@@ -102,6 +102,9 @@ ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
 * For Nanopore data, wtdbg2 may produce an assembly smaller than the true
   genome.
 
+* When inputing multiple files of both fasta and fastq format, please put fastq first, then fasta.
+  Otherwise, program cannot find '>' in fastq, and append all fastq in one read.
+
 ## Getting Help
 
 Please use the [GitHub's Issues page][issue] if you have questions. You may
