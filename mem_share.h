@@ -601,6 +601,30 @@ static inline void print_proc_stat_info(int signum){
 	fflush(log);
 }
 
+static inline void _deamon_config_proc_limit(int signum){
+	char *val;
+	u8i rss_limit, rtime_limit;
+	UNUSED(signum);
+	if(_sig_proc_deamon == NULL) return;
+	thread_beg_syn_write(_sig_proc_deamon);
+	val = getenv("LIMIT_RSS");
+	if(val){
+		rss_limit = atol(val) * 1024 * 1024;
+	} else {
+		rss_limit = 0;
+	}
+	val = getenv("LIMIT_RTIME");
+	if(val){
+		rtime_limit = atol(val);
+	} else {
+		rtime_limit = 0;
+	}
+	_sig_proc_deamon->rss_limit = rss_limit;
+	_sig_proc_deamon->rtime_limit = rtime_limit;
+	fprintf(stderr, "** PROC_LIMIT: max rss = %llu MB rtime = %llu secs. **\n", rss_limit / 1024 * 1024, rtime_limit);
+	thread_end_syn_write(_sig_proc_deamon);
+}
+
 thread_beg_func(_proc_deamon);
 u8i rss, vsz;
 u8i cb, ce;
@@ -614,6 +638,7 @@ _proc_deamon->rtime_limit = 0;
 _proc_deamon->interval = 100000; // 0.1 sec
 get_linux_proc_info(&rss, &vsz, (double*)&_proc_deamon->utime, (double*)&_proc_deamon->stime);
 _sig_proc_deamon = (struct _proc_deamon_struct*)_proc_deamon;
+signal(SIGUSR1, _deamon_config_proc_limit);
 signal(SIGUSR2, print_proc_stat_info);
 _proc_deamon->once = 0; // Don't set ->state to 0 at thread_end_loop
 thread_beg_loop(_proc_deamon);
@@ -626,12 +651,12 @@ _proc_deamon->rtime = (ce - cb) / 1000000.0;
 thread_end_syn_write(_proc_deamon);
 if(_proc_deamon->rss_limit && rss > _proc_deamon->rss_limit){
 	fprintf(stderr, "-- Exceed memory limit: %llu > %llu\n", rss, _proc_deamon->rss_limit);
-	exit(1);
+	abort();
 }
 if(_proc_deamon->rtime_limit){
 	if(_proc_deamon->rtime > _proc_deamon->rtime_limit){
 		fprintf(stderr, "-- Timeout: %16.3f > %16.3f\n", _proc_deamon->rtime, _proc_deamon->rtime_limit);
-		exit(1);
+		abort();
 	}
 }
 microsleep(_proc_deamon->interval); // 0.1 sec
