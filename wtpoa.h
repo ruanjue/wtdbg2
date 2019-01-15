@@ -684,6 +684,8 @@ static inline lay_seq_t* iter_samblock(void *obj){
 								array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sl),
 									num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
 										ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, a)->rdidx, ref_layseqr(sb->seqs, b)->rdidx));
+							} else {
+								push_layseqr(sb->seqs, sl);
 							}
 							sl = NULL;
 							nxt += 2 * sb->bstep - sb->bsize;
@@ -706,23 +708,34 @@ static inline lay_seq_t* iter_samblock(void *obj){
 					}
 				}
 			}
-			if(sl && sl->rend >= sl->rbeg + minlen){
-				sl = _push_padding_ref_samblock(sb, sl);
-				if(sb->lidx == MAX_U4){
-					sb->lidx = offset_layseqr(sb->seqs, sl);
+			if(sl){
+				if(sl->rend >= sl->rbeg + minlen){
+					u4i scidx;
+					scidx = sc? offset_layseqr(sb->seqs, sc) : MAX_U4;
+					sl = _push_padding_ref_samblock(sb, sl);
+					sc = scidx == MAX_U4? NULL : ref_layseqr(sb->seqs, scidx);
+					if(sb->lidx == MAX_U4){
+						sb->lidx = offset_layseqr(sb->seqs, sl);
+					}
+					array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sl),
+						num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+							ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, a)->rdidx, ref_layseqr(sb->seqs, b)->rdidx));
+				} else {
+					push_layseqr(sb->seqs, sl);
 				}
-				array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sl),
-					num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
-						ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, a)->rdidx, ref_layseqr(sb->seqs, b)->rdidx));
 			}
-			if(sc && sc->rend >= sc->rbeg + minlen){
-				sc = _push_padding_ref_samblock(sb, sc);
-				if(sb->lidx == MAX_U4){
-					sb->lidx = offset_layseqr(sb->seqs, sc);
+			if(sc){
+				if(sc->rend >= sc->rbeg + minlen){
+					sc = _push_padding_ref_samblock(sb, sc);
+					if(sb->lidx == MAX_U4){
+						sb->lidx = offset_layseqr(sb->seqs, sc);
+					}
+					array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sc),
+						num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
+							ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, a)->rdidx, ref_layseqr(sb->seqs, b)->rdidx));
+				} else {
+					push_layseqr(sb->seqs, sc);
 				}
-				array_heap_push(sb->heap->buffer, sb->heap->size, sb->heap->cap, u4i, offset_layseqr(sb->seqs, sc),
-					num_cmpxx(ref_layseqr(sb->seqs, a)->chridx, ref_layseqr(sb->seqs, b)->chridx, ref_layseqr(sb->seqs, a)->bidx,
-						ref_layseqr(sb->seqs, b)->bidx, ref_layseqr(sb->seqs, a)->rdidx, ref_layseqr(sb->seqs, b)->rdidx));
 			}
 		}
 		if(sb->heap->size == 0) break;
