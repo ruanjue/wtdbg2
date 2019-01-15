@@ -55,6 +55,9 @@ int usage(){
 	" -F <float>  Min frequency of non-gap bases to call a consensus base, [0.5]\n"
 	" -N <int>    Max number of reads in PO-MSA [20]\n"
 	"             Keep in mind that I am not going to generate high accurate consensus sequences here\n"
+	" -x <string> Presets, []\n"
+	"             sam-sr: polishs contigs from short reads mapping, accepts sorted SAM files\n"
+	"                     shorted for '-w 200 -j 150 -R 0 -b 1 -c 1 -N 50 -rS 2'\n"
 	" -v          Verbose\n"
 	" -V          Print version information and then exit\n"
 	"\n");
@@ -88,7 +91,7 @@ int main(int argc, char **argv){
 	overwrite = 0;
 	print_lay = 0;
 	sam_present = 0;
-	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:")) != -1){
+	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
@@ -117,12 +120,28 @@ int main(int argc, char **argv){
 			case 'C': par.msa_min_cnt = atoi(optarg); break;
 			case 'F': par.msa_min_freq = atof(optarg); break;
 			case 'N': seqmax = atoi(optarg); break;
+			case 'x':
+				if(strcasecmp(optarg, "sam-sr") == 0){
+					wsize = 200;
+					reglen = 150;
+					par.rW = 0;
+					par.tribase = 1;
+					par.cnsmode = 1;
+					seqmax = 50;
+					par.refmode = 1;
+					shuffle = 2;
+				} else {
+					fprintf(stderr, "Unknown preset[%s]\n", optarg);
+					return 1;
+				}
+				break;
 			case 'v': cns_debug ++; break;
 			case 'V': fprintf(stdout, "wtpoa-cns 1.2\n"); return 0;
 			default: return usage();
 		}
 	}
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
+	//SET_PROC_LIMIT(10 * 1024 * 1024 * 1024ULL, 0); // TODO: remove it after debug
 	if(winlen < 0){
 		par.W_score = - winlen;
 		winlen = 0;
