@@ -105,7 +105,7 @@ typedef struct CTGCNS {
 	edgecnsv *rs;
 	String *tag;
 	BaseBank *seq, *cns;
-	u8i widx, ridx;
+	u8i widx, ridx, bases;
 	u4i cidx, eidx, chridx, bidx;
 	int state;
 	u4i seqmax;
@@ -204,6 +204,7 @@ static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_bl
 	cc->cns = init_basebank();
 	cc->widx = 1;
 	cc->ridx = 1;
+	cc->bases = 0;
 	cc->cidx = 0;
 	cc->eidx = 0;
 	cc->state = 1;
@@ -387,6 +388,7 @@ static inline int iter_ctgcns(CTGCNS *cc){
 							clear_basebank(cc->cns);
 						}
 					}
+					cc->bases += cc->cns->size;
 					thread_export(mcns, cc);
 					return 1;
 				}
@@ -430,7 +432,7 @@ static inline int iter_ctgcns(CTGCNS *cc){
 				edge = head_edgecnsv(cc->heap);
 				if(edge->idx == cc->widx){
 					if(!cns_debug && cc->print_progress && (cc->widx % cc->print_progress) == 0){
-						fprintf(stderr, "\r%u contigs %llu edges", cc->cidx, cc->widx); fflush(stderr);
+						fprintf(stderr, "\r%u contigs %llu edges %llu bases", cc->cidx, cc->widx, cc->bases); fflush(stderr);
 					}
 					push_edgecnsv(cc->rs, *edge);
 					array_heap_remove(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, 0, num_cmp(a.idx, b.idx));
