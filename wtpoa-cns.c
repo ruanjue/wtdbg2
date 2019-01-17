@@ -122,7 +122,7 @@ int main(int argc, char **argv){
 			case 'N': seqmax = atoi(optarg); break;
 			case 'x':
 				if(strcasecmp(optarg, "sam-sr") == 0){
-					wsize = 200;
+					wsize = winmin = 200;
 					reglen = 150;
 					par.rW = 0;
 					par.tribase = 1;
