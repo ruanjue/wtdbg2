@@ -88,7 +88,7 @@ the assembly step:
 |[Human HG00733][hg00733]|3Gb   |PB x93  |-x sq -g3g -t47    |2114h26m| 152h24m|  52h22m|  338.1G|
 |[Human NA24385][na24385]|3Gb   |CCS x28 |-x ccs -g3g -t31   | 231h25m|  58h48m|  10h14m|  112.9G|
 |[Human CHM1][chm1]      |3Gb   |PB x60  |-x rs -g3g -t96    | 105h33m| 139h24m|   5h17m|  225.1G|
-|[Axolotl][axosra]       |32Gb  |PB x32  |-x rs -g32g -t96   |2806h40m|        |        | 1788.1G|
+|[Axolotl][axosra]       |32Gb  |PB x32  |-x rs -g32g -t96   |2806h40m|1456h13m| 110h16m| 1788.1G|
 
 The timing was obtained on three local servers with different hardware
 configurations. There are also run-to-run fluctuations. Exact timing on your
