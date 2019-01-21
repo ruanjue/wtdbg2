@@ -17,7 +17,7 @@ samtools sort prefix.ctg.map.bam prefix.ctg.map.srt
 samtools view prefix.ctg.map.srt.bam | ./wtpoa-cns -t 16 -d prefix.ctg.fa -i - -fo prefix.ctg.2nd.fa
 
 # polish contigs using short reads
-bwa -t 16 prefix.ctg.fa sr.1.fa sr.2.fa | samtools view -Sb - >sr.bam
+bwa mem -t 16 prefix.ctg.fa sr.1.fa sr.2.fa | samtools view -Sb - >sr.bam
 samtools sort sr.bam sr.srt
 samtools view sr.srt.bam | ./wtpoa-cns -t 16 -x sam-sr -d prefix.ctg.fa -i - -fo prefix.ctg.3rd.fa
 ```
