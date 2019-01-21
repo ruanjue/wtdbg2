@@ -49,7 +49,7 @@ directory.
 
 ## <a name="use"></a>Usage
 
-Wtdbg2 has two key components: an assembler **wtdg2** and a consenser
+Wtdbg2 has two key components: an assembler **wtdbg2** and a consenser
 **wtpoa-cns**. Executable **wtdbg2** assembles raw reads and generates the
 contig layout and edge sequences in a file "*prefix*.ctg.lay.gz". Executable
 **wtpoa-cns** takes this file as input and produces the final consensus in
