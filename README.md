@@ -109,9 +109,9 @@ ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
 ## Citing wtdbg2
 
 If you use wtdbg2, please cite:
-```txt
-Ruan, J. and Li, H. (2019) Fast and accurate long-read assembly with wtdbg2. bioRxiv. doi:10.1101/530972
-```
+
+> Ruan, J. and Li, H. (2019) Fast and accurate long-read assembly with wtdbg2. *bioRxiv*. doi:10.1101/530972
+
 
 ## Getting Help
 
