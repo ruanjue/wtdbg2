@@ -1,7 +1,3 @@
-## <a name="update"></a>Updates
-* wtdbg 2.3 2018-12-23<br>
-No limitation on read length and read count.
-
 ## <a name="start"></a>Getting Started
 ```sh
 git clone https://github.com/ruanjue/wtdbg2
@@ -109,6 +105,13 @@ ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
 
 * When inputing multiple files of both fasta and fastq format, please put fastq first, then fasta.
   Otherwise, program cannot find '>' in fastq, and append all fastq in one read.
+
+## Citing wtdbg2
+
+If you use wtdbg2, please cite:
+```txt
+Ruan, J. and Li, H. (2019) Fast and accurate long-read assembly with wtdbg2. bioRxiv. doi:10.1101/530972
+```
 
 ## Getting Help
 
