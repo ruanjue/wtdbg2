@@ -58,7 +58,7 @@ static struct option prog_opts[] = {
 	{"version",                          0, 0, 'V'},
 	{"help",                             0, 0, 1000}, // detailed document
 	{"tidy-reads",                       1, 0, 'L'},
-	{"keep-name",                        0, 0, 1001},
+	{"tidy-name",                        0, 0, 1001},
 	{"err-free-nodes",                   0, 0, 1002},
 	{"limit-input",                      1, 0, 1003},
 	{"node-len",                         1, 0, 1004},
@@ -124,7 +124,7 @@ int usage(int level){
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
 	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50]\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
-	"             Negative integer indicate keeping read names, e.g. -5000.\n"
+	"             Negative integer indicate tidying read names too, e.g. -5000.\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
@@ -229,10 +229,12 @@ int usage(int level){
 	" --limit-input <int>\n"
 	"   Limit the input sequences to at most <int> M bp. Usually for test\n"
 	" -L <int>, --tidy-reads <int>\n"
-	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
-	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio RSII reads\n"
-	" --keep-name\n"
-	"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
+	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Please add --tidy-name or set --tidy-reads to nagetive value\n" 
+	"   if want to rename reads. Set to 0 bp to disable tidy. Suggested value is 5000 for pacbio RSII reads\n"
+	" --tidy-name\n"
+	"   Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
+	//" --keep-name\n"
+	//"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
 	" -g <number>, --genome-size <number>\n"
 	"   Provide genome size, e.g. 100.4m, 2.3g. In this version, it is used with -X/--rdcov-cutoff in selecting reads just after readed all.\n"
 	" -X <float>, --rdcov-cutoff <float>\n"
@@ -491,7 +493,7 @@ int main(int argc, char **argv){
 			case 'h': return usage(0);
 			case 1000: return usage(1);
 			case 'L':  tidy_reads = atoi(optarg); opt_flags |= (1 << 4); break;
-			case 1001: tidy_rdtag = 0; break;
+			case 1001: tidy_rdtag = 1; break;
 			case 1002: only_fix = 1; break;
 			case 1003: max_bp = atol(optarg); break;
 			case 1004: reglen = atoi(optarg); break;
@@ -607,10 +609,10 @@ int main(int argc, char **argv){
 		dup2(devnull, STDERR_FILENO);
 	}
 	if(tidy_rdtag == -1){
-		if(tidy_reads > 0){
-			tidy_rdtag = 1;
-		} else {
+		if(tidy_reads >= 0){
 			tidy_rdtag = 0;
+		} else {
+			tidy_rdtag = 1;
 		}
 	}
 	if(tidy_reads < 0) tidy_reads = - tidy_reads;
