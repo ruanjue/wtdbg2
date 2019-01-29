@@ -1573,6 +1573,8 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 	fprintf(KBM_LOGF, "[%s] sorting regs ... ", date()); fflush(KBM_LOGF);
 	psort_array(regs->buffer, regs->size, rd_reg_t, ncpu, num_cmpgtxx((a.node << 30) | a.rid, (b.node << 30) | b.rid, a.beg, b.beg, b.end, a.end));
 	fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
+	u4v *kbcnts;
+	kbcnts = init_u4v(1024);
 	rank = 0xFFFFFFFFFFFFFFFFLLU;
 	nd = NULL;
 	fprintf(KBM_LOGF, "[%s] generating intervals ... ", date()); fflush(KBM_LOGF);
@@ -1588,6 +1590,10 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 					rd2->tag, "+-"[r->dir], r->beg, r->end);
 		}
 		if(regs->buffer[idx].node != rank){
+			if(nd){
+				while(nd->cnt >= kbcnts->size) push_u4v(kbcnts, 0);
+				kbcnts->buffer[nd->cnt] ++;
+			}
 			nd = next_ref_rnkrefv(nds);
 			nd->idx = idx;
 			nd->rank = regs->buffer[idx].node;
@@ -1600,7 +1606,17 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			//nd->score += (regs->buffer[idx].beg >= g->reads->buffer[regs->buffer[idx].rid].clps[0] && regs->buffer[idx].end <= g->reads->buffer[regs->buffer[idx].rid].clps[1]);
 		}
 	}
-	psort_array(nds->buffer, nds->size, rnk_ref_t, ncpu, num_cmpgtx(b.cnt, a.cnt, a.rank, b.rank));
+	if(nd){
+		while(nd->cnt >= kbcnts->size) push_u4v(kbcnts, 0);
+		kbcnts->buffer[nd->cnt] ++;
+	}
+	// find medean k-bin depth
+	u4i gcov;
+	for(gcov=0,rank=0;gcov<kbcnts->size&&rank<nds->size;gcov++){
+		rank += kbcnts->buffer[gcov];
+	}
+	//psort_array(nds->buffer, nds->size, rnk_ref_t, ncpu, num_cmpgtx(b.cnt, a.cnt, a.rank, b.rank));
+	psort_array(nds->buffer, nds->size, rnk_ref_t, ncpu, num_cmpgtx(num_diff(a.cnt, gcov), num_diff(b.cnt, gcov), a.rank, b.rank));
 	fprintf(KBM_LOGF, " %llu intervals\n", (u8i)nds->size); fflush(KBM_LOGF);
 	//psort_array(nds->buffer, nds->size, rnk_ref_t, ncpu, num_cmpgtx(b.score, a.score, a.rank, b.rank));
 	if(0){
@@ -1623,6 +1639,63 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 	memset(g->regs->buffer + g->regs->size, 0xFF, sizeof(reg_t));
 	if(!KBM_LOG) fprintf(KBM_LOGF, "[%s] Intervals: kept %llu, discarded %llu\n", date(), upds[0], upds[1]);
 	print_proc_stat_info(0);
+}
+
+uint32_t estimate_genome_size(Graph *g, unsigned long long tot_bp, FILE *out){
+	uint64_t kcnts[256];
+	node_t *n;
+	uint64_t nid, sum, ncnt, pmax;
+	uint32_t i, dep, peak, mid;
+	float avg;
+	ncnt = g->nodes->size;
+	memset(kcnts, 0, sizeof(uint64_t) * 256);
+	sum = 0;
+	for(nid=0;nid<ncnt;nid++){
+		n = ref_nodev(g->nodes, nid);
+		dep = num_min(n->regs.cnt, 255);
+		sum += n->regs.cnt;
+		kcnts[dep] ++;
+	}
+	mid = pmax = 0;
+	while(mid < 255){
+		pmax += kcnts[mid];
+		if(pmax >= ncnt / 2) break;
+		mid ++;
+	}
+	avg = 1.0 * sum / (ncnt + 1);
+	fprintf(out, "[%s] median node depth = %d\n", date(), mid);
+	return mid;
+	//TODO: calculate the genome coverage
+	for(i=1;i<51;i++){
+		fprintf(out, "%10llu", (long long unsigned int)kcnts[i]);
+		if(((i - 1) % 10) == 9) fprintf(out, "\n");
+	}
+	if(((i - 1) % 10) != 0) fprintf(out, "\n");
+	return avg;
+	pmax = 0; peak = avg;
+	for(i=g->min_node_cov+1;i<256;i++){
+		if(kcnts[i] > pmax){ peak = i; pmax = kcnts[i]; }
+		else if(i > avg && kcnts[i] < 0.8 * pmax) break;
+	}
+	fprintf(out, "[%s] depth peak = %d\n", date(), peak);
+	fprintf(out, "[%s] genome size = %llu\n", date(), tot_bp / peak);
+	return peak;
+}
+
+// MUST be called before build_edges
+static u8i mask_nodes_by_cov_graph(Graph *g, FILE *out){
+	node_t *n;
+	u8i ret, i;
+	ret = 0;
+	for(i=0;i<g->nodes->size;i++){
+		n = ref_nodev(g->nodes, i);
+		if(n->regs.cnt > g->max_node_cov || n->regs.cnt < g->min_node_cov){
+			n->closed = 1;
+			ret ++;
+			if(out) fprintf(out, "MASK_COV\tN%llu\t%u\t%u\n", (u8i)i, (u4i)n->regs.cnt, n->cov);
+		}
+	}
+	return ret;
 }
 
 static inline void remove_all_edges_graph(Graph *g){

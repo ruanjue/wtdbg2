@@ -886,6 +886,7 @@ int main(int argc, char **argv){
 		generic_print_graph(g, print_nodes_graph, prefix, ".1.nodes");
 	}
 	if(1){
+		estimate_genome_size(g, tot_bp, KBM_LOGF);
 		cnt = mask_nodes_by_cov_graph(g, evtlog);
 		fprintf(KBM_LOGF, "[%s] masked %llu high coverage nodes (>%d or <%d)\n", date(), (unsigned long long)cnt, max_node_cov, node_cov);
 	}

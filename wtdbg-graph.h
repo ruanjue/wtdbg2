@@ -55,22 +55,6 @@ static inline void print_node_edges_cov_graph(Graph *g, FILE *out){
 	free_u4v(covs);
 }
 
-// MUST be called before build_edges
-static u8i mask_nodes_by_cov_graph(Graph *g, FILE *out){
-	node_t *n;
-	u8i ret, i;
-	ret = 0;
-	for(i=0;i<g->nodes->size;i++){
-		n = ref_nodev(g->nodes, i);
-		if(n->regs.cnt > g->max_node_cov || n->regs.cnt < g->min_node_cov){
-			n->closed = 1;
-			ret ++;
-			if(out) fprintf(out, "MASK_COV\tN%llu\t%u\t%u\n", (u8i)i, (u4i)n->regs.cnt, n->cov);
-		}
-	}
-	return ret;
-}
-
 static inline void cut_edge_core_graph(Graph *g, edge_t *e, int closed_val){
 	//if(e->closed == closed_val) return;
 	if(e->closed) return;
