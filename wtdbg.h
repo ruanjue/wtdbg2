@@ -672,11 +672,11 @@ thread_beg_loop(mdbg);
 if(mdbg->task == 1){
 	if(reg->closed) continue;
 	if(g->corr_mode){
-		if(map_kbmpoa(mdbg->cc, aux, kbm->reads->buffer[reg->rid].tag, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, g->corr_min, g->corr_max, g->corr_cov, NULL) == 0){
+		if(map_kbmpoa(mdbg->cc, aux, kbm->reads->buffer[reg->rid].tag, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE, g->corr_min, g->corr_max, g->corr_cov, NULL) == 0){
 			clear_kbmmapv(aux->hits);
 		}
 	} else {
-		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg);
+		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
 		map_kbm(aux);
 	}
 	sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
@@ -1439,7 +1439,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 			}
 			if(rid < qe && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
 				pb = ref_kbmreadv(g->kbm->reads, rid);
-				mdbg->reg = (reg_t){0, rid, 0, 0, pb->rdlen, 0, 0};
+				mdbg->reg = (reg_t){0, rid, 0, 0, pb->bincnt, 0, 0};
 				thread_wake(mdbg);
 			}
 		}
