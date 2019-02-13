@@ -49,7 +49,7 @@ static struct option prog_opts[] = {
 	{"corr-mode",                        1, 0, 2010},
 	{"corr-min",                         1, 0, 2012},
 	{"corr-max",                         1, 0, 2013},
-	{"corr-aln-cov",                     1, 0, 2014},
+	{"corr-cov",                         1, 0, 2014},
 	{"corr-block-size",                  1, 0, 2015},
 	{"corr-block-step",                  1, 0, 2016},
 	{"keep-multiple-alignment-parts",    1, 0, 2011},
