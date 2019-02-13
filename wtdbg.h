@@ -809,7 +809,8 @@ static inline void clip_read_core(Graph *g, u4i rid, hitlnkv *lnks, rdclpv *brks
 				return;
 			}
 			f2 = hit->frgs + !lnk->flg;
-			dlen = g->kbm->reads->buffer[f2->rid].bincnt * KBM_BIN_SIZE;
+			//dlen = g->kbm->reads->buffer[f2->rid].bincnt * KBM_BIN_SIZE;
+			dlen = g->kbm->reads->buffer[f2->rid].bincnt;
 			if(f1->dir ^ f2->dir){
 				x = (f1->beg > margin && f2->end + margin < dlen);
 				y = (f1->end + margin < rlen && f2->beg > margin);
