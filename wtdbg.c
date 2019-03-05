@@ -46,6 +46,13 @@ static struct option prog_opts[] = {
 	{"aln-min-match",                    1, 0, 'm'},
 	{"aln-min-similarity",               1, 0, 's'},
 	{"aln-max-var",                      1, 0, 2004},
+	{"realign",                          0, 0, 'R'},
+	{"realn-kmer-psize",                 1, 0, 3001},
+	{"realn-kmer-subsampling",           1, 0, 3002},
+	{"realn-min-length",                 1, 0, 3003},
+	{"realn-min-match",                  1, 0, 3004},
+	{"realn-min-similarity",             1, 0, 3005},
+	{"realn-max-var",                    1, 0, 3006},
 	{"corr-mode",                        1, 0, 2010},
 	{"corr-min",                         1, 0, 2012},
 	{"corr-max",                         1, 0, 2013},
@@ -136,6 +143,7 @@ int usage(int level){
 	"             please note that subsampling kmers will have less matched length\n"
 	" -l <float>  Min length of alignment, [2048]\n"
 	" -m <float>  Min matched length by kmer matching, [200]\n"
+	" -R          Enable realignment mode\n"
 	" -A          Keep contained reads during alignment\n"
 	" -s <float>  Min similarity, calculated by kmer matched length / aligned length, [0.05]\n"
 	" -e <int>    Min read depth of a valid edge, [3]\n"
@@ -193,7 +201,7 @@ int usage(int level){
 	" --aln-min-similarity <float>\n"
 	"   See -s 0.05\n"
 	" --aln-max-var <float>\n"
-	"   Max length variation of two aligned fragments, default: 0.2\n"
+	"   Max length variation of two aligned fragments, default: 0.25\n"
 	" --aln-dovetail <int>\n"
 	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: 256\n"
 	" --aln-strand <int>\n"
@@ -203,6 +211,20 @@ int usage(int level){
 	" --aln-bestn <int>\n"
 	"   Use best n hits for each read in build graph, 0: keep all, default: 500\n"
 	"   <prefix>.alignments always store all alignments\n"
+	" -R, --realign\n"
+	"   Enable re-alignment, see --realn-kmer-psize=15, --realn-kmer-subsampling=1, --realn-min-length=2048, --realn-min-match=200, --realn-min-similarity=0.1, --realn-max-var=0.25\n"
+	" --realn-kmer-psize <int>\n"
+	"   Set kmer-psize in realignment, (kmer-ksize always eq 0), default:15\n"
+	" --realn-kmer-subsampling <int>\n"
+	"   Set kmer-subsampling in realignment, default:1\n"
+	" --realn-min-length <int>\n"
+	"   Set aln-min-length in realignment, default: 2048\n"
+	" --realn-min-match <int>\n"
+	"   Set aln-min-match in realignment, default: 200\n"
+	" --realn-min-similarity <float>\n"
+	"   Set aln-min-similarity in realignment, default: 0.1\n"
+	" --realn-max-var <float>\n"
+	"   Set aln-max-var in realignment, default: 0.25\n"
 	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
 	" --corr-mode <float>\n"
@@ -328,7 +350,7 @@ static inline int64_t mm_parse_num(const char *str)
 
 int main(int argc, char **argv){
 	Graph *g;
-	KBMPar *par;
+	KBMPar *par, *rpar;
 	KBM *kbm;
 	FileReader *fr;
 	BioSequence *seqs[2], *seq;
@@ -339,7 +361,7 @@ int main(int argc, char **argv){
 	int len, tag_size, asyn_read, seq_type;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
-	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
+	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy;
@@ -422,8 +444,24 @@ int main(int argc, char **argv){
 	par->rd_len_order = 1;
 	par->min_aln = 2048 / KBM_BIN_SIZE;
 	par->min_mat = 200;
+	par->min_sim = 0.05;
+	par->aln_var = 0.25;
+	realign = 0;
+	rpar = init_kbmpar();
+	rpar->ksize = 0;
+	rpar->psize = 15;
+	rpar->kmer_mod = KBM_N_HASH;
+	rpar->kmin = 1;
+	rpar->max_bgap = 4;
+	rpar->max_bvar = 4;
+	rpar->self_aln = 0; // won't perform B->A when existing A->B
+	rpar->rd_len_order = 0;
+	rpar->min_aln = 2048 / KBM_BIN_SIZE;
+	rpar->min_mat = 200;
+	rpar->min_sim = 0.1;
+	rpar->aln_var = 0.25;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:vqVe:L:Ag:X:", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:RvqVe:L:Ag:X:", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
@@ -526,6 +564,13 @@ int main(int argc, char **argv){
 			case 1027: bestn = atoi(optarg); break;
 			case 1028: par->max_hit = atoi(optarg); break;
 			case 1029: par->ksampling = atoi(optarg); break;
+			case 'R': realign = 1; break;
+			case 3001: rpar->psize = atoi(optarg); break;
+			case 3002: rpar->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); break;
+			case 3003: rpar->min_aln = atoi(optarg) / KBM_BIN_SIZE; break;
+			case 3004: rpar->min_mat = atoi(optarg); break;
+			case 3005: rpar->min_sim = atof(optarg); break;
+			case 3006: rpar->aln_var = atof(optarg); break;
 			case 'A':  par->skip_contained = 0; opt_flags |= (1 << 5); break;
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
@@ -814,6 +859,7 @@ int main(int argc, char **argv){
 		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "" : "-A ", ((double)par->kmer_mod) / KBM_N_HASH, par->min_sim, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
 	g = init_graph(kbm);
 	{
+		g->rpar = realign? rpar : NULL;
 		g->genome_size = genome_size;
 		g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
 		g->corr_gcov = corr_mode;
@@ -1060,6 +1106,7 @@ int main(int argc, char **argv){
 	free_cplist(pws);
 	if(load_kbm == NULL) free_kbm(kbm);
 	free_kbmpar(par);
+	free_kbmpar(rpar);
 	free_graph(g);
 	fprintf(KBM_LOGF, "[%s] Program Done\n", date());
 	END_STAT_PROC_INFO(stderr);

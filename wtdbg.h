@@ -210,7 +210,7 @@ define_list(seqletv, seqlet_t);
 
 typedef struct {
 	KBM      *kbm;
-	KBMPar   *par;
+	KBMPar   *par, *rpar;
 	regv     *regs;
 	readv    *reads;
 
@@ -259,6 +259,7 @@ static inline Graph* init_graph(KBM *kbm){
 	g = malloc(sizeof(Graph));
 	g->kbm = kbm;
 	g->par = kbm->par;
+	g->rpar = NULL;
 	g->regs = init_regv(32);
 	g->reads = init_readv(kbm->reads->size);
 	g->reads->size = kbm->reads->size;
@@ -485,8 +486,8 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 				case 1: x ++; break;
 				case 2: y ++; break;
 			}
-			push_u4v(maps[0], x);
-			push_u4v(maps[1], y);
+			push_u4v(maps[0], (x < 0)? 0 : x);
+			push_u4v(maps[1], (y < 0)? 0 : y);
 			clen --;
 		}
 		push_u4v(maps[0], x + 1);
@@ -555,7 +556,7 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 					closed = 1;
 				}
 #if DEBUG
-				if(beg >= end){
+				if(beg >= end || beg < 0){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					abort();
 				}
@@ -615,7 +616,7 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 					closed = 1;
 				}
 #if DEBUG
-				if(beg >= end){
+				if(beg >= end || beg < 0){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					abort();
 				}
@@ -640,7 +641,7 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 
 thread_beg_def(mdbg);
 Graph *g;
-KBMAux *aux;
+KBMAux *aux, *raux;
 CTGCNS *cc;
 reg_t reg;
 rdregv *regs;
@@ -654,20 +655,22 @@ thread_end_def(mdbg);
 thread_beg_func(mdbg);
 Graph *g;
 KBM *kbm;
-KBMAux *aux;
+KBMAux *aux, *raux;
 rdregv *regs;
 BitVec *rdflags;
-u4v *maps[3];
+u4v *maps[3], *tidxs;
 volatile reg_t *reg;
 g = mdbg->g;
 kbm = g->kbm;
 reg = (reg_t*)&mdbg->reg;
 aux = mdbg->aux;
+raux = mdbg->raux;
 regs = mdbg->regs;
 rdflags = mdbg->rdflags;
 maps[0] = init_u4v(32);
 maps[1] = init_u4v(32);
 maps[2] = init_u4v(32);
+tidxs = init_u4v(16);
 thread_beg_loop(mdbg);
 if(mdbg->task == 1){
 	if(reg->closed) continue;
@@ -679,12 +682,37 @@ if(mdbg->task == 1){
 		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
 		map_kbm(aux);
 	}
+	if(raux && aux->hits->size){ // refine
+		kbm_read_t *rd;
+		u4i i, j, tidx;
+		clear_kbm(raux->kbm);
+		bitpush_kbm(raux->kbm, NULL, 0, kbm->rdseqs->bits, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
+		ready_kbm(raux->kbm);
+		simple_index_kbm(raux->kbm, 0, raux->kbm->bins->size);
+		clear_u4v(tidxs);
+		for(i=0;i<aux->hits->size;i++){
+			if(i && tidxs->buffer[tidxs->size - 1] == aux->hits->buffer[i].tidx) continue;
+			push_u4v(tidxs, aux->hits->buffer[i].tidx);
+		}
+		clear_kbmmapv(aux->hits);
+		clear_bitsvec(aux->cigars);
+		for(i=0;i<tidxs->size;i++){
+			tidx = get_u4v(tidxs, i);
+			rd = ref_kbmreadv(aux->kbm->reads, tidx);
+			query_index_kbm(raux, rd->tag, tidx, aux->kbm->rdseqs, rd->rdoff, rd->rdlen);
+			map_kbm(raux);
+			for(j=0;j<raux->hits->size;j++){
+				flip_hit_kbmaux(aux, raux, j);
+			}
+		}
+	}
 	sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
 }
 thread_end_loop(mdbg);
 free_u4v(maps[0]);
 free_u4v(maps[1]);
 free_u4v(maps[2]);
+free_u4v(tidxs);
 thread_end_func(mdbg);
 
 typedef struct {
@@ -1188,6 +1216,7 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 					if(h->mat == 0) continue;
 					append_bitsvec(g->cigars, cigars, h->cgoff, h->cglen);
 					h->cgoff = g->cigars->size - h->cglen;
+					nhit ++;
 					map2rdhits_graph(g, h);
 				}
 				clear_kbmmapv(hits);
@@ -1229,7 +1258,6 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 			pushs_bitsvec(cigars, flg, val);
 		}
 		hit->cglen = cigars->size - hit->cgoff;
-		nhit ++;
 		if(raw){
 			hit2rdregs_graph(g, regs, qlen / KBM_BIN_SIZE, hit, cigars, maps);
 			clear_bitsvec(cigars);
@@ -1245,6 +1273,7 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 				for(i=0;i<hits->size;i++){
 					if(hits->buffer[i].mat == 0) continue;
 					append_bitsvec(g->cigars, cigars, hit->cgoff, hit->cglen);
+					nhit ++;
 					map2rdhits_graph(g, ref_kbmmapv(hits, i));
 				}
 				clear_kbmmapv(hits);
@@ -1301,6 +1330,11 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	memset((void*)&mdbg->reg, 0, sizeof(reg_t));
 	mdbg->reg.closed = 1;
 	mdbg->aux = init_kbmaux(g->kbm);
+	if(g->rpar){
+		mdbg->raux = init_kbmaux(init_kbm(g->rpar));
+	} else {
+		mdbg->raux = NULL;
+	}
 	if(g->corr_mode){
 		KBMBlock *kb;
 		POGPar par;
@@ -1451,6 +1485,10 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	if(g->corr_mode){
 		free_kbmblock((KBMBlock*)mdbg->cc->obj);
 		free_ctgcns(mdbg->cc);
+	}
+	if(mdbg->raux){
+		free_kbm(mdbg->raux->kbm);
+		free_kbmaux(mdbg->raux);
 	}
 	thread_end_close(mdbg);
 	if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", qe - qb, nhit);
@@ -1987,8 +2025,8 @@ static inline void load_nodes_graph(Graph *g, FileReader *clp, FileReader *nds){
 			continue;
 		}
 		rd = ref_readv(g->reads, rid);
-		rd->clps[0] = atoi(get_col_str(clp, 2));
-		rd->clps[1] = atoi(get_col_str(clp, 3));
+		rd->clps[0] = atoi(get_col_str(clp, 2)) / KBM_BIN_SIZE;
+		rd->clps[1] = atoi(get_col_str(clp, 3)) / KBM_BIN_SIZE;
 	}
 	nwarn = 0;
 	while((ncol = readtable_filereader(nds)) != -1){
