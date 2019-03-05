@@ -550,7 +550,7 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 static inline lay_seq_t* iter_samblock(void *obj){
 	SAMBlock *sb;
 	lay_seq_t *sc, *sl;
-	u4i chr, chridx, off, minlen, rddir, rdoff, nxt, val, len, op;
+	u4i chr, chridx, scidx, off, minlen, rddir, rdoff, nxt, val, len, op;
 	char *ptr, *str;
 	int c;
 	sb = (SAMBlock*)obj;
@@ -611,7 +611,9 @@ static inline lay_seq_t* iter_samblock(void *obj){
 				nxt = (off / sb->bstep) * sb->bstep;
 				if(nxt && off - nxt < UInt(sb->bsize - sb->bstep)){
 					if(sc->bidx){
+						scidx = offset_layseqr(sb->seqs, sc);
 						sl = pop_layseqr(sb->seqs);
+						sc = ref_layseqr(sb->seqs, scidx);
 						sl->chridx = chridx;
 						sl->bidx = sc->bidx - 1;
 						sl->rdidx = sb->rdidx;
@@ -679,7 +681,9 @@ static inline lay_seq_t* iter_samblock(void *obj){
 					if(off == nxt){
 						if(sl){
 							if(sl->rend >= sl->rbeg + minlen){
+								scidx = offset_layseqr(sb->seqs, sc);
 								sl = _push_padding_ref_samblock(sb, sl);
+								sc = ref_layseqr(sb->seqs, scidx);
 								if(sb->lidx == MAX_U4){
 									sb->lidx = offset_layseqr(sb->seqs, sl);
 								}
@@ -692,7 +696,6 @@ static inline lay_seq_t* iter_samblock(void *obj){
 							sl = NULL;
 							nxt += 2 * sb->bstep - sb->bsize;
 						} else {
-							u4i scidx;
 							scidx = offset_layseqr(sb->seqs, sc);
 							encap_layseqr(sb->seqs, 1);
 							sl = ref_layseqr(sb->seqs, scidx);
@@ -728,7 +731,9 @@ static inline lay_seq_t* iter_samblock(void *obj){
 			}
 			if(sc){
 				if(sc->rend >= sc->rbeg + minlen){
+					scidx = sl? offset_layseqr(sb->seqs, sl) : MAX_U4;
 					sc = _push_padding_ref_samblock(sb, sc);
+					sl = scidx == MAX_U4? NULL : ref_layseqr(sb->seqs, scidx);
 					if(sb->lidx == MAX_U4){
 						sb->lidx = offset_layseqr(sb->seqs, sc);
 					}
