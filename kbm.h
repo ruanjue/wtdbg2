@@ -1126,7 +1126,7 @@ static inline void index_kbm(KBM *kbm, u8i beg, u8i end, u4i ncpu, FILE *kmstat)
 	fprintf(KBM_LOGF, "[%s] - indexed  %llu kmers, %llu instances\n", date(), srem, Srem);
 	{
 		n = 0;
-		for(i=0;i<kbm->bins->size;i++){
+		for(i=beg;i<end;i++){
 			if(kbm->bins->buffer[i].degree < kbm->par->min_bin_degree){
 				kbm->bins->buffer[i].closed = 1;
 				one_bitvec(kbm->binmarks, i);
