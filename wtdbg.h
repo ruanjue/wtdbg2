@@ -1379,7 +1379,8 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	ib = ie;
 	//fix_node = 0;
 	{
-		u4i *deps, hidx;
+		u4i *deps;
+		u8i hidx;
 		kmlog = open_file_for_write(prefix, ".binkmer", 1);
 		deps = calloc(KBM_BIN_SIZE + 1, 4);
 		for(hidx=0;hidx<g->kbm->bins->size;hidx++){
