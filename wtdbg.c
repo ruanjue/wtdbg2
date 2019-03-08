@@ -38,6 +38,7 @@ static struct option prog_opts[] = {
 	{"rdcov-filter",                     1, 0, 2009},
 	//{"kmer-depth-min-filter",            0, 0, 'F'},
 	{"kmer-subsampling",                 1, 0, 'S'},
+	{"kbm-parts",                        1, 0, 1035},
 	{"dp-max-gap",                       1, 0, 2005},
 	{"dp-max-var",                       1, 0, 2006},
 	{"dp-penalty-gap",                   1, 0, 2007},
@@ -184,6 +185,8 @@ int usage(int level){
 	//"    Orphaned kmers won't appear in building kbm-index\n"
 	" --kmer-subsampling <float>\n"
 	"   See -S 4.0\n"
+	" --kbm-parts <int>\n"
+	"   Split total reads into multiple parts, index one part by one to save memory, [1]\n"
 	" --aln-kmer-sampling <int>\n"
 	"   Select no more than n seeds in a query bin, default: 256\n"
 	" --dp-max-gap <int>\n"
@@ -364,7 +367,7 @@ int main(int argc, char **argv){
 	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
-	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy;
+	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy, num_index;
 	double genome_size, genome_depx;
 	float node_drop, node_mrg, ttr_e_cov, fval, corr_mode, corr_cov;
 	pbs = init_cplist(4);
@@ -378,6 +381,7 @@ int main(int argc, char **argv){
 	seq_type = 0; // 0, unknown; 1: rs; 2: sq; 3: ont; 4: ccs
 	genome_size = 0;
 	genome_depx = 50.0;
+	num_index = 1;
 	filter_rd_strategy = 0;
 	fast_mode = 0;
 	corr_mode = 0;
@@ -534,6 +538,7 @@ int main(int argc, char **argv){
 			case 1001: tidy_rdtag = 1; break;
 			case 1002: only_fix = 1; break;
 			case 1003: max_bp = atol(optarg); break;
+			case 1035: num_index = atoi(optarg); break;
 			case 1004: reglen = atoi(optarg); break;
 			case 1005: regovl = atoi(optarg); break;
 			case 1006: node_drop = atof(optarg); break;
@@ -861,6 +866,7 @@ int main(int argc, char **argv){
 	{
 		g->rpar = realign? rpar : NULL;
 		g->genome_size = genome_size;
+		g->num_index = num_index;
 		g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
 		g->corr_gcov = corr_mode;
 		g->corr_min = corr_min;

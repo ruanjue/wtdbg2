@@ -228,6 +228,7 @@ typedef struct {
 	tracev   *traces;
 
 	u8i      genome_size;
+	u4i      num_index;
 	u4i      corr_mode, corr_min, corr_max;
 	u4i      corr_bsize, corr_bstep;
 	float    corr_cov, corr_gcov;
@@ -279,6 +280,7 @@ static inline Graph* init_graph(KBM *kbm){
 	g->lrefs = init_edgerefv(32);
 	g->traces = init_tracev(32);
 	g->genome_size = 1024 * 1024 * 1024LLU;
+	g->num_index = 1;
 	g->corr_mode = 0;
 	g->corr_min  = 5;
 	g->corr_max  = 10;
@@ -1294,13 +1296,14 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	BufferedWriter *bw;
 	FILE *alno, *kmlog;
 	u8i nbp, mbp, nhit;
-	u4i rid, i, ib, ie, qb, qe;
+	u8i i, ib, ie, ic;
+	u4i rid, qb, qe, ii, in;
 	int reset_kbm, n_cpu;
 	thread_prepare(mdbg);
 	if(KBM_LOG) n_cpu = 1;
 	else n_cpu = ncpu;
-	ib = 0;
-	ie = g->kbm->bins->size;
+	ic = (g->kbm->bins->size + g->num_index - 1) / g->num_index;
+	ie = 0;
 	if(g->corr_mode){
 		mbp = g->genome_size * g->corr_gcov;
 		qb = qe = g->kbm->reads->size / 2;
@@ -1355,129 +1358,150 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	mdbg->raw = raw;
 	mdbg->alno = alno;
 	thread_end_init(mdbg);
-	nbp = ((u8i)(ie - ib)) * KBM_BSIZE;
-	if(g->kbm->seeds->size == 0){
-		reset_index_kbm(g->kbm);
-		fprintf(KBM_LOGF, "[%s] indexing bins[%u,%u] (%llu bp), %d threads\n", date(), ib, ie, nbp, ncpu); fflush(KBM_LOGF);
-		kmlog = open_file_for_write(prefix, ".kmerdep", 1);
-		index_kbm(g->kbm, ib, ie, ncpu, kmlog);
-		fclose(kmlog);
-		kmlog = NULL;
-		reset_kbm = 1;
-		fprintf(KBM_LOGF, "[%s] Done\n", date()); fflush(KBM_LOGF);
-		if(dump_kbm){
-			FILE *dump;
-			fprintf(KBM_LOGF, "[%s] dump kbm index to %s ...", date(), dump_kbm); fflush(KBM_LOGF);
-			dump = open_file_for_write(dump_kbm, NULL, 1);
-			mem_dump_obj_file(g->kbm, 1, &kbm_obj_desc, 1, 0, dump);
-			fclose(dump);
-			fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
+	in = g->corr_mode? 1 : g->num_index;
+	if(g->kbm->seeds->size){
+		reset_kbm = 0;
+		if(in > 1){
+			fprintf(KBM_LOGF, " ** WARNNING: change number of kbm index to 1 **\n"); fflush(KBM_LOGF);
+			in = 1;
 		}
 	} else {
-		reset_kbm = 0;
+		reset_kbm = 1;
 	}
-	ib = ie;
 	//fix_node = 0;
-	{
-		u4i *deps;
-		u8i hidx;
-		kmlog = open_file_for_write(prefix, ".binkmer", 1);
-		deps = calloc(KBM_BIN_SIZE + 1, 4);
-		for(hidx=0;hidx<g->kbm->bins->size;hidx++){
-			deps[g->kbm->bins->buffer[hidx].degree] ++;
-		}
-		for(hidx=0;hidx<KBM_BIN_SIZE;hidx++){
-			fprintf(kmlog, "%u\n", deps[hidx]);
-		}
-		fclose(kmlog);
-		free(deps);
-		if(!g->minimal_output){
-			kbm_bin_t *bn;
-			kmlog = open_file_for_write(prefix, ".closed_bins", 1);
-			for(hidx=0;hidx<g->kbm->bins->size;hidx++){
-				bn = ref_kbmbinv(g->kbm->bins, hidx);
-				if(bn->closed){
-					fprintf(kmlog, "%s_F_%d_%d\t%d\n", g->kbm->reads->buffer[bn->ridx].tag, bn->off * KBM_BIN_SIZE, KBM_BIN_SIZE, bn->degree);
-				}
-			}
-			fclose(kmlog);
-		}
-	}
 	nhit = 0;
-	{
-		thread_beg_iter(mdbg);
-		mdbg->task = 1;
-		thread_end_iter(mdbg);
-		for(rid=qb;rid<=qe+ncpu;rid++){
-			if(rid < qe){
-				if(!KBM_LOG && ((rid - qb) % 2000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", rid - qb, nhit); fflush(KBM_LOGF); }
-				thread_wait_one(mdbg);
-			} else {
-				thread_wait_next(mdbg);
-				pb = NULL;
+	for(ii=0;ii<in;ii++){
+		ib = ie;
+		ie = ib + ic;
+		while(ie > 0 && ie < g->kbm->bins->size && g->kbm->bins->buffer[ie - 1].ridx == g->kbm->bins->buffer[ie].ridx) ie ++;
+		if(g->corr_mode == 0){
+			qb = 0;
+			qe = ie? g->kbm->bins->buffer[ie - 1].ridx : 0;
+		}
+		nbp = ((u8i)(ie - ib)) * KBM_BSIZE;
+		if(reset_kbm){
+			reset_index_kbm(g->kbm);
+			fprintf(KBM_LOGF, "[%s] indexing bins[%llu,%llu] (%llu bp), %d threads\n", date(), ib, ie, nbp, ncpu); fflush(KBM_LOGF);
+			kmlog = (in > 1)? NULL : open_file_for_write(prefix, ".kmerdep", 1);
+			index_kbm(g->kbm, ib, ie, ncpu, kmlog);
+			if(kmlog){
+				fclose(kmlog);
+				kmlog = NULL;
 			}
-			if(mdbg->reg.closed == 0){
-				KBMAux *aux = mdbg->aux;
-				if(g->corr_mode && mdbg->cc->cns->size){
-					g->reads->buffer[mdbg->reg.rid].corr_bincnt = mdbg->cc->cns->size / KBM_BIN_SIZE;
+			fprintf(KBM_LOGF, "[%s] Done\n", date()); fflush(KBM_LOGF);
+			if(in == 1 && dump_kbm){
+				FILE *dump;
+				fprintf(KBM_LOGF, "[%s] dump kbm index to %s ...", date(), dump_kbm); fflush(KBM_LOGF);
+				dump = open_file_for_write(dump_kbm, NULL, 1);
+				mem_dump_obj_file(g->kbm, 1, &kbm_obj_desc, 1, 0, dump);
+				fclose(dump);
+				fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
+			}
+			if(in == 1){
+				u4i *deps;
+				u8i hidx;
+				kmlog = open_file_for_write(prefix, ".binkmer", 1);
+				deps = calloc(KBM_BIN_SIZE + 1, 4);
+				for(hidx=0;hidx<g->kbm->bins->size;hidx++){
+					deps[g->kbm->bins->buffer[hidx].degree] ++;
 				}
-				if(alno){
-					beg_bufferedwriter(bw);
+				for(hidx=0;hidx<KBM_BIN_SIZE;hidx++){
+					fprintf(kmlog, "%u\n", deps[hidx]);
+				}
+				fclose(kmlog);
+				free(deps);
+				if(!g->minimal_output){
+					kbm_bin_t *bn;
+					kmlog = open_file_for_write(prefix, ".closed_bins", 1);
+					for(hidx=0;hidx<g->kbm->bins->size;hidx++){
+						bn = ref_kbmbinv(g->kbm->bins, hidx);
+						if(bn->closed){
+							fprintf(kmlog, "%s_F_%d_%d\t%d\n", g->kbm->reads->buffer[bn->ridx].tag, bn->off * KBM_BIN_SIZE, KBM_BIN_SIZE, bn->degree);
+						}
+					}
+					fclose(kmlog);
+				}
+			}
+		}
+		{
+			thread_beg_iter(mdbg);
+			mdbg->task = 1;
+			thread_end_iter(mdbg);
+			for(rid=qb;rid<=qe+ncpu;rid++){
+				if(rid < qe){
+					if(!KBM_LOG && ((rid - qb) % 2000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", rid - qb, nhit); fflush(KBM_LOGF); }
+					thread_wait_one(mdbg);
+				} else {
+					thread_wait_next(mdbg);
+					pb = NULL;
+				}
+				if(mdbg->reg.closed == 0){
+					KBMAux *aux = mdbg->aux;
 					if(g->corr_mode && mdbg->cc->cns->size){
-						fprintf(bw->out, "#corrected\t%s\t%u\t", mdbg->cc->tag->string, (u4i)mdbg->cc->cns->size);
-						println_fwdseq_basebank(mdbg->cc->cns, 0, mdbg->cc->cns->size, bw->out);
+						g->reads->buffer[mdbg->reg.rid].corr_bincnt = mdbg->cc->cns->size / KBM_BIN_SIZE;
+					}
+					if(alno){
+						beg_bufferedwriter(bw);
+						if(g->corr_mode && mdbg->cc->cns->size){
+							fprintf(bw->out, "#corrected\t%s\t%u\t", mdbg->cc->tag->string, (u4i)mdbg->cc->cns->size);
+							println_fwdseq_basebank(mdbg->cc->cns, 0, mdbg->cc->cns->size, bw->out);
+						}
+						for(i=0;i<mdbg->aux->hits->size;i++){
+							hit = ref_kbmmapv(mdbg->aux->hits, i);
+							fprint_hit_kbm(mdbg->aux, i, bw->out);
+						}
+						end_bufferedwriter(bw);
 					}
 					for(i=0;i<mdbg->aux->hits->size;i++){
 						hit = ref_kbmmapv(mdbg->aux->hits, i);
-						fprint_hit_kbm(mdbg->aux, i, bw->out);
+						if(hit->mat == 0) continue;
+						if(rdflags
+							&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
+							&& (hit->tb <= 1 && hit->te + 1 >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt))
+							&& (hit->qb > 1 || hit->qe + 1 < (int)(g->kbm->reads->buffer[hit->qidx].bincnt))
+							){
+							one_bitvec(rdflags, hit->tidx);
+						}
 					}
-					end_bufferedwriter(bw);
-				}
-				for(i=0;i<mdbg->aux->hits->size;i++){
-					hit = ref_kbmmapv(mdbg->aux->hits, i);
-					if(hit->mat == 0) continue;
-					if(rdflags
-						&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
-						&& (hit->tb <= 1 && hit->te + 1 >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt))
-						&& (hit->qb > 1 || hit->qe + 1 < (int)(g->kbm->reads->buffer[hit->qidx].bincnt))
-						){
-						one_bitvec(rdflags, hit->tidx);
+					if(g->chainning_hits){
+						chainning_hits_core(aux->hits, aux->cigars, g->uniq_hit, g->kbm->par->aln_var);
 					}
-				}
-				if(g->chainning_hits){
-					chainning_hits_core(aux->hits, aux->cigars, g->uniq_hit, g->kbm->par->aln_var);
-				}
-				for(i=0;i<aux->hits->size;i++){
-					hit = ref_kbmmapv(aux->hits, i);
-					if(hit->mat == 0) continue;
-					//hit->qb  /= KBM_BIN_SIZE;
-					//hit->qe  /= KBM_BIN_SIZE;
-					//hit->tb  /= KBM_BIN_SIZE;
-					//hit->te  /= KBM_BIN_SIZE;
-					//hit->aln /= KBM_BIN_SIZE;
-					nhit ++;
-					append_bitsvec(g->cigars, aux->cigars, hit->cgoff, hit->cglen);
-					hit->cgoff = g->cigars->size - hit->cglen;
-					if(raw){
-						hit2rdregs_graph(g, regs, g->corr_mode? mdbg->cc->cns->size / KBM_BIN_SIZE : 0, hit, mdbg->aux->cigars, maps);
-					} else {
-						map2rdhits_graph(g, hit);
+					for(i=0;i<aux->hits->size;i++){
+						hit = ref_kbmmapv(aux->hits, i);
+						if(hit->mat == 0) continue;
+						//hit->qb  /= KBM_BIN_SIZE;
+						//hit->qe  /= KBM_BIN_SIZE;
+						//hit->tb  /= KBM_BIN_SIZE;
+						//hit->te  /= KBM_BIN_SIZE;
+						//hit->aln /= KBM_BIN_SIZE;
+						nhit ++;
+						append_bitsvec(g->cigars, aux->cigars, hit->cgoff, hit->cglen);
+						hit->cgoff = g->cigars->size - hit->cglen;
+						if(raw){
+							hit2rdregs_graph(g, regs, g->corr_mode? mdbg->cc->cns->size / KBM_BIN_SIZE : 0, hit, mdbg->aux->cigars, maps);
+						} else {
+							map2rdhits_graph(g, hit);
+						}
 					}
-				}
-				if(KBM_LOG){
-					fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
-					for(i=0;i<mdbg->aux->hits->size;i++){
-						hit = ref_kbmmapv(mdbg->aux->hits, i);
-							fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE, hit->aln * KBM_BIN_SIZE, hit->mat);
+					if(KBM_LOG){
+						fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
+						for(i=0;i<mdbg->aux->hits->size;i++){
+							hit = ref_kbmmapv(mdbg->aux->hits, i);
+								fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE, hit->aln * KBM_BIN_SIZE, hit->mat);
+						}
 					}
+					mdbg->reg.closed = 1;
 				}
-				mdbg->reg.closed = 1;
+				if(rid < qe && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
+					pb = ref_kbmreadv(g->kbm->reads, rid);
+					mdbg->reg = (reg_t){0, rid, 0, 0, pb->bincnt, 0, 0};
+					thread_wake(mdbg);
+				}
 			}
-			if(rid < qe && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
-				pb = ref_kbmreadv(g->kbm->reads, rid);
-				mdbg->reg = (reg_t){0, rid, 0, 0, pb->bincnt, 0, 0};
-				thread_wake(mdbg);
-			}
+		}
+		if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", qe - qb, nhit);
+		if(reset_kbm){
+			reset_index_kbm(g->kbm);
 		}
 	}
 	thread_beg_close(mdbg);
@@ -1492,13 +1516,9 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 		free_kbmaux(mdbg->raux);
 	}
 	thread_end_close(mdbg);
-	if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", qe - qb, nhit);
 	if(bw) close_bufferedwriter(bw);
 	if(alno) fclose(alno);
 	if(rdflags) free_bitvec(rdflags);
-	if(reset_kbm){
-		reset_index_kbm(g->kbm);
-	}
 	return nhit;
 }
 
