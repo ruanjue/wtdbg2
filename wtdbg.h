@@ -343,6 +343,8 @@ static inline void free_graph(Graph *g){
 	free(g);
 }
 
+#define KBM_MAP2RDHIT_QUICK
+
 static inline int map2rdhits_graph(Graph *g, kbm_map_t *hit){
 	u4i k, f, d, p, n, add;
 	rd_hit_t *rh, *hp, *hn;
@@ -357,6 +359,16 @@ static inline int map2rdhits_graph(Graph *g, kbm_map_t *hit){
 	for(k=0;k<2;k++){
 		rd = ref_readv(g->reads, rh->frgs[k].rid);
 		hn = ref_rdhitv(g->rdhits, rd->hits.idx);
+#ifdef KBM_MAP2RDHIT_QUICK
+		{ // Just add it
+			hn->lnks[k].idx = rd->hits.idx;
+			hn->lnks[k].flg = rd->hits.flg;
+			rd->hits.idx = offset_rdhitv(g->rdhits, rh);
+			rd->hits.flg = k;
+			add ++;
+			continue;
+		}
+#endif
 		f  = rd->hits.flg;
 		hp = NULL;
 		p = 0;
@@ -871,18 +883,62 @@ static inline void clip_read_core(Graph *g, u4i rid, hitlnkv *lnks, rdclpv *brks
 
 thread_beg_def(mclp);
 Graph *g;
+int task;
 thread_end_def(mclp);
 
 thread_beg_func(mclp);
+Graph *g;
 rdclpv *brks, *chis;
 hitlnkv *lnks;
 u4i rid;
+g = mclp->g;
 brks = init_rdclpv(32);
 chis = init_rdclpv(32);
 lnks = init_hitlnkv(32);
 thread_beg_loop(mclp);
-for(rid=mclp->t_idx;rid<mclp->g->reads->size;rid+=mclp->n_cpu){
-	clip_read_core(mclp->g, rid, lnks, brks, chis);
+if(mclp->task == 1){
+	for(rid=mclp->t_idx;rid<mclp->g->reads->size;rid+=mclp->n_cpu){
+		clip_read_core(mclp->g, rid, lnks, brks, chis);
+	}
+} else if(mclp->task == 2){
+	hitlnkv *lnks;
+	read_t *rd;
+	hit_lnk_t *lnk;
+	u4i i;
+	lnks = init_hitlnkv(1024);
+	for(rid=mclp->t_idx;rid<mclp->g->reads->size;rid+=mclp->n_cpu){
+		rd = ref_readv(g->reads, rid);
+		if(rd->hits.idx == 0) continue;
+		clear_hitlnkv(lnks);
+		lnk = &rd->hits;
+		while(1){
+			if(lnk->idx == 0) break;
+			push_hitlnkv(lnks, *lnk);
+			lnk = g->rdhits->buffer[lnk->idx].lnks + lnk->flg;
+		}
+		if(lnks->size < 2) continue;
+		sort_array(lnks->buffer, lnks->size, hit_lnk_t, num_cmpgt(g->rdhits->buffer[b.idx].lnks[0].cnt, g->rdhits->buffer[a.idx].lnks[0].cnt));
+		lnk = &rd->hits;
+		for(i=0;i<lnks->size;i++){
+			lnk->idx = lnks->buffer[i].idx;
+			lnk->flg = lnks->buffer[i].flg;
+			lnk = g->rdhits->buffer[lnks->buffer[i].idx].lnks + lnks->buffer[i].flg;
+		}
+		lnk->idx = 0;
+		lnk->flg = 0;
+		if(g->bestn && lnks->size > mclp->g->bestn){
+			lnk = lnks->buffer + g->bestn - 1;
+			lnk = g->rdhits->buffer[lnk->idx].lnks + lnk->flg;
+			lnk->idx = 0;
+			lnk->flg = 0;
+			for(i=g->bestn;i<lnks->size;i++){
+				lnk = lnks->buffer + i;
+				g->rdhits->buffer[lnk->idx].frgs[lnk->flg].closed = 1;
+			}
+			rd->hits.cnt = g->bestn;
+		}
+	}
+	free_hitlnkv(lnks);
 }
 thread_end_loop(mclp);
 free_rdclpv(brks);
@@ -1561,12 +1617,27 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 	if(raw){
 		fprintf(KBM_LOGF, "[%s] generated %llu regs\n", date(), (u8i)regs->size);
 	} else {
+#ifdef KBM_MAP2RDHIT_QUICK
+		// sort rdhits and pick bestn
+		{
+			fprintf(KBM_LOGF, "[%s] sorting rdhits ... ", date()); fflush(KBM_LOGF);
+			thread_beg_init(mclp, ncpu);
+			mclp->g = g;
+			mclp->task = 2;
+			thread_end_init(mclp);
+			thread_wake_all(mclp);
+			thread_beg_close(mclp);
+			thread_end_close(mclp);
+			fprintf(KBM_LOGF, "Done\n"); fflush(KBM_LOGF);
+		}
+#endif
 		// clip reads
 		if(rdclip){
 			fprintf(KBM_LOGF, "[%s] clipping ... ", date()); fflush(KBM_LOGF);
 			clplog = open_file_for_write(prefix, ".clps", 1);
 			thread_beg_init(mclp, ncpu);
 			mclp->g = g;
+			mclp->task = 1;
 			thread_end_init(mclp);
 			thread_wake_all(mclp);
 			thread_beg_close(mclp);
