@@ -597,6 +597,7 @@ static inline void _end_pgzf_writer(PGZF *pz){
 	for(i=0;i<=pz->ncpu;i++){ // (pz->tidx + ncpu + 1) % ncpu
 		thread_beg_operate(pgz, widx % pz->ncpu);
 		thread_wait(pgz);
+		/*
 		if(pgz->dst->size){
 			pz->tot_out += pgz->dst->size;
 			push_u8v(pz->boffs, pz->tot_out);
@@ -604,9 +605,11 @@ static inline void _end_pgzf_writer(PGZF *pz){
 			clear_u1v(pgz->dst);
 			clear_u1v(pgz->src);
 		}
+		*/
 		if(pgz->src->size){ // will force to write un-full block
 			pz->tot_in += pgz->src->size;
 			pgz->task = PGZF_TASK_DEFLATE;
+			pgz->token = pz->widx;
 			thread_wake(pgz);
 			pz->widx ++;
 		}
