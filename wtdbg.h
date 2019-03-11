@@ -358,17 +358,18 @@ static inline int map2rdhits_graph(Graph *g, kbm_map_t *hit){
 	add = 0;
 	for(k=0;k<2;k++){
 		rd = ref_readv(g->reads, rh->frgs[k].rid);
-		hn = ref_rdhitv(g->rdhits, rd->hits.idx);
 #ifdef KBM_MAP2RDHIT_QUICK
 		{ // Just add it
-			hn->lnks[k].idx = rd->hits.idx;
-			hn->lnks[k].flg = rd->hits.flg;
+			rh->lnks[k].idx = rd->hits.idx;
+			rh->lnks[k].flg = rd->hits.flg;
 			rd->hits.idx = offset_rdhitv(g->rdhits, rh);
 			rd->hits.flg = k;
+			rd->hits.cnt ++;
 			add ++;
 			continue;
 		}
 #endif
+		hn = ref_rdhitv(g->rdhits, rd->hits.idx);
 		f  = rd->hits.flg;
 		hp = NULL;
 		p = 0;
@@ -901,11 +902,12 @@ if(mclp->task == 1){
 		clip_read_core(mclp->g, rid, lnks, brks, chis);
 	}
 } else if(mclp->task == 2){
-	hitlnkv *lnks;
+	hitlnkv *lnks, *chks;
 	read_t *rd;
 	hit_lnk_t *lnk;
 	u4i i;
 	lnks = init_hitlnkv(1024);
+	chks = init_hitlnkv(1024);
 	for(rid=mclp->t_idx;rid<mclp->g->reads->size;rid+=mclp->n_cpu){
 		rd = ref_readv(g->reads, rid);
 		if(rd->hits.idx == 0) continue;
@@ -926,6 +928,25 @@ if(mclp->task == 1){
 		}
 		lnk->idx = 0;
 		lnk->flg = 0;
+		{
+			clear_hitlnkv(chks);
+			lnk = &rd->hits;
+			while(1){
+				if(lnk->idx == 0) break;
+				push_hitlnkv(chks, *lnk);
+				lnk = g->rdhits->buffer[lnk->idx].lnks + lnk->flg;
+			}
+			if(lnks->size != chks->size){
+				fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				abort();
+			}
+			for(i=0;i<lnks->size;i++){
+				if(lnks->buffer[i].idx != chks->buffer[i].idx || lnks->buffer[i].flg != chks->buffer[i].flg){
+					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+					abort();
+				}
+			}
+		}
 		if(g->bestn && lnks->size > mclp->g->bestn){
 			lnk = lnks->buffer + g->bestn - 1;
 			lnk = g->rdhits->buffer[lnk->idx].lnks + lnk->flg;
@@ -939,6 +960,7 @@ if(mclp->task == 1){
 		}
 	}
 	free_hitlnkv(lnks);
+	free_hitlnkv(chks);
 }
 thread_end_loop(mclp);
 free_rdclpv(brks);
@@ -1329,10 +1351,12 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 			if(hits->size){
 				chainning_hits_core(hits, cigars, g->uniq_hit, g->kbm->par->aln_var);
 				for(i=0;i<hits->size;i++){
-					if(hits->buffer[i].mat == 0) continue;
-					append_bitsvec(g->cigars, cigars, hit->cgoff, hit->cglen);
+					h = ref_kbmmapv(hits, i);
+					if(h->mat == 0) continue;
+					append_bitsvec(g->cigars, cigars, h->cgoff, h->cglen);
+					h->cgoff = g->cigars->size - h->cglen;
 					nhit ++;
-					map2rdhits_graph(g, ref_kbmmapv(hits, i));
+					map2rdhits_graph(g, h);
 				}
 				clear_kbmmapv(hits);
 				clear_bitsvec(cigars);
