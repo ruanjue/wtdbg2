@@ -1893,6 +1893,21 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	return 1;
 }
 
+static inline int check_hit_cigar_kbm(kbm_map_t *hit, BitsVec *cigars){
+	u4i i, bt;
+	int x, y;
+	x = y = -1;
+	i = hit->cglen;
+	while(i){
+		bt = get_bitsvec(cigars, hit->cgoff + i - 1);
+		bt = bt & 0x03;
+		x += (0b0011 >> bt) & 0x01;
+		y += (0b0101 >> bt) & 0x01;
+		i --;
+	}
+	return !(x + 1 + hit->qb == hit->qe && y + 1 + hit->tb == hit->te);
+}
+
 static inline void print_hit_kbm(KBM *kbm, char *qtag, u4i qlen, kbm_map_t *hit, BitsVec *cigars, String *_str, FILE *out){
 	String *str;
 	u8i coff;
