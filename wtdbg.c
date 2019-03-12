@@ -762,17 +762,22 @@ int main(int argc, char **argv){
 			reset_biosequence(seqs[1]);
 			while(1){
 				int has = readseq_filereader(fr, seqs[k]);
+				int taglen, lstlen;
+				lstlen = 0;
 				if(tidy_reads){
 					if(has){
 						if((z = regexec(&reg, seqs[k]->tag->string, 3, mats, 0)) == 0){
-							trunc_string(seqs[k]->tag, mats[1].rm_eo);
+							taglen = mats[1].rm_eo;
+							//trunc_string(seqs[k]->tag, mats[1].rm_eo);
 						} else if(z != REG_NOMATCH){
+							taglen = seqs[k]->tag->size;
 							regerror(z, &reg, regtag, 13);
 							fprintf(stderr, " -- REGEXEC: %s --\n", regtag); fflush(stderr);
 						}
 						//fprintf(stderr, "1: %s len=%d\n", seqs[k]->tag->string, seqs[k]->seq->size); fflush(stderr);
 						//fprintf(stderr, "2: %s len=%d\n", seqs[!k]->tag->string, seqs[!k]->seq->size); fflush(stderr);
-						if(seqs[k]->tag->size == seqs[!k]->tag->size && strcmp(seqs[k]->tag->string, seqs[!k]->tag->string) == 0){
+						//if(seqs[k]->tag->size == seqs[!k]->tag->size && strcmp(seqs[k]->tag->string, seqs[!k]->tag->string) == 0){
+						if(lstlen == taglen && strncmp(seqs[k]->tag->string, seqs[!k]->tag->string, taglen) == 0){
 							if(seqs[k]->seq->size > seqs[!k]->seq->size){
 								k = !k;
 							}
@@ -780,6 +785,7 @@ int main(int argc, char **argv){
 						} else {
 							seq = seqs[!k];
 							k = !k;
+							lstlen = taglen;
 						}
 					} else {
 						seq = seqs[!k];
