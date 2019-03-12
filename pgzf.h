@@ -53,6 +53,7 @@ struct PGZF *pz;
 u4i zsval, soff;
 u8i zxval, doff;
 u1v *dst, *src;
+u4i token;
 int level;
 int task;
 thread_end_def(pgz);
@@ -325,6 +326,17 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 	if(src->size == 0) continue;
 	clear_u1v(dst);
 	_pgzf_deflate(dst, src, pgz->level);
+	while(pz->ridx != pgz->token){
+		nano_sleep(1);
+	}
+	{
+		pz->tot_out += pgz->dst->size;
+		push_u8v(pz->boffs, pz->tot_out);
+		fwrite(pgz->dst->buffer, 1, pgz->dst->size, pz->file);
+		clear_u1v(pgz->dst);
+		clear_u1v(pgz->src);
+	}
+	pz->ridx ++;
 } else if(pgz->task == PGZF_TASK_INFLATE){
 	pgz->doff = 0;
 	clear_u1v(pgz->dst);
@@ -537,6 +549,7 @@ static inline PGZF* open_pgzf_writer(FILE *out, u4i buffer_size, int ncpu, int l
 	pgz->doff = 0;
 	pgz->dst = pz->dsts[pgz->t_idx];
 	pgz->src = pz->srcs[pgz->t_idx];
+	pgz->token = 0;
 	pgz->level = level;
 	pgz->task = PGZF_TASK_NULL;
 	thread_end_init(pgz);
@@ -552,6 +565,7 @@ static inline size_t write_pgzf(PGZF *pz, void *dat, size_t len){
 	while(off < len){
 		thread_beg_operate(pgz, pz->widx % pz->ncpu);
 		thread_wait(pgz);
+		/*
 		if(pgz->dst->size){
 			pz->tot_out += pgz->dst->size;
 			push_u8v(pz->boffs, pz->tot_out);
@@ -559,12 +573,14 @@ static inline size_t write_pgzf(PGZF *pz, void *dat, size_t len){
 			clear_u1v(pgz->dst);
 			clear_u1v(pgz->src);
 		}
+		*/
 		cnt = num_min(len - off, pz->bufsize - pgz->src->size);
 		append_array_u1v(pgz->src, dat + off, cnt);
 		off += cnt;
 		if(pgz->src->size == pz->bufsize){
 			pz->tot_in += pgz->src->size;
 			pgz->task = PGZF_TASK_DEFLATE;
+			pgz->token = pz->widx;
 			thread_wake(pgz);
 			pz->widx ++;
 		}
@@ -581,6 +597,7 @@ static inline void _end_pgzf_writer(PGZF *pz){
 	for(i=0;i<=pz->ncpu;i++){ // (pz->tidx + ncpu + 1) % ncpu
 		thread_beg_operate(pgz, widx % pz->ncpu);
 		thread_wait(pgz);
+		/*
 		if(pgz->dst->size){
 			pz->tot_out += pgz->dst->size;
 			push_u8v(pz->boffs, pz->tot_out);
@@ -588,9 +605,11 @@ static inline void _end_pgzf_writer(PGZF *pz){
 			clear_u1v(pgz->dst);
 			clear_u1v(pgz->src);
 		}
+		*/
 		if(pgz->src->size){ // will force to write un-full block
 			pz->tot_in += pgz->src->size;
 			pgz->task = PGZF_TASK_DEFLATE;
+			pgz->token = pz->widx;
 			thread_wake(pgz);
 			pz->widx ++;
 		}

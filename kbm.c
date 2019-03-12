@@ -21,12 +21,19 @@
 #include "kbmpoa.h"
 #include <regex.h>
 
+#ifndef VERSION
+#define VERSION 0.0
+#endif
+#ifndef RELEASE
+#define RELEASE 19830203
+#endif
+
 int kbm_usage(){
 	fprintf(stdout, "Program: kbm is a simple instance which implemented kmer-binmap\n");
 	fprintf(stdout, "         it maps query sequence against reference by kmer matching\n");
 	fprintf(stdout, "         matched kmer-pairs are bined (256bp) and counted in a matrix\n");
 	fprintf(stdout, "         dynamic programming is used to search the best path\n");
-	fprintf(stdout, "Version: 2.3 (20181206)\n");
+	fprintf(stdout, "Version: %s (%s)\n", TOSTR(VERSION), TOSTR(RELEASE));
 	fprintf(stdout, "Author: Jue Ruan <ruanjue@gmail.com>\n");
 	fprintf(stdout, "Usage: kbm <options> [start|list|stop]\n");
 	fprintf(stdout, "Options:\n");
@@ -61,10 +68,11 @@ int kbm_usage(){
 	fprintf(stdout, " -Z <float>  Max fraction of gapped BINs / aligned BINs, [0.6]\n");
 	fprintf(stdout, " -x <int>    penalty for BIN gap, [-7]\n");
 	fprintf(stdout, " -y <int>    penalty for BIN deviation, [-21]\n");
+	fprintf(stdout, " -z <int>    Enable refine alignment with -p <-z> [0]\n");
 	fprintf(stdout, " -l <int>    Min alignment length, [2048]\n");
 	fprintf(stdout, " -m <int>    Min matched length, [200]\n");
 	fprintf(stdout, " -s <float>  Min similarity, calculated by kmer matched length / aligned length, [0.05]\n");
-	fprintf(stdout, " -r <float>  Max length variation of two aligned fragments, [0.2]\n");
+	fprintf(stdout, " -r <float>  Max length variation of two aligned fragments, [0.25]\n");
 	fprintf(stdout, " -c          Insist to query contained reads against all\n");
 	fprintf(stdout, " -C          Chainning alignments\n");
 	fprintf(stdout, " -n <int>    Max hits per query, [1000]\n");
@@ -98,10 +106,27 @@ u4i corr_min, corr_max;
 FILE *out, *lay;
 int chainning;
 int interactive;
+int refine;
 thread_end_def(maln);
 
 thread_beg_func(maln);
+KBMPar *rpar;
+KBM *rkbm;
+KBMAux *raux;
 kbm_map_t HIT;
+u4v *tidxs;
+{
+	rpar = init_kbmpar();
+	rpar->ksize = 0;
+	rpar->psize = maln->refine;
+	rpar->min_bin_degree = 0;
+	rpar->kmin = 1;
+	rpar->kmax = 1000;
+	rpar->kmer_mod = KBM_N_HASH;
+	rkbm = init_kbm(rpar);
+	raux = init_kbmaux(rkbm);
+}
+tidxs = init_u4v(16);
 thread_beg_loop(maln);
 if(maln->rdlen == 0) break;
 if(maln->corr_mode){
@@ -112,6 +137,37 @@ if(maln->corr_mode){
 } else {
 	query_index_kbm(maln->aux, maln->rdtag->size? maln->rdtag->string : NULL, maln->qidx, maln->rdseqs, maln->rdoff, maln->rdlen);
 	map_kbm(maln->aux);
+	if(maln->refine && maln->aux->hits->size){
+		kbm_read_t *rd;
+		kbm_map_t *hit;
+		u4i i, j, tidx;
+		clear_kbm(rkbm);
+		bitpush_kbm(rkbm, maln->rdtag->size? maln->rdtag->string : NULL, maln->rdtag->size, maln->rdseqs->bits, 0, maln->rdlen);
+		ready_kbm(rkbm);
+		simple_index_kbm(rkbm, 0, rkbm->bins->size);
+		clear_u4v(tidxs);
+		for(i=0;i<maln->aux->hits->size;i++){
+			hit = ref_kbmmapv(maln->aux->hits, i);
+			if(tidxs->size == 0 || hit->tidx != tidxs->buffer[tidxs->size - 1]){
+				push_u4v(tidxs, hit->tidx);
+			}
+			if(KBM_LOG){
+				fprintf(maln->out, "#");
+				fprint_hit_kbm(maln->aux, i, maln->out);
+			}
+		}
+		clear_kbmmapv(maln->aux->hits);
+		clear_bitsvec(maln->aux->cigars);
+		for(i=0;i<tidxs->size;i++){
+			tidx = get_u4v(tidxs, i);
+			rd = ref_kbmreadv(maln->aux->kbm->reads, tidx);
+			query_index_kbm(raux, rd->tag, tidx, maln->aux->kbm->rdseqs, rd->rdoff, rd->rdlen);
+			map_kbm(raux);
+			for(j=0;j<raux->hits->size;j++){
+				flip_hit_kbmaux(maln->aux, raux, j);
+			}
+		}
+	}
 }
 if(maln->chainning){
 	u4i idx, lst;
@@ -143,6 +199,12 @@ if(maln->interactive){
 	thread_end_syn(maln);
 }
 thread_end_loop(maln);
+{
+	free_kbmaux(raux);
+	free_kbm(rkbm);
+	free_kbmpar(rpar);
+}
+free_u4v(tidxs);
 thread_end_func(maln);
 
 int kbm_main(int argc, char **argv){
@@ -159,7 +221,7 @@ int kbm_main(int argc, char **argv){
 	u8i tot_bp, max_bp, opt_flags, nhit;
 	u4i qidx, i;
 	int c, ncpu, buffered_read, overwrite, quiet, tidy_reads, tidy_rdtag, skip_ctn, chainning, interactive, server, tree_maxcnt;
-	int solid_kmer;
+	int solid_kmer, refine;
 	float fval;
 	thread_preprocess(maln);
 	par = init_kbmpar();
@@ -170,6 +232,7 @@ int kbm_main(int argc, char **argv){
 	skip_ctn = 1;
 	interactive = 0;
 	solid_kmer = 0;
+	refine = 0;
 	solids = NULL;
 	rdflags = NULL;
 	ncpu = 1;
@@ -186,7 +249,7 @@ int kbm_main(int argc, char **argv){
 	server = 0;
 	tree_maxcnt = 10;
 	opt_flags = 0;
-	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:cr:CT:W:R:qvV")) != -1){
+	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:z:l:m:n:s:cr:CT:W:R:qvV")) != -1){
 		switch(c){
 			case 'h': return kbm_usage();
 			case 'i': push_cplist(qrys, optarg); break;
@@ -211,7 +274,8 @@ int kbm_main(int argc, char **argv){
 			case 'Z': par->max_gap  = atof(optarg); break;
 			case 'x': par->pgap = atoi(optarg); break;
 			case 'y': par->pvar = atoi(optarg); break;
-			case 'l': par->min_aln = atoi(optarg); break;
+			case 'z': refine = atoi(optarg); break;
+			case 'l': par->min_aln = atoi(optarg) / KBM_BIN_SIZE; break;
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 'n': par->max_hit = atoi(optarg); break;
 			case 's': par->min_sim = atof(optarg); break;
@@ -225,7 +289,7 @@ int kbm_main(int argc, char **argv){
 			case 'R': loadf = optarg; break;
 			case 'q': quiet = 1; break;
 			case 'v': KBM_LOG ++; break;
-			case 'V': fprintf(stdout, "kbm 2.3\n"); return 0;
+			case 'V': fprintf(stdout, "kbm2 %s\n", TOSTR(VERSION)); return 0;
 			default: return kbm_usage();
 		}
 	}
@@ -455,6 +519,7 @@ int kbm_main(int argc, char **argv){
 	maln->lay = NULL;
 	maln->chainning = chainning;
 	maln->interactive = interactive;
+	maln->refine = refine;
 	thread_end_init(maln);
 	if(qrys->size){
 		int run_mode;

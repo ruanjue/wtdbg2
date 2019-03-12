@@ -112,7 +112,7 @@ struct tname##_struct {		\
 			struct timespec _timeout;	\
 			pthread_mutex_lock(&tname->_COND_LOCK);	\
 			clock_gettime(CLOCK_REALTIME, &_timeout);	\
-			_timeout.tv_nsec += 1000000;	\
+			_timeout.tv_nsec += 10000;	\
 			pthread_cond_timedwait(&tname->_COND, &tname->_COND_LOCK, &_timeout);	\
 			pthread_mutex_unlock(&tname->_COND_LOCK);	\
 			continue;	\

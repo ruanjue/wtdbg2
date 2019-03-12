@@ -22,6 +22,13 @@
 #include <getopt.h>
 #include <regex.h>
 
+#ifndef VERSION
+#define VERSION 0.0
+#endif
+#ifndef RELEASE
+#define RELEASE 19830203
+#endif
+
 static struct option prog_opts[] = {
 	{"cpu",                              1, 0, 't'},
 	{"input",                            1, 0, 'i'},
@@ -38,6 +45,7 @@ static struct option prog_opts[] = {
 	{"rdcov-filter",                     1, 0, 2009},
 	//{"kmer-depth-min-filter",            0, 0, 'F'},
 	{"kmer-subsampling",                 1, 0, 'S'},
+	{"kbm-parts",                        1, 0, 1035},
 	{"dp-max-gap",                       1, 0, 2005},
 	{"dp-max-var",                       1, 0, 2006},
 	{"dp-penalty-gap",                   1, 0, 2007},
@@ -46,6 +54,13 @@ static struct option prog_opts[] = {
 	{"aln-min-match",                    1, 0, 'm'},
 	{"aln-min-similarity",               1, 0, 's'},
 	{"aln-max-var",                      1, 0, 2004},
+	{"realign",                          0, 0, 'R'},
+	{"realn-kmer-psize",                 1, 0, 3001},
+	{"realn-kmer-subsampling",           1, 0, 3002},
+	{"realn-min-length",                 1, 0, 3003},
+	{"realn-min-match",                  1, 0, 3004},
+	{"realn-min-similarity",             1, 0, 3005},
+	{"realn-max-var",                    1, 0, 3006},
 	{"corr-mode",                        1, 0, 2010},
 	{"corr-min",                         1, 0, 2012},
 	{"corr-max",                         1, 0, 2013},
@@ -58,7 +73,7 @@ static struct option prog_opts[] = {
 	{"version",                          0, 0, 'V'},
 	{"help",                             0, 0, 1000}, // detailed document
 	{"tidy-reads",                       1, 0, 'L'},
-	{"keep-name",                        0, 0, 1001},
+	{"tidy-name",                        0, 0, 1001},
 	{"err-free-nodes",                   0, 0, 1002},
 	{"limit-input",                      1, 0, 1003},
 	{"node-len",                         1, 0, 1004},
@@ -103,10 +118,7 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 2.3 (20181206)\n"
-#ifdef TIMESTAMP
-	//"Compiled: %s\n"
-#endif
+	"Version: %s (%s)\n"
 	"Usage: wtdbg2 [options] -i <reads.fa> -o <prefix> [reads.fa ...]\n"
 	"Options:\n"
 	" -i <string> Long reads sequences file (REQUIRED; can be multiple), []\n"
@@ -124,7 +136,7 @@ int usage(int level){
 	" -g <number> Approximate genome size (k/m/g suffix allowed) [0]\n"
 	" -X <float>  Choose the best <float> depth from input reads(effective with -g) [50]\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
-	"             Negative integer indicate keeping read names, e.g. -5000.\n"
+	"             Negative integer indicate tidying read names too, e.g. -5000.\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
@@ -136,6 +148,7 @@ int usage(int level){
 	"             please note that subsampling kmers will have less matched length\n"
 	" -l <float>  Min length of alignment, [2048]\n"
 	" -m <float>  Min matched length by kmer matching, [200]\n"
+	" -R          Enable realignment mode\n"
 	" -A          Keep contained reads during alignment\n"
 	" -s <float>  Min similarity, calculated by kmer matched length / aligned length, [0.05]\n"
 	" -e <int>    Min read depth of a valid edge, [3]\n"
@@ -143,9 +156,7 @@ int usage(int level){
 	" -v          Verbose (can be multiple)\n"
 	" -V          Print version information and then exit\n"
 	" --help      Show more options\n"
-#ifdef TIMESTAMP
-	//, TOSTR(TIMESTAMP)
-#endif
+	, TOSTR(VERSION), TOSTR(RELEASE)
 	);
 	if(level > 0){
 		printf(
@@ -176,6 +187,8 @@ int usage(int level){
 	//"    Orphaned kmers won't appear in building kbm-index\n"
 	" --kmer-subsampling <float>\n"
 	"   See -S 4.0\n"
+	" --kbm-parts <int>\n"
+	"   Split total reads into multiple parts, index one part by one to save memory, [1]\n"
 	" --aln-kmer-sampling <int>\n"
 	"   Select no more than n seeds in a query bin, default: 256\n"
 	" --dp-max-gap <int>\n"
@@ -193,7 +206,7 @@ int usage(int level){
 	" --aln-min-similarity <float>\n"
 	"   See -s 0.05\n"
 	" --aln-max-var <float>\n"
-	"   Max length variation of two aligned fragments, default: 0.2\n"
+	"   Max length variation of two aligned fragments, default: 0.25\n"
 	" --aln-dovetail <int>\n"
 	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: 256\n"
 	" --aln-strand <int>\n"
@@ -203,6 +216,20 @@ int usage(int level){
 	" --aln-bestn <int>\n"
 	"   Use best n hits for each read in build graph, 0: keep all, default: 500\n"
 	"   <prefix>.alignments always store all alignments\n"
+	" -R, --realign\n"
+	"   Enable re-alignment, see --realn-kmer-psize=15, --realn-kmer-subsampling=1, --realn-min-length=2048, --realn-min-match=200, --realn-min-similarity=0.1, --realn-max-var=0.25\n"
+	" --realn-kmer-psize <int>\n"
+	"   Set kmer-psize in realignment, (kmer-ksize always eq 0), default:15\n"
+	" --realn-kmer-subsampling <int>\n"
+	"   Set kmer-subsampling in realignment, default:1\n"
+	" --realn-min-length <int>\n"
+	"   Set aln-min-length in realignment, default: 2048\n"
+	" --realn-min-match <int>\n"
+	"   Set aln-min-match in realignment, default: 200\n"
+	" --realn-min-similarity <float>\n"
+	"   Set aln-min-similarity in realignment, default: 0.1\n"
+	" --realn-max-var <float>\n"
+	"   Set aln-max-var in realignment, default: 0.25\n"
 	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
 	" --corr-mode <float>\n"
@@ -229,10 +256,12 @@ int usage(int level){
 	" --limit-input <int>\n"
 	"   Limit the input sequences to at most <int> M bp. Usually for test\n"
 	" -L <int>, --tidy-reads <int>\n"
-	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
-	"   Set to 0 bp to disable tidy. Suggested vaule is 5000 for pacbio RSII reads\n"
-	" --keep-name\n"
-	"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
+	"   Default: 0. Pick longest subreads if possible. Filter reads less than <--tidy-reads>. Please add --tidy-name or set --tidy-reads to nagetive value\n" 
+	"   if want to rename reads. Set to 0 bp to disable tidy. Suggested value is 5000 for pacbio RSII reads\n"
+	" --tidy-name\n"
+	"   Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
+	//" --keep-name\n"
+	//"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
 	" -g <number>, --genome-size <number>\n"
 	"   Provide genome size, e.g. 100.4m, 2.3g. In this version, it is used with -X/--rdcov-cutoff in selecting reads just after readed all.\n"
 	" -X <float>, --rdcov-cutoff <float>\n"
@@ -326,7 +355,7 @@ static inline int64_t mm_parse_num(const char *str)
 
 int main(int argc, char **argv){
 	Graph *g;
-	KBMPar *par;
+	KBMPar *par, *rpar;
 	KBM *kbm;
 	FileReader *fr;
 	BioSequence *seqs[2], *seq;
@@ -337,10 +366,10 @@ int main(int argc, char **argv){
 	int len, tag_size, asyn_read, seq_type;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
-	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
+	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
-	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy;
+	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy, num_index;
 	double genome_size, genome_depx;
 	float node_drop, node_mrg, ttr_e_cov, fval, corr_mode, corr_cov;
 	pbs = init_cplist(4);
@@ -354,6 +383,7 @@ int main(int argc, char **argv){
 	seq_type = 0; // 0, unknown; 1: rs; 2: sq; 3: ont; 4: ccs
 	genome_size = 0;
 	genome_depx = 50.0;
+	num_index = 1;
 	filter_rd_strategy = 0;
 	fast_mode = 0;
 	corr_mode = 0;
@@ -420,8 +450,24 @@ int main(int argc, char **argv){
 	par->rd_len_order = 1;
 	par->min_aln = 2048 / KBM_BIN_SIZE;
 	par->min_mat = 200;
+	par->min_sim = 0.05;
+	par->aln_var = 0.25;
+	realign = 0;
+	rpar = init_kbmpar();
+	rpar->ksize = 0;
+	rpar->psize = 15;
+	rpar->kmer_mod = KBM_N_HASH;
+	rpar->kmin = 1;
+	rpar->max_bgap = 4;
+	rpar->max_bvar = 4;
+	rpar->self_aln = 0; // won't perform B->A when existing A->B
+	rpar->rd_len_order = 0;
+	rpar->min_aln = 2048 / KBM_BIN_SIZE;
+	rpar->min_mat = 200;
+	rpar->min_sim = 0.1;
+	rpar->aln_var = 0.25;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:vqVe:L:Ag:X:", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:RvqVe:L:Ag:X:", prog_opts, &opt_idx)) != -1){
 		switch(c){
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
@@ -491,9 +537,10 @@ int main(int argc, char **argv){
 			case 'h': return usage(0);
 			case 1000: return usage(1);
 			case 'L':  tidy_reads = atoi(optarg); opt_flags |= (1 << 4); break;
-			case 1001: tidy_rdtag = 0; break;
+			case 1001: tidy_rdtag = 1; break;
 			case 1002: only_fix = 1; break;
 			case 1003: max_bp = atol(optarg); break;
+			case 1035: num_index = atoi(optarg); break;
 			case 1004: reglen = atoi(optarg); break;
 			case 1005: regovl = atoi(optarg); break;
 			case 1006: node_drop = atof(optarg); break;
@@ -524,11 +571,18 @@ int main(int argc, char **argv){
 			case 1027: bestn = atoi(optarg); break;
 			case 1028: par->max_hit = atoi(optarg); break;
 			case 1029: par->ksampling = atoi(optarg); break;
+			case 'R': realign = 1; break;
+			case 3001: rpar->psize = atoi(optarg); break;
+			case 3002: rpar->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); break;
+			case 3003: rpar->min_aln = atoi(optarg) / KBM_BIN_SIZE; break;
+			case 3004: rpar->min_mat = atoi(optarg); break;
+			case 3005: rpar->min_sim = atof(optarg); break;
+			case 3006: rpar->aln_var = atof(optarg); break;
 			case 'A':  par->skip_contained = 0; opt_flags |= (1 << 5); break;
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
-			case 'V': fprintf(stdout, "wtdbg2 2.3\n"); return 0;
+			case 'V': fprintf(stdout, "wtdbg2 %s\n", TOSTR(VERSION)); return 0;
 			case 1034: mem_stingy = 1; break;
 			default: return usage(-1);
 		}
@@ -607,10 +661,10 @@ int main(int argc, char **argv){
 		dup2(devnull, STDERR_FILENO);
 	}
 	if(tidy_rdtag == -1){
-		if(tidy_reads > 0){
-			tidy_rdtag = 1;
-		} else {
+		if(tidy_reads >= 0){
 			tidy_rdtag = 0;
+		} else {
+			tidy_rdtag = 1;
 		}
 	}
 	if(tidy_reads < 0) tidy_reads = - tidy_reads;
@@ -812,7 +866,9 @@ int main(int argc, char **argv){
 		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "" : "-A ", ((double)par->kmer_mod) / KBM_N_HASH, par->min_sim, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
 	g = init_graph(kbm);
 	{
+		g->rpar = realign? rpar : NULL;
 		g->genome_size = genome_size;
+		g->num_index = num_index;
 		g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
 		g->corr_gcov = corr_mode;
 		g->corr_min = corr_min;
@@ -886,6 +942,7 @@ int main(int argc, char **argv){
 		generic_print_graph(g, print_nodes_graph, prefix, ".1.nodes");
 	}
 	if(1){
+		estimate_genome_size(g, tot_bp, KBM_LOGF);
 		cnt = mask_nodes_by_cov_graph(g, evtlog);
 		fprintf(KBM_LOGF, "[%s] masked %llu high coverage nodes (>%d or <%d)\n", date(), (unsigned long long)cnt, max_node_cov, node_cov);
 	}
@@ -1057,6 +1114,7 @@ int main(int argc, char **argv){
 	free_cplist(pws);
 	if(load_kbm == NULL) free_kbm(kbm);
 	free_kbmpar(par);
+	free_kbmpar(rpar);
 	free_graph(g);
 	fprintf(KBM_LOGF, "[%s] Program Done\n", date());
 	END_STAT_PROC_INFO(stderr);

@@ -23,7 +23,7 @@ int usage(int ret){
 	fprintf(stdout,
 	"PGZF: Parallel gzip file IO\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 1.0\n"
+	"Version: 1.1\n"
 	"Usage: pgzf [options] file1 [file2 ...]\n"
 	"Options:\n"
 	" -d          Decompress mode\n"
@@ -72,7 +72,7 @@ int main(int argc, char **argv){
 			case 'f': overwrite = 1; break;
 			case 'o': outf = optarg; break;
 			case 'x': del = 1; break;
-			case 'V': fprintf(stdout, "pgzf 1.0\n"); return 0;
+			case 'V': fprintf(stdout, "pgzf 1.1\n"); return 0;
 			default: return usage(1);
 		}
 	}
