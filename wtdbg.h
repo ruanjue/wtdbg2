@@ -2129,19 +2129,21 @@ static inline void load_nodes_graph(Graph *g, FileReader *clp, FileReader *nds){
 	clear_regv(g->regs);
 	next_ref_regv(g->regs);
 	nwarn = 0;
-	while((ncol = readtable_filereader(clp)) != -1){
-		if(clp->line->string[0] == '#') continue;
-		if(ncol < 4) continue;
-		if((rid = getval_cuhash(g->kbm->tag2idx, get_col_str(clp, 0))) == MAX_U4){
-			if(nwarn < 10){
-				fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(clp, 0), clp->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-				nwarn ++;
+	if(clp){
+		while((ncol = readtable_filereader(clp)) != -1){
+			if(clp->line->string[0] == '#') continue;
+			if(ncol < 4) continue;
+			if((rid = getval_cuhash(g->kbm->tag2idx, get_col_str(clp, 0))) == MAX_U4){
+				if(nwarn < 10){
+					fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(clp, 0), clp->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+					nwarn ++;
+				}
+				continue;
 			}
-			continue;
+			rd = ref_readv(g->reads, rid);
+			rd->clps[0] = atoi(get_col_str(clp, 2)) / KBM_BIN_SIZE;
+			rd->clps[1] = atoi(get_col_str(clp, 3)) / KBM_BIN_SIZE;
 		}
-		rd = ref_readv(g->reads, rid);
-		rd->clps[0] = atoi(get_col_str(clp, 2)) / KBM_BIN_SIZE;
-		rd->clps[1] = atoi(get_col_str(clp, 3)) / KBM_BIN_SIZE;
 	}
 	nwarn = 0;
 	while((ncol = readtable_filereader(nds)) != -1){

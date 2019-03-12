@@ -189,6 +189,8 @@ int usage(int level){
 	"   See -S 4.0\n"
 	" --kbm-parts <int>\n"
 	"   Split total reads into multiple parts, index one part by one to save memory, [1]\n"
+	" --bin-complexity-cutoff <int>\n"
+	"   Used in filtering BINs. If a BIN has less indexed valid kmers than <--bin-complexity-cutoff 2>, masks it.\n"
 	" --aln-kmer-sampling <int>\n"
 	"   Select no more than n seeds in a query bin, default: 256\n"
 	" --dp-max-gap <int>\n"
@@ -321,8 +323,6 @@ int usage(int level){
 	"   Min num of nodes in a contig to be ouput, 3\n"
 	" --minimal-output\n"
 	"   Will generate as less output files (<--prefix>.*) as it can\n"
-	" --bin-complexity-cutoff <int>\n"
-	"   Used in filtering BINs. If a BIN has less indexed valid kmers than <--bin-complexity-cutoff 2>, masks it.\n"
 	" --no-local-graph-analysis\n"
 	"   Before building edges, for each node, local-graph-analysis reads all related reads and according nodes, and builds a local graph to judge whether to mask it\n"
 	"   The analysis aims to find repetitive nodes\n"
@@ -766,11 +766,11 @@ int main(int argc, char **argv){
 				lstlen = 0;
 				if(tidy_reads){
 					if(has){
+						taglen = seqs[k]->tag->size;
 						if((z = regexec(&reg, seqs[k]->tag->string, 3, mats, 0)) == 0){
 							taglen = mats[1].rm_eo;
 							//trunc_string(seqs[k]->tag, mats[1].rm_eo);
 						} else if(z != REG_NOMATCH){
-							taglen = seqs[k]->tag->size;
 							regerror(z, &reg, regtag, 13);
 							fprintf(stderr, " -- REGEXEC: %s --\n", regtag); fflush(stderr);
 						}
@@ -916,12 +916,15 @@ int main(int argc, char **argv){
 	if(log_rep && !less_out){
 		evtlog = open_file_for_write(prefix, ".events", 1);
 	} else evtlog = NULL;
-	if(load_nodes && load_clips){
+	if(load_nodes){
+		if(load_clips == NULL){
+			fprintf(KBM_LOGF, " ** no clip information **\n"); fflush(KBM_LOGF);
+		}
 		fprintf(KBM_LOGF, "[%s] loading nodes from %s ... ", date(), load_nodes); fflush(KBM_LOGF);
-		FileReader *clp = open_filereader(load_clips, asyn_read);
+		FileReader *clp = load_clips? open_filereader(load_clips, asyn_read) : NULL;
 		FileReader *nds = open_filereader(load_nodes, asyn_read);
 		load_nodes_graph(g, clp, nds);
-		close_filereader(clp);
+		if(clp) close_filereader(clp);
 		close_filereader(nds);
 		fprintf(KBM_LOGF, " %llu nodes\n", (u8i)g->nodes->size);
 		print_proc_stat_info(0);
