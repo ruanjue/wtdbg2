@@ -22,6 +22,13 @@
 #include <getopt.h>
 #include <regex.h>
 
+#ifndef VERSION
+#define VERSION 0.0
+#endif
+#ifndef RELEASE
+#define RELEASE 19830203
+#endif
+
 static struct option prog_opts[] = {
 	{"cpu",                              1, 0, 't'},
 	{"input",                            1, 0, 'i'},
@@ -111,10 +118,7 @@ int usage(int level){
 	printf(
 	"WTDBG: De novo assembler for long noisy sequences\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: 2.3 (20181206)\n"
-#ifdef TIMESTAMP
-	//"Compiled: %s\n"
-#endif
+	"Version: %s (%s)\n"
 	"Usage: wtdbg2 [options] -i <reads.fa> -o <prefix> [reads.fa ...]\n"
 	"Options:\n"
 	" -i <string> Long reads sequences file (REQUIRED; can be multiple), []\n"
@@ -152,9 +156,7 @@ int usage(int level){
 	" -v          Verbose (can be multiple)\n"
 	" -V          Print version information and then exit\n"
 	" --help      Show more options\n"
-#ifdef TIMESTAMP
-	//, TOSTR(TIMESTAMP)
-#endif
+	, TOSTR(VERSION), TOSTR(RELEASE)
 	);
 	if(level > 0){
 		printf(
@@ -580,7 +582,7 @@ int main(int argc, char **argv){
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
-			case 'V': fprintf(stdout, "wtdbg2 2.3\n"); return 0;
+			case 'V': fprintf(stdout, "wtdbg2 %s\n", TOSTR(VERSION)); return 0;
 			case 1034: mem_stingy = 1; break;
 			default: return usage(-1);
 		}

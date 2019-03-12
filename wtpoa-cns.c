@@ -19,13 +19,18 @@
 
 #include "wtpoa.h"
 
-static const char *VERSION = "2.3";
+#ifndef VERSION
+#define VERSION 0.0
+#endif
+#ifndef RELEASE
+#define RELEASE 19830203
+#endif
 
 int usage(){
 	printf(
 	"WTPOA-CNS: Consensuser for wtdbg using PO-MSA\n"
 	"Author: Jue Ruan <ruanjue@gmail.com>\n"
-	"Version: %s\n"
+	"Version: %s (%s)\n"
 	"Usage: wtpoa-cns [options]\n"
 	"Options:\n"
 	" -t <int>    Number of threads, [4]\n"
@@ -62,7 +67,7 @@ int usage(){
 	"                     shorted for '-w 200 -j 150 -R 0 -b 1 -c 1 -N 50 -rS 2'\n"
 	" -v          Verbose\n"
 	" -V          Print version information and then exit\n"
-	"\n", VERSION);
+	"\n", TOSTR(VERSION), TOSTR(RELEASE));
 	return 1;
 }
 
@@ -138,7 +143,7 @@ int main(int argc, char **argv){
 				}
 				break;
 			case 'v': cns_debug ++; break;
-			case 'V': fprintf(stdout, "wtpoa-cns %s\n", VERSION); return 0;
+			case 'V': fprintf(stdout, "wtpoa-cns %s\n", TOSTR(VERSION)); return 0;
 			default: return usage();
 		}
 	}

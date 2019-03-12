@@ -21,12 +21,19 @@
 #include "kbmpoa.h"
 #include <regex.h>
 
+#ifndef VERSION
+#define VERSION 0.0
+#endif
+#ifndef RELEASE
+#define RELEASE 19830203
+#endif
+
 int kbm_usage(){
 	fprintf(stdout, "Program: kbm is a simple instance which implemented kmer-binmap\n");
 	fprintf(stdout, "         it maps query sequence against reference by kmer matching\n");
 	fprintf(stdout, "         matched kmer-pairs are bined (256bp) and counted in a matrix\n");
 	fprintf(stdout, "         dynamic programming is used to search the best path\n");
-	fprintf(stdout, "Version: 2.3 (20181206)\n");
+	fprintf(stdout, "Version: %s (%s)\n", TOSTR(VERSION), TOSTR(RELEASE));
 	fprintf(stdout, "Author: Jue Ruan <ruanjue@gmail.com>\n");
 	fprintf(stdout, "Usage: kbm <options> [start|list|stop]\n");
 	fprintf(stdout, "Options:\n");
@@ -282,7 +289,7 @@ int kbm_main(int argc, char **argv){
 			case 'R': loadf = optarg; break;
 			case 'q': quiet = 1; break;
 			case 'v': KBM_LOG ++; break;
-			case 'V': fprintf(stdout, "kbm 2.3\n"); return 0;
+			case 'V': fprintf(stdout, "kbm2 %s\n", TOSTR(VERSION)); return 0;
 			default: return kbm_usage();
 		}
 	}
