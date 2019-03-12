@@ -886,7 +886,7 @@ int main(int argc, char **argv){
 		g->mem_stingy = mem_stingy;
 		g->reglen = reglen / KBM_BIN_SIZE;
 		g->regovl = regovl / KBM_BIN_SIZE;
-		g->max_overhang = max_overhang / KBM_BIN_SIZE;
+		g->max_overhang = max_overhang < 0? -1 : max_overhang / KBM_BIN_SIZE;
 		g->node_max_conflict = node_drop;
 		g->node_merge_cutoff = node_mrg;
 		g->min_node_cov = node_cov;
