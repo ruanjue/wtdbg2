@@ -474,9 +474,11 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 	if(qlen == 0){
 		qbincnt = kbm->reads->buffer[hit->qidx].bincnt;
 		qlen = qbincnt;
+#ifdef DEBUG
 	} else if(qlen > kbm->reads->buffer[hit->qidx].bincnt){
 		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 		abort();
+#endif
 	} else {
 		qbincnt = qlen;
 	}
@@ -983,20 +985,9 @@ static inline u8i check_read_reg_conflict_core(Graph *g, rd_reg_t *hit, int *con
 		if(hit->end <= reg->beg) break;
 		if(hit->beg >= reg->end) continue;
 		if(reg->closed) continue;
-		if(hit->beg <= reg->beg){
-			x = reg->beg;
-			if(hit->end >= reg->end){
-				y = reg->end;
-			} else y = hit->end;
-		} else {
-			x = hit->beg;
-			if(hit->end <= reg->end){
-				y = hit->end;
-			} else y = reg->end;
-		}
-		if(x < y){
-			if(x + (int)g->regovl < y) *conflict = 1;
-		}
+		x = num_max(hit->beg, reg->beg);
+		y = num_min(hit->end, reg->end);
+		if(x + (int)g->regovl < y) *conflict = 1;
 	}
 	return pre;
 }
