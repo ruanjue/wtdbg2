@@ -329,6 +329,9 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 				//break;
 			//}
 		//}
+		if(pgz->running == 0){
+			break;
+		}
 	}
 	if(pz->error) break;
 	if(pz->rw_mode == PGZF_MODE_R){
@@ -366,6 +369,7 @@ if(pgz->task == PGZF_TASK_DEFLATE){
 		pgz->soff = 0;
 		if(pgzf_inflate_core(pgz->dst->buffer, &dsz, pgz->src->buffer + hsize, pgz->zsval - hsize, 1) == 0){
 			clear_u1v(pgz->src);
+			pz->error = 1;
 			break;
 		}
 		pgz->dst->size = dsz;
