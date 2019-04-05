@@ -88,20 +88,22 @@ static inline void revive_lnk_graph(Graph *g, lnk_t *e){
 	ref_frgv(g->frgs, e->frg2)->lnks[!e->dir2].cnt ++;
 }
 
-static inline void del_node_edges_graph(Graph *g, node_t *n){
+static inline void del_node_edges_graph_side(Graph *g, node_t *n, u4i k){
 	edge_ref_t *f;
 	edge_t *e;
 	u8i idx;
-	u4i k;
-	for(k=0;k<2;k++){
-		idx = n->edges[k].idx;
-		while(idx){
-			f = ref_edgerefv(g->erefs, idx);
-			idx = f->next;
-			e = g->edges->buffer + f->idx;
-			cut_edge_core_graph(g, e, WT_EDGE_CLOSED_HARD);
-		}
-	}
+  idx = n->edges[k].idx;
+  while(idx){
+    f = ref_edgerefv(g->erefs, idx);
+    idx = f->next;
+    e = g->edges->buffer + f->idx;
+    cut_edge_core_graph(g, e, WT_EDGE_CLOSED_HARD);
+  }
+}
+
+static inline void del_node_edges_graph(Graph *g, node_t *n){
+  del_node_edges_graph_side(g, n, 0);
+  del_node_edges_graph_side(g, n, 1);
 }
 
 static inline void del_frg_lnks_graph(Graph *g, frg_t *n){
@@ -2829,7 +2831,13 @@ static inline u8i mask_all_branching_nodes_graph(Graph *g){
 		n = ref_nodev(g->nodes, node);
 		if(n->closed) continue;
 		if(n->rep_idx == 0) continue;
-		del_node_graph(g, n);
+
+    u4i k;
+    for(k = 0; k ++; k < 2) {
+      if (n->edges[k].cnt > 1) {
+        del_node_edges_graph_side(g, n, k);
+      }
+    }
 	}
 	return ret;
 }
