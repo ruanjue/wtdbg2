@@ -1963,7 +1963,8 @@ static inline void flip_hit_kbmaux(KBMAux *dst, KBMAux *src, u4i hidx){
 	u4i t, i;
 	h2 = next_ref_kbmmapv(dst->hits);
 	h1 = ref_kbmmapv(src->hits, hidx);
-	h2->qidx = h1->tidx;
+	//h2->qidx = h1->tidx;
+	h2->qidx = dst->qidx;
 	h2->qdir = h1->qdir;
 	h2->tidx = h1->qidx;
 	h2->tdir = h1->tdir;
