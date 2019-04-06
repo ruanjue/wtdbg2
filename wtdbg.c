@@ -1,22 +1,3 @@
-/*
- *
- * Copyright (c) 2011, Jue Ruan <ruanjue@gmail.com>
- *
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
 #include "wtdbg.h"
 #include "wtdbg-graph.h"
 #include <getopt.h>
@@ -86,6 +67,7 @@ static struct option prog_opts[] = {
 	{"ttr-cutoff-ratio",                 1, 0, 1010},
 	{"dump-kbm",                         1, 0, 1011},
 	{"load-seqs",                        1, 0, 2002},
+	{"load-read-paf",                    1, 0, 2017},
 	{"load-kbm",                         1, 0, 1012},
 	{"load-alignments",                  1, 0, 1013},
 	{"load-nodes",                       1, 0, 2000},
@@ -305,6 +287,8 @@ int usage(int level){
 	"   See `kbm` -R <your_seqs.kbmidx> [start | stop]\n"
 	" --load-seqs <string>\n"
 	"   Similar with --load-kbm, but only use the sequences in kbmidx, and rebuild index in process's RAM.\n"
+	" --load-read-paf <string>\n"
+	"   If supplies PAF file of reads against reference, dot files will display the reference position for vertices. For debug and view\n"
 	" --load-alignments <string> +\n"
 	"   `wtdbg` output reads' alignments into <--prefix>.alignments, program can load them to fastly build assembly graph. Or you can offer\n"
 	"   other source of alignments to `wtdbg`. When --load-alignment, will only reading long sequences but skip building kbm index\n"
@@ -361,12 +345,12 @@ int main(int argc, char **argv){
 	BioSequence *seqs[2], *seq;
 	cplist *pbs, *ngs, *pws;
 	FILE *evtlog;
-	char *prefix, *dump_seqs, *load_seqs, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
+	char *prefix, *dump_seqs, *load_seqs, *load_paf, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
 	char regtag[14];
 	int len, tag_size, asyn_read, seq_type;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
-	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
+	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_len, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy, num_index;
@@ -412,6 +396,7 @@ int main(int argc, char **argv){
 	ttr_e_cov = 0.5;
 	dump_seqs = NULL;
 	load_seqs = NULL;
+	load_paf = NULL;
 	dump_kbm = NULL;
 	load_kbm = NULL;
 	load_clips = NULL;
@@ -419,6 +404,7 @@ int main(int argc, char **argv){
 	store_low_cov_edge = 1;
 	rescue_low_edges = 1;
 	bub_step = 40;
+	tip_len  = 40;
 	tip_step = 10;
 	rep_step = 0;
 	max_trace_end = 5;
@@ -467,8 +453,9 @@ int main(int argc, char **argv){
 	rpar->min_sim = 0.1;
 	rpar->aln_var = 0.25;
 	opt_flags = 0;
-	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:RvqVe:L:Ag:X:", prog_opts, &opt_idx)) != -1){
+	while((c = getopt_long(argc, argv, "ht:i:fo:x:E:k:p:K:S:l:m:s:RvqVe:L:Ag:X:U:", prog_opts, &opt_idx)) != -1){
 		switch(c){
+			case 'U': debug_node = atoi(optarg); break;
 			case 't': ncpu = atoi(optarg); break;
 			case 'i': push_cplist(pbs, optarg); break;
 			//case 'I': push_cplist(ngs, optarg); par->rd_len_order = 0; break;
@@ -550,6 +537,7 @@ int main(int argc, char **argv){
 			case 1009: ttr_n_cov = atoi(optarg); break;
 			case 1010: ttr_e_cov = atof(optarg); break;
 			case 2002: load_seqs = optarg; break;
+			case 2017: load_paf = optarg; break;
 			case 1011: dump_kbm = optarg; break;
 			case 1012: load_kbm = optarg; break;
 			case 2000: load_nodes = optarg; break;
@@ -913,6 +901,13 @@ int main(int argc, char **argv){
 		g->minimal_output = less_out;
 	}
 	g->par = par;
+	if(load_paf){
+		fprintf(KBM_LOGF, "[%s] loading reads PAF from %s ... ", date(), load_paf); fflush(KBM_LOGF);
+		FileReader *paf = open_filereader(load_paf, asyn_read);
+		load_readmaps_paf(g, paf);
+		close_filereader(paf);
+		fprintf(KBM_LOGF, " Done\n");
+	}
 	if(log_rep && !less_out){
 		evtlog = open_file_for_write(prefix, ".events", 1);
 	} else evtlog = NULL;
@@ -964,8 +959,8 @@ int main(int argc, char **argv){
 		fprintf(KBM_LOGF, "[%s] masked %llu tip-like nodes\n", date(), (unsigned long long)cnt);
 	}
 	fprintf(KBM_LOGF, "[%s] generating edges\n", date());
-	build_edges_graph(g, ncpu, evtlog);
-	fprintf(KBM_LOGF, "[%s] Done, %llu edges\n", date(), (unsigned long long)g->edges->size);
+	cnt = build_edges_graph(g, ncpu, evtlog);
+	fprintf(KBM_LOGF, "[%s] Done, %llu edges\n", date(), cnt);
 	if(ttr_n_cov){
 		//print_node_edges_cov_graph(g, evtlog);
 		cnt = mask_nodes_by_edge_cov_graph(g, ttr_n_cov, ttr_e_cov, evtlog);
@@ -978,21 +973,18 @@ int main(int argc, char **argv){
 		cnt = mask_read_weak_regs_graph(g, ncpu);
 		fprintf(KBM_LOGF, "[%s] masked %llu regions(%d bp) as unreliable, total regs %llu\n", date(), (unsigned long long)cnt, reglen, (u8i)g->regs->size);
 	}
-	if(rescue_low_edges){
-		//cnt = rescue_low_cov_tip_edges_graph(g);
-		//cnt = rescue_low_cov_edges_graph(g);
-		cnt = rescue_mercy_edges_graph(g);
-		fprintf(KBM_LOGF, "[%s] rescued %llu low cov edges\n", date(), (unsigned long long)cnt);
-	}
+	//if(rescue_low_edges){
+		//cnt = rescue_mercy_edges_graph(g);
+		//fprintf(KBM_LOGF, "[%s] rescued %llu low cov edges\n", date(), (unsigned long long)cnt);
+	//}
 	cnt = cut_binary_edges_graph(g);
 	fprintf(KBM_LOGF, "[%s] deleted %llu binary edges\n", date(), (unsigned long long)cnt);
 	if(!g->rep_detach && del_iso){
 		cnt = del_isolated_nodes_graph(g, evtlog);
 		fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
 	}
-	//cnt = reduce_transitive_edges_graph(g);
-	cnt = myers_transitive_reduction_graph(g, 1.2f);
-	set_init_ends_graph(g);
+	cnt = readpath_transitive_reduction_graph(g);
+	//set_init_ends_graph(g);
 	fprintf(KBM_LOGF, "[%s] cut %llu transitive edges\n", date(), (unsigned long long)cnt);
 	if(del_iso){
 		cnt = del_isolated_nodes_graph(g, evtlog);
@@ -1001,122 +993,42 @@ int main(int argc, char **argv){
 		}
 	}
 	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".2.dot.gz");
-	{
-		bub = tip = rep = yarn = 0;
-		int safe = 1;
-		do {
-			c = 0;
-			do {
-				cnt = trim_tips_graph(g, tip_step, bub > 0);
-				tip += cnt;
-				if(cnt) c = 1;
-			} while(cnt);
-			do {
-				cnt = pop_bubbles_graph(g, bub_step, safe);
-				bub += cnt;
-				if(cnt) c = 1;
-			} while(cnt);
-			do {
-				cnt = trim_blunt_tips_graph(g);
-				tip += cnt;
-				if(cnt) c = 1;
-			} while(cnt);
-			do {
-				cnt = pop_bubbles_graph(g, bub_step, safe);
-				bub += cnt;
-				if(cnt) c = 1;
-			} while(cnt);
-			if(c) continue;
-			if(safe == 1){
-				safe = 0;
-				c = 1;
-				continue;
-			}
-			do {
-				cnt = resolve_yarns_graph(g, bub_step * 5);
-				yarn += cnt;
-				if(cnt) c = 1;
-			} while(cnt);
-		} while(c);
-		if(bub + tip){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns;\n", date(), bub, tip, yarn); fflush(KBM_LOGF); }
-	}
-	if(del_iso){
-		cnt = del_isolated_nodes_graph(g, evtlog);
-		fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
-	}
-	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".3.dot.gz");
-	rep = mask_all_branching_nodes_graph(g);
-	fprintf(KBM_LOGF, "[%s] cut %llu branching nodes\n", date(), rep);
-	if(del_iso){
-		cnt = del_isolated_nodes_graph(g, evtlog);
-		fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
-	}
-	fprintf(KBM_LOGF, "[%s] building unitigs\n", date());
-	gen_unitigs_graph(g);
-	//fprintf(KBM_LOGF, "[%s] trimming and extending unitigs by local assembly, %d threads\n", date(), ncpu);
-	unitigs2frgs_graph(g, ncpu);
-	if(!less_out) generic_print_graph(g, print_frgs_nodes_graph, prefix, ".frg.nodes");
-	fprintf(KBM_LOGF, "[%s] generating links\n", date());
-	cnt = gen_lnks_graph(g, ncpu, evtlog);
-	fprintf(KBM_LOGF, "[%s] generated %llu links\n", date(), cnt);
-	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.dot.gz");
-	if(1){
-		cnt = rescue_weak_tip_lnks_graph(g);
-		fprintf(KBM_LOGF, "[%s] rescue %llu weak links\n", date(), (unsigned long long)cnt);
-	}
-	cnt = cut_binary_lnks_graph(g, evtlog);
-	fprintf(KBM_LOGF, "[%s] deleted %llu binary links\n", date(), (unsigned long long)cnt);
-	//cnt = reduce_transitive_lnks_graph(g);
-	cnt = myers_transitive_reduction_frg_graph(g, 10000.1f / KBM_BIN_SIZE);
-	fprintf(KBM_LOGF, "[%s] cut %llu transitive links\n", date(), (unsigned long long)cnt);
-	cnt = remove_boomerangs_frg_graph(g, 30 * 1000 / KBM_BIN_SIZE);
-	fprintf(KBM_LOGF, "[%s] remove %llu boomerangs\n", date(), (unsigned long long)cnt);
-	cnt = 0;
 	while(1){
-		u8i c;
-		if((c = detach_repetitive_frg_graph(g, 100 * 1000 / KBM_BIN_SIZE)) == 0){
+		do {
+			rep = bub = 0;
+			do {
+				cnt = readpath_detach_branches_graph(g);
+				rep += cnt;
+			} while(cnt);
+			if(rep) fprintf(KBM_LOGF, "[%s] detached %llu branches\n", date(), rep);
+			do {
+				cnt = readpath_merge_bubbles_graph(g, bub_step);
+				bub += cnt;
+			} while(cnt);
+			if(bub) fprintf(KBM_LOGF, "[%s] merge %llu bubbles\n", date(), bub);
+		} while(rep + bub);
+		rep = mask_all_branching_nodes_graph(g);
+		fprintf(KBM_LOGF, "[%s] masked %llu branching nodes\n", date(), rep);
+		if(del_iso){
+			cnt = del_isolated_nodes_graph(g, evtlog);
+			fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
+		}
+		cnt = readpath_utg_rescue_edges_graph(g);
+		if(cnt){
+			fprintf(KBM_LOGF, "[%s] rescue %llu edges\n", date(), cnt);
+		} else {
 			break;
 		}
-		cnt += c;
 	}
-	fprintf(KBM_LOGF, "[%s] detached %llu repeat-associated paths\n", date(), (unsigned long long)cnt);
-	cnt = cut_weak_branches_frg_graph(g);
-	fprintf(KBM_LOGF, "[%s] remove %llu weak branches\n", date(), (unsigned long long)cnt);
-	//cnt = cut_low_cov_lnks_graph(g, 1);
-	//fprintf(KBM_LOGF, "[%s] deleted %llu low cov links\n", date(), (unsigned long long)cnt);
-	//if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.2.dot");
-	cnt = trim_frgtips_graph(g, frgtip_len);
-	fprintf(KBM_LOGF, "[%s] cut %llu tips\n", date(), (unsigned long long)cnt);
-	//if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.3.dot");
-	cnt = pop_frg_bubbles_graph(g, bub_step);
-	fprintf(KBM_LOGF, "[%s] pop %llu bubbles\n", date(), (unsigned long long)cnt);
-	cnt = trim_frgtips_graph(g, frgtip_len);
-	fprintf(KBM_LOGF, "[%s] cut %llu tips\n", date(), (unsigned long long)cnt);
-	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".ctg.dot.gz");
-	fprintf(KBM_LOGF, "[%s] building contigs\n", date());
-	cnt = gen_contigs_graph(g, evtlog);
-	fprintf(KBM_LOGF, "[%s] searched %llu contigs\n", date(), (unsigned long long)cnt);
-	if(0){
-		cnt = gen_complex_contigs_graph(g);
-		u8i sum;
-		seqletv *qs;
-		sum = 0;
-		for(i=g->major_nctg;i<g->ctgs->size;i++){
-			qs = (seqletv*)get_vplist(g->ctgs, i);
-			sum += qs->buffer[qs->size - 1].off + qs->buffer[qs->size - 1].len;
-		}
-		fprintf(KBM_LOGF, "[%s] added %llu unsolved repetitive contigs, %llu bp\n", date(), (unsigned long long)cnt, sum);
+	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".3.dot.gz");
+	if(del_iso){
+		cnt = del_isolated_nodes_graph(g, evtlog);
+		fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
 	}
-	n50_stat_contigs_graph(g);
-	//cnt = generic_print_graph(g, print_isolated_nodes_dot_graph, prefix, ".4.dot");
-	//fprintf(KBM_LOGF, "[%s] %llu nodes not in contigs\n", date(), (unsigned long long)cnt);
-	//cnt = count_isolated_reads_graph(g);
-	//fprintf(KBM_LOGF, "[%s] %llu reads not in contigs\n", date(), (unsigned long long)cnt);
-	cnt = print_ctgs_graph(g, 0, 0, g->major_nctg, prefix, ".ctg.lay.gz", ncpu, evtlog);
-	if(0){
-		fprintf(KBM_LOGF, "[%s] outputing reptigs\n", date());
-		cnt = print_ctgs_graph(g, cnt, g->major_nctg, g->ctgs->size, prefix, ".rtg.lay", ncpu, evtlog);
-	}
+	gen_utgs_graph(g);
+	if(!less_out) generic_print_graph(g, print_utgs_nodes_graph, prefix, ".ctg.nodes");
+	filter_utgs_graph(g);
+	cnt = print_utgs_graph(g, prefix, ".ctg.lay.gz", ncpu, evtlog);
 	if(evtlog) fclose(evtlog);
 	free_cplist(pbs);
 	free_cplist(ngs);
