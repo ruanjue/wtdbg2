@@ -705,6 +705,7 @@ if(mdbg->task == 1){
 		ready_kbm(raux->kbm);
 		simple_index_kbm(raux->kbm, 0, raux->kbm->bins->size);
 		clear_u4v(tidxs);
+		sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(a.tidx, b.tidx));
 		for(i=0;i<aux->hits->size;i++){
 			if(i && tidxs->buffer[tidxs->size - 1] == aux->hits->buffer[i].tidx) continue;
 			push_u4v(tidxs, aux->hits->buffer[i].tidx);
