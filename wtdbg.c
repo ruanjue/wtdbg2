@@ -950,10 +950,12 @@ int main(int argc, char **argv){
 		cnt = mask_nodes_by_cov_graph(g, evtlog);
 		fprintf(KBM_LOGF, "[%s] masked %llu high coverage nodes (>%d or <%d)\n", date(), (unsigned long long)cnt, max_node_cov, node_cov);
 	}
+	/*
 	if(cnn_filter){
 		cnt = mask_nodes_by_connectivity_graph(g, ncpu, evtlog);
 		fprintf(KBM_LOGF, "[%s] masked %llu repeat-like nodes by local subgraph analysis\n", date(), (unsigned long long)cnt);
 	}
+	*/
 	if(tip_like){
 		cnt = mask_possible_tip_nodes_graph(g);
 		fprintf(KBM_LOGF, "[%s] masked %llu tip-like nodes\n", date(), (unsigned long long)cnt);
