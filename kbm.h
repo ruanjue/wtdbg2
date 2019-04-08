@@ -142,7 +142,7 @@ typedef struct {
 	u4i tidx:31, tdir:1;
 	u8i cgoff:40, cglen:24;
 	int qb, qe, tb, te;
-	int mat, cnt, aln, gap; // gap is counted in BINs
+	int mat, kcnt, aln, gap;
 } kbm_map_t;
 define_list(kbmmapv, kbm_map_t);
 
@@ -1025,10 +1025,10 @@ static inline void index_kbm(KBM *kbm, u8i beg, u8i end, u4i ncpu, FILE *kmstat)
 			fprintf(KBM_LOGF, "%6llu", i);
 		}
 		fprintf(KBM_LOGF, "\n");
-		fprintf(KBM_LOGF,
-			"# If the kmer distribution is not good, please kill me and adjust -k, -p, and -K\n"
-			"# Cannot get a good distribution anyway, should adjust -S -s, also -A -e in assembly\n"
-		);
+		//fprintf(KBM_LOGF,
+			//"# If the kmer distribution is not good, please kill me and adjust -k, -p, and -K\n"
+			//"# Cannot get a good distribution anyway, should adjust -S -s, also -A -e in assembly\n"
+		//);
 		free(_kcnts);
 		free(txt);
 	}
