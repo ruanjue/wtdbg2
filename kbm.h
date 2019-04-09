@@ -142,7 +142,7 @@ typedef struct {
 	u4i tidx:31, tdir:1;
 	u8i cgoff:40, cglen:24;
 	int qb, qe, tb, te;
-	int mat, cnt, aln, gap;
+	int mat, cnt, aln, gap; // gap is counted in BINs
 } kbm_map_t;
 define_list(kbmmapv, kbm_map_t);
 
@@ -1778,7 +1778,7 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	kbm_cmer_t *c;
 	u8i cgoff, sidx;
 	u4i i, mat, cnt, gap, cglen;
-	int tmp, x, y, bt;
+	int tmp, x, y, bt, lst;
 	dp = aux->dps[dir];
 	hit = next_ref_kbmmapv(aux->hits);
 	hit->qidx = aux->qidx;
@@ -1802,15 +1802,35 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	gap = 0;
 	x = hit->qe;
 	y = hit->te;
+	lst = 0;
 	while(x >= hit->qb && y >= hit->tb){
 		bt = get_bit2vec(dp->bts, x + y * aux->qnbin);
 		if(get_bitvec(dp->cmask, x + y * aux->qnbit)){
 			c = ref_kbmcmerv(dp->cms, rank_bitvec(dp->cmask, x + y * aux->qnbit));
 			cnt += c->kcnt;
 			mat += c->kmat;
-			push_bitsvec(aux->cigars, bt);
+			// try merge 'ID' or 'DI' into 'M'
+			if(lst == 0){
+				if(bt == 0){
+					push_bitsvec(aux->cigars, 0);
+				}
+				lst = bt;
+			} else if(bt == 0){
+				push_bitsvec(aux->cigars, lst);
+				push_bitsvec(aux->cigars, 0);
+				lst = 0;
+			} else if(bt == lst){
+				push_bitsvec(aux->cigars, lst);
+			} else {
+				push_bitsvec(aux->cigars, 0);
+				lst = 0;
+			}
 		} else {
 			gap ++;
+			if(lst){
+				push_bitsvec(aux->cigars, lst);
+			}
+			lst = 0;
 			push_bitsvec(aux->cigars, 0x4 | bt);
 		}
 		switch(bt){
@@ -1818,6 +1838,9 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 			case 1: x --; break;
 			default: y --; break;
 		}
+	}
+	if(lst){
+		push_bitsvec(aux->cigars, lst);
 	}
 	cglen = aux->cigars->size - cgoff;
 	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * KBM_BSIZE * aux->par->min_sim)
@@ -1944,6 +1967,7 @@ static inline void flip_hit_kbmaux(KBMAux *dst, KBMAux *src, u4i hidx){
 	u4i t, i;
 	h2 = next_ref_kbmmapv(dst->hits);
 	h1 = ref_kbmmapv(src->hits, hidx);
+	//h2->qidx = h1->tidx;
 	h2->qidx = dst->qidx;
 	h2->qdir = h1->qdir;
 	h2->tidx = h1->qidx;
