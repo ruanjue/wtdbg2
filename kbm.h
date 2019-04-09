@@ -142,7 +142,7 @@ typedef struct {
 	u4i tidx:31, tdir:1;
 	u8i cgoff:40, cglen:24;
 	int qb, qe, tb, te;
-	int mat, kcnt, aln, gap;
+	int mat, cnt, aln, gap;
 } kbm_map_t;
 define_list(kbmmapv, kbm_map_t);
 
