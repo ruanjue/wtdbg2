@@ -1351,6 +1351,283 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 	return nhit;
 }
 
+static inline u8i load_alignments_sam_core(Graph *g, FileReader *sam, int raw, rdregv *regs, u4v *maps[3]){
+	kbmmapv *hits;
+	BitsVec *cigars;
+	u4v *cgs, *bts;
+	kbm_map_t *hit, HIT, *h;
+	cuhash_t *cu;
+	u8i nhit;
+	u4i i, rid, flag, op, ol, lens[2];
+	u4i qlen, tlen, qdel;
+	int nwarn, mwarn, ncol;
+	char *cgstr, *qtag;
+	mwarn = 20;
+	nwarn = 0;
+	cgs = init_u4v(4);
+	bts = init_u4v(64);
+	hits = init_kbmmapv(32);
+	cigars = g->chainning_hits? init_bitsvec(1024, 3) : g->cigars;
+	memset(&HIT, 0, sizeof(kbm_map_t));
+	hit = &HIT;
+	nhit = 0;
+	while((ncol = readtable_filereader(sam)) != -1){
+		if((sam->n_line % 100000) == 0){
+			fprintf(KBM_LOGF, "\r%llu", sam->n_line); fflush(KBM_LOGF);
+		}
+		if(sam->line->buffer[0] == '@'){
+			continue;
+		}
+		qtag = get_col_str(sam, 0);
+		if((cu = get_cuhash(g->kbm->tag2idx, qtag)) == NULL){
+			if(nwarn < mwarn){
+				fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", qtag, sam->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				nwarn ++;
+			}
+			continue;
+		} else rid = cu->val;
+		hit->qidx = rid;
+		flag = atol(get_col_str(sam, 1));
+		hit->qdir = (flag & 0x10) >> 4;
+		qlen = g->kbm->reads->buffer[hit->qidx].rdlen;
+		hit->qb = 0;
+		hit->qe = 0;
+		if((cu = get_cuhash(g->kbm->tag2idx, get_col_str(sam, 2))) == NULL){
+			if(nwarn < mwarn){
+				fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(sam, 2), sam->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				nwarn ++;
+			}
+			continue;
+		} else rid = cu->val;
+		if(hit->qidx >= rid) continue;
+		hit->tidx = rid;
+		tlen = g->kbm->reads->buffer[hit->tidx].rdlen;
+		hit->tdir = 0;
+		hit->tb = atol(get_col_str(sam, 3));
+		hit->te = hit->tb;
+		hit->mat = 0;
+		hit->aln = 0;
+		hit->cnt = 0;
+		hit->gap = 0;
+		if(g->chainning_hits){
+			if(hits->size && peer_kbmmapv(hits)->qidx != hit->qidx){
+				chainning_hits_core(hits, cigars, g->uniq_hit, g->kbm->par->aln_var);
+				for(i=0;i<hits->size;i++){
+					h = ref_kbmmapv(hits, i);
+					if(h->mat == 0) continue;
+					append_bitsvec(g->cigars, cigars, h->cgoff, h->cglen);
+					h->cgoff = g->cigars->size - h->cglen;
+					nhit ++;
+					map2rdhits_graph(g, h);
+				}
+				clear_kbmmapv(hits);
+				clear_bitsvec(cigars);
+			}
+		}
+		clear_u4v(cgs);
+		cgstr = get_col_str(sam, 5);
+		op = ol = 0;
+		lens[0] = lens[1] = 0;
+		while(cgstr[0]){
+			if(cgstr[0] >= '0' && cgstr[0] <= '9'){
+				ol = ol * 10 + (cgstr[0] - '0');
+			} else {
+				switch(cgstr[0]){
+					case '=':
+					case 'X':
+					case 'M': op = 0b11; break;
+					case 'S':
+					case 'I': op = 0b10; break;
+					case 'N':
+					case 'H':
+					case 'D': op = 0b01; break;
+					case 'P': op = 0b00; break;
+					default:
+						fprintf(stderr, " -- Bad cigar '%c' \"%s\" in LINE:%llu in %s -- %s:%d --\n", cgstr[0], get_col_str(sam, 5), sam->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+						exit(1);
+				}
+				if(ol == 0) ol = 1;
+				{
+					if(op & 0b01){
+						lens[1] += ol;
+					} else if(op & 0b10){
+						lens[0] += ol;
+					}
+				}
+				push_u4v(cgs, (ol << 8) | op);
+				ol = 0;
+			}
+			cgstr ++;
+		}
+		// trim cigar right
+		while(cgs->size){
+			op = cgs->buffer[cgs->size - 1] >> 8;
+			ol = cgs->buffer[cgs->size - 1] & 0xFF;
+			if(op == 0b11) break;
+			cgs->size --;
+		}
+		ol = op = i = 0;
+		if(hit->qdir){ // KBM trim read into BIN size, but SAM not. Need to be careful in reverse strand
+			qdel = lens[0] - qlen;
+			while(i < cgs->size){
+				ol = cgs->buffer[i] >> 8;
+				op = cgs->buffer[i] & 0xFF;
+				i ++;
+				if(op & 0b10){
+					if(ol >= qdel){
+						ol -= qdel;
+						//hit->qe += qdel;
+						if(op & 0b01) hit->te += qdel;
+					} else {
+						qdel -= ol;
+						//hit->qe += ol;
+						if(op & 0b01) hit->te += ol;
+					}
+				} else if(op & 0b01){
+					hit->te += ol;
+				}
+			}
+		}
+		// trim cigar left
+		while(1){
+			if(ol == 0){
+				if(i >= cgs->size) break;
+				ol = cgs->buffer[i] >> 8;
+				op = cgs->buffer[i] & 0xFF;
+				i ++;
+			}
+			if(op == 0b11) break;
+			hit->te += ol * (op & 0b01);
+			hit->qe += ol * ((op >> 1) & 0b01);
+		}
+		//call bin cigars
+		hit->qb = hit->qe;
+		hit->tb = hit->te;
+		u4i qlst, tlst, mat;
+		u4i bin_min_mat = 21;
+		qlst = hit->qe / KBM_BIN_SIZE;
+		tlst = hit->te / KBM_BIN_SIZE;
+		mat = 0;
+		clear_u4v(bts);
+		while(1){
+			if(ol == 0){
+				if(i >= cgs->size) break;
+				ol = cgs->buffer[i] >> 8;
+				op = cgs->buffer[i] & 0xFF;
+				i ++;
+			}
+			if(op == 0b11){
+				while(ol){
+					u4i l, d, qidx, ql, tidx, tl;
+					qidx = hit->qe / KBM_BIN_SIZE;
+					ql = ((~hit->qe) & 0xFFU) + 1;
+					tidx = hit->te / KBM_BIN_SIZE;
+					tl = ((~hit->te) & 0xFFU) + 1;
+					l = num_min(ql, tl);
+					l = num_min(l, ol);
+					while(1){
+						d = ((qlst < qidx)? 1 : 0) | ((tlst < tidx)? 2 : 0);
+						if(d == 0)  break;
+						if(mat < bin_min_mat){
+							d |= 4;
+						}
+						qlst += d & 0x01;
+						tlst += (d >> 1) & 0x01;
+						if((d & 0x3) == 3) d &= 0x4;
+						push_u4v(bts, d);
+						mat = 0;
+					}
+					hit->qe += l;
+					hit->te += l;
+					ol -= l;
+					mat += l;
+					hit->mat += l;
+				}
+			} else {
+				hit->te += ol * (op & 0b01);
+				hit->qe += ol * ((op >> 1) & 0b01);
+			}
+			ol = 0;
+		}
+		hit->qb = hit->qb / KBM_BIN_SIZE;
+		hit->tb = hit->qb / KBM_BIN_SIZE;
+		// trim bin cigars right
+		while(bts->size && (bts->buffer[bts->size - 1] & 0x04)) bts->size --;
+		// trim bin cigars left
+		for(i=0;i<bts->size;i++){
+			op = bts->buffer[i];
+			if(op & 0x04){
+				if(op & 0x1) hit->qb ++;
+				if(op & 0x2) hit->tb ++;
+			} else {
+				break;
+			}
+		}
+		// tidy bin cigars
+		hit->qe = hit->qb;
+		hit->te = hit->tb;
+		hit->cgoff = cigars->size;
+		op = 0;
+		for(;i<bts->size;i++){
+			if(bts->buffer[i] & 0x1) hit->qe ++;
+			if(bts->buffer[i] & 0x2) hit->te ++;
+			if(bts->buffer[i] & 0x4) hit->gap ++;
+			if(bts->buffer[i] == 0 || bts->buffer[i] & 0x4){
+				if(op) push_bitsvec(cigars, op);
+				push_bitsvec(cigars, bts->buffer[i]);
+				op = 0;
+			} else if(op){
+				if(op == bts->buffer[i]){
+					push_bitsvec(cigars, op);
+				} else {
+					push_bitsvec(cigars, 0);
+					op = 0;
+				}
+			} else {
+				op = bts->buffer[i];
+			}
+		}
+		if(op) push_bitsvec(cigars, op);
+		hit->cglen = cigars->size - hit->cgoff;
+		cigars->size -= hit->cglen;
+		hit->aln = num_min(hit->qe - hit->qb, hit->te - hit->tb);
+		if(hit->mat < g->par->min_mat) continue;
+		if(hit->aln < g->par->min_aln) continue;
+		if(hit->mat < hit->aln * KBM_BIN_SIZE * g->par->min_sim) continue;
+		if(num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(g->par->aln_var * hit->aln, 1.0)) continue;
+		cigars->size += hit->cglen;
+		if(raw){
+			hit2rdregs_graph(g, regs, qlen / KBM_BIN_SIZE, hit, cigars, maps);
+			clear_bitsvec(cigars);
+		} else if(g->chainning_hits){
+			push_kbmmapv(hits, *hit);
+		} else {
+			map2rdhits_graph(g, hit);
+		}
+	}
+	if(g->chainning_hits){
+			if(hits->size){
+				chainning_hits_core(hits, cigars, g->uniq_hit, g->kbm->par->aln_var);
+				for(i=0;i<hits->size;i++){
+					h = ref_kbmmapv(hits, i);
+					if(h->mat == 0) continue;
+					append_bitsvec(g->cigars, cigars, h->cgoff, h->cglen);
+					h->cgoff = g->cigars->size - h->cglen;
+					nhit ++;
+					map2rdhits_graph(g, h);
+				}
+				clear_kbmmapv(hits);
+				clear_bitsvec(cigars);
+			}
+	}
+	fprintf(KBM_LOGF, "\r%llu lines, %llu hits\n", sam->n_line, nhit);
+	free_kbmmapv(hits);
+	if(g->chainning_hits) free_bitsvec(cigars);
+	free_u4v(cgs);
+	free_u4v(bts);
+	return nhit;
+}
+
 static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs, u4v *maps[3], char *prefix, char *dump_kbm){
 	kbm_map_t *hit;
 	kbm_read_t *pb;
