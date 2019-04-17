@@ -6,455 +6,7 @@
 #include "pgzf.h"
 
 static u8i debug_node = MAX_U8;
-
-static inline void print_node_edges_cov_graph(Graph *g, FILE *out){
-	node_t *n;
-	edge_t *e;
-	edge_ref_t eref;
-	u8i nid;
-	u4i k;
-	for(nid=0;nid<g->nodes->size;nid++){
-		n = ref_nodev(g->nodes, nid);
-		if(n->erefs[0].cnt + n->erefs[1].cnt == 0) continue;
-		fprintf(out, "NODE_COV\tN%llu\t%u\t%u", nid, n->cov, n->regs.cnt);
-		for(k=0;k<2;k++){
-			beg_iter_edges_graph(n, k, &eref);
-			while((e = ref_iter_edges_graph(g, &eref))){
-				fprintf(out, "\t%u", get_edge_cov(e));
-			}
-		}
-		fprintf(out, "\n");
-	}
-}
-
-static inline void get_subgraph_nodes_graph(Graph *g, ptrrefhash *nodes, u8v *stack, uint16_t max_step, u4i closed_val){
-	node_t *n;
-	edge_ref_t eref;
-	edge_t *e;
-	ptr_ref_t *p, *pp;
-	u8i nid;
-	u4i k, cnt;
-	int exists;
-	clear_u8v(stack);
-	reset_iter_ptrrefhash(nodes);
-	while((p = ref_iter_ptrrefhash(nodes))){
-		p->cnt = 0;
-		push_u8v(stack, p->idx);
-	}
-	while(stack->size){
-		p = get_ptrrefhash(nodes, (ptr_ref_t){stack->buffer[--stack->size], 0});
-		if(p->cnt >> 16) continue;
-		if((p->cnt & 0xFFFF) >= max_step) continue;
-		n = ref_nodev(g->nodes, p->idx);
-		cnt = p->cnt;
-		p->cnt |= 1U << 16;
-		for(k=0;k<2;k++){
-			beg_iter_edges_graph(n, k, &eref);
-			while((e = ref_iter_edges_graph_core(g->edges, &eref, 1))){
-				if(is_edge_closed(e) >= closed_val) continue;
-				nid = get_edge_didx(e, eref.flg);
-				pp = prepare_ptrrefhash(nodes, (ptr_ref_t){nid, 0}, &exists);
-				if(exists) continue;
-				pp->idx = nid; pp->cnt = cnt + 1;
-				push_u8v(stack, nid);
-			}
-		}
-	}
-}
-
-static inline u8i print_local_dot_graph(Graph *g, u8i local_dot_node, u4i local_dot_step, char *filename){
-	FILE *out;
-	ptrrefhash *hash;
-	u8v *stack;
-	ptr_ref_t *p;
-	node_t *n;
-	reg_t *r, *rr;
-	edge_ref_t eref;
-	edge_t *e;
-	u8i i;
-	u4i j, k, max;
-	out = open_file_for_write(filename, NULL, 1);
-	hash = init_ptrrefhash(1023);
-	stack = init_u8v(32);
-	put_ptrrefhash(hash, (ptr_ref_t){local_dot_node, 0});
-	get_subgraph_nodes_graph(g, hash, stack, local_dot_step, 1);
-	fprintf(out, "digraph {\n");
-	fprintf(out, "node [shape=record]\n");
-	reset_iter_ptrrefhash(hash);
-	while((p = ref_iter_ptrrefhash(hash))){
-		i = p->idx;
-		n = ref_nodev(g->nodes, i);
-		r = NULL; max = 0;
-		for(j=0;j<n->regs.cnt;j++){
-			rr = ref_regv(g->regs, n->regs.idx + j);
-			if(g->reads->buffer[rr->rid].regs.cnt > max){
-				r = rr;
-				max = g->reads->buffer[rr->rid].regs.cnt;
-			}
-		}
-		if(r == NULL) continue;
-		fprintf(out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"%s]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg, p->idx == local_dot_node? " style=filled fillcolor=yellow" : "");
-	}
-	reset_iter_ptrrefhash(hash);
-	while((p = ref_iter_ptrrefhash(hash))){
-		i = p->idx;
-		n = ref_nodev(g->nodes, i);
-		for(k=0;k<2;k++){
-			beg_iter_edges_graph(n, k, &eref);
-			while((e = ref_iter_edges_graph(g, &eref))){
-				fprintf(out, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s]\n", (u8i)get_edge_sidx(e, eref.flg), (u8i)get_edge_didx(e, eref.flg), "+-"[get_edge_sdir(e, eref.flg)], "+-"[get_edge_ddir(e, eref.flg)], get_edge_cov(e), get_edge_off(e), colors[get_edge_sdir(e, eref.flg)][get_edge_ddir(e, eref.flg)]);
-			}
-		}
-	}
-	fprintf(out, "}\n");
-	fclose(out);
-	return 0;
-}
-
-static inline u8i mask_nodes_by_edge_cov_graph(Graph *g, u4i min_node_cov, float min_edge_cov_ratio, FILE *out){
-	node_t *n;
-	edge_t *e;
-	edge_ref_t eref;
-	u8i nid, ret;
-	u4i max, k;
-	ret = 0;
-	for(nid=0;nid<g->nodes->size;nid++){
-		n = ref_nodev(g->nodes, nid);
-		if(n->closed) continue;
-		//if(n->regs.cnt < min_node_cov) continue;
-		if(n->cov < min_node_cov) continue;
-		max = 0;
-		for(k=0;k<2;k++){
-			beg_iter_edges_graph(n, k, &eref);
-			while((e = ref_iter_edges_graph(g, &eref))){
-				if(get_edge_cov(e) > max) max = get_edge_cov(e);
-			}
-		}
-		if(max < (u4i)(n->regs.cnt * min_edge_cov_ratio)){
-			del_node_graph(g, n);
-			if(out){
-				fprintf(out, "NODE_EDGE_COV\tN%llu\t%u\t%u\n", nid, n->regs.cnt, max);
-			}
-			ret ++;
-		}
-	}
-	return ret;
-}
-
-// remove regs which have no high cov edges with other regs in one read
-thread_beg_def(mrdk);
-Graph *g;
-u4i ridx;
-u8v *masks;
-thread_end_def(mrdk);
-
-thread_beg_func(mrdk);
-Graph *g;
-u4i ridx;
-u8v *regs;
-u4v *gidxs, *gcnts;
-UUhash *hash;
-UUhash_t *UU;
-read_t *rd;
-reg_t *reg;
-node_t *n;
-edge_ref_t eref;
-edge_t *e;
-u8i idx, nidx, hidx;
-u4i i, k, gid, max;
-g = mrdk->g;
-regs = init_u8v(32);
-gidxs = init_u4v(32);
-gcnts = init_u4v(32);
-hash = init_UUhash(1023);
-thread_beg_loop(mrdk);
-clear_u8v(mrdk->masks);
-ridx = mrdk->ridx;
-if(ridx == MAX_U4) continue;
-clear_u8v(regs);
-clear_u4v(gidxs);
-clear_u4v(gcnts);
-clear_UUhash(hash);
-rd = ref_readv(g->reads, ridx);
-idx = rd->regs.idx;
-while(idx){
-	push_u4v(gidxs, regs->size);
-	push_u4v(gcnts, 0);
-	reg = ref_regv(g->regs, idx);
-	if(reg->closed == 0){
-		put_UUhash(hash, (UUhash_t){reg->node, regs->size});
-		push_u8v(regs, idx);
-	}
-	idx = reg->read_link;
-}
-for(i=0;i<regs->size;i++){
-	idx = regs->buffer[i];
-	gid = gidxs->buffer[i];
-	reg = ref_regv(g->regs, idx);
-	n = ref_nodev(g->nodes, reg->node);
-	for(k=0;k<2;k++){
-		beg_iter_edges_graph(n, k, &eref);
-		while((e = ref_iter_edges_graph(g, &eref))){
-			if(get_edge_cov(e) < g->min_edge_cov) continue;
-			nidx = get_edge_didx(e, eref.flg);
-			if((UU = get_UUhash(hash, nidx)) == NULL) continue;
-			if((hidx = UU->val) <= i) continue;
-			gidxs->buffer[hidx] = gid;
-		}
-	}
-}
-for(i=0;i<gidxs->size;i++) gcnts->buffer[gidxs->buffer[i]] ++;
-max = 0;
-gid = 0;
-for(i=0;i<gcnts->size;i++){
-	if(gcnts->buffer[i] > max){
-		max = gcnts->buffer[i];
-		gid = i;
-	}
-}
-for(i=0;i<gidxs->size;i++){
-	if(gidxs->buffer[i] != gid){
-		push_u8v(mrdk->masks, regs->buffer[i]);
-	}
-}
-thread_end_loop(mrdk);
-free_u8v(regs);
-free_u4v(gidxs);
-free_u4v(gcnts);
-free_UUhash(hash);
-thread_end_func(mrdk);
-
-static inline u8i mask_read_weak_regs_graph(Graph *g, int ncpu){
-	u8i i, ret;
-	u4i j;
-	thread_preprocess(mrdk);
-	thread_beg_init(mrdk, ncpu);
-	mrdk->g = g;
-	mrdk->ridx = MAX_U4;
-	mrdk->masks = init_u8v(32);
-	thread_end_init(mrdk);
-	ret = 0;
-	for(i=0;i<g->reads->size+ncpu;i++){
-		if(i < g->reads->size){
-			thread_wait_one(mrdk);
-		} else {
-			thread_wait_next(mrdk);
-		}
-		if(mrdk->masks->size){
-			for(j=0;j<mrdk->masks->size;j++){
-				ref_regv(g->regs, mrdk->masks->buffer[j])->closed = 1;
-			}
-			ret += mrdk->masks->size;
-			clear_u8v(mrdk->masks);
-		}
-		if(i < g->reads->size){
-			mrdk->ridx = i;
-			thread_wake(mrdk);
-		}
-	}
-	thread_beg_close(mrdk);
-	free_u8v(mrdk->masks);
-	thread_end_close(mrdk);
-	return ret;
-}
-
-static inline u8i mask_possible_tip_nodes_graph(Graph *g){
-	node_t *n;
-	reg_t *r;
-	u8i ret, i;
-	u4i j, cnt;
-	ret = 0;
-	for(i=0;i<g->nodes->size;i++){
-		n = ref_nodev(g->nodes, i);
-		if(n->closed) continue;
-		cnt = 0;
-		for(j=0;j<n->regs.cnt;j++){
-			r = ref_regv(g->regs, n->regs.idx + j);
-			if(r->read_link == 0) continue;
-			if(n->regs.idx + j == g->reads->buffer[r->rid].regs.idx) continue;
-			cnt ++;
-		}
-		if(cnt < g->min_edge_cov){
-			n->closed = 1;
-			ret ++;
-		}
-	}
-	return ret;
-}
-
-static inline void print_node_edges_graph(Graph *g, u8i nid, int dir, FILE *out){
-	node_t *n;
-	edge_ref_t eref;
-	edge_t *e;
-	n = ref_nodev(g->nodes, nid);
-	beg_iter_edges_graph(n, dir, &eref);
-	while((e = ref_iter_edges_graph(g, &eref))){
-		fprintf(out, "N%llu\t%c\tN%llu\t%c\t%d\t%d\n", (u8i)get_edge_sidx(e, eref.flg), "+-"[get_edge_sdir(e, eref.flg)], (u8i)get_edge_didx(e, eref.flg), "+-"[get_edge_ddir(e, eref.flg)], get_edge_cov(e), get_edge_off(e));
-	}
-}
-
-#define count_living_edges_graph(g, n, dir) (n)->erefs[dir].cnt
-
-static inline int inclusive_linear_trace_graph(Graph *g, trace_t *_t, int max_len, u4i max_step, u8i check_node_visit, tracev *path, int *msg){
-	trace_t *t;
-	node_t *n;
-	edge_t *e;
-	edge_ref_t eref;
-	u4i step;
-	int len;
-	t = _t;
-	len = g->reglen;
-	step = 1;
-	n = ref_nodev(g->nodes, t->node);
-	if(msg) *msg = WT_TRACE_MSG_ONE;
-	while(max_len == 0 || len <= max_len){
-		if(n->erefs[t->dir].cnt == 0){
-			if(msg) *msg = WT_TRACE_MSG_ZERO;
-			break;
-		} else if(n->erefs[t->dir].cnt > 1){
-			if(msg) *msg = WT_TRACE_MSG_MORE;
-			break;
-		}
-		if(max_step && step > max_step) break;
-		beg_iter_edges_graph(n, t->dir, &eref);
-		e = ref_iter_edges_graph(g, &eref);
-		if(check_node_visit){
-			if(n->bt_visit == check_node_visit){ if(msg) *msg = WT_TRACE_MSG_VISITED; break; }
-			else n->bt_visit = check_node_visit;
-		}
-		t->edges[t->dir].idx = offset_edgev(g->edges, e);
-		t->edges[t->dir].flg = eref.flg;
-		if(path) t = next_ref_tracev(path);
-		t->node = get_edge_didx(e, eref.flg);
-		t->dir  = get_edge_ddir(e, eref.flg);
-		t->edges[!t->dir] = (edge_ref_t){offset_edgev(g->edges, e), !eref.flg, 0, 0};
-		t->edges[t->dir] = EDGE_REF_NULL;
-		len += g->reglen + get_edge_off(e);
-		step ++;
-		n = ref_nodev(g->nodes, t->node);
-		if(n->erefs[!t->dir].cnt > 1){
-			if(msg) *msg = - 1 - WT_TRACE_MSG_MORE;
-			break;
-		}
-	}
-	return len;
-}
-
-static inline int exclusive_linear_trace_graph(Graph *g, trace_t *_t, int max_len, u4i max_step, u8i check_node_visit, tracev *path, int *msg){
-	trace_t *t;
-	node_t *n;
-	edge_t *e;
-	edge_ref_t eref;
-	u4i step;
-	int len;
-	t = _t;
-	len = g->reglen;
-	step = 1;
-	n = ref_nodev(g->nodes, t->node);
-	if(msg) *msg = WT_TRACE_MSG_ONE;
-	while(max_len == 0 || len <= max_len){
-		if(n->erefs[t->dir].cnt == 0){
-			if(msg) *msg = WT_TRACE_MSG_ZERO;
-			break;
-		} else if(n->erefs[t->dir].cnt > 1){
-			if(msg) *msg = WT_TRACE_MSG_MORE;
-			break;
-		}
-		if(max_step && step > max_step) break;
-		beg_iter_edges_graph(n, t->dir, &eref);
-		e = ref_iter_edges_graph(g, &eref);
-		n = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
-		if(n->erefs[!get_edge_ddir(e, eref.flg)].cnt > 1){
-			if(msg) *msg = - 1 - WT_TRACE_MSG_MORE;
-			break;
-		}
-		if(check_node_visit){
-			if(n->bt_visit == check_node_visit){ if(msg) *msg = WT_TRACE_MSG_VISITED; break; }
-			else { n->bt_visit = check_node_visit; }
-		}
-		t->edges[t->dir].idx = offset_edgev(g->edges, e);
-		t->edges[t->dir].flg = eref.flg;
-		if(path) t = next_ref_tracev(path);
-		t->node = get_edge_didx(e, eref.flg);
-		t->dir  = get_edge_ddir(e, eref.flg);
-		t->edges[!t->dir] = (edge_ref_t){offset_edgev(g->edges, e), !eref.flg, 0, 0};
-		t->edges[t->dir] = EDGE_REF_NULL;
-		len += g->reglen + get_edge_off(e);
-		step ++;
-	}
-	return len;
-}
-
-static inline int cal_offset_traces_graph(Graph *g, tracev *path, u8i beg, u8i end, int offset){
-	trace_t *t;
-	node_t *n;
-	edge_t *e;
-	u8i i;
-	int off;
-	off = offset;
-	for(i=beg;i<end;i++){
-		t = ref_tracev(path, i);
-		t->off = off;
-		n = ref_nodev(g->nodes, t->node);
-		if(t->edges[t->dir].idx == 0){
-			off += g->reglen;
-		} else {
-			e = ref_edgev(g->edges, t->edges[t->dir].idx);
-			off += g->reglen + get_edge_off(e);
-		}
-	}
-	return off;
-}
-
-static inline u8i del_isolated_nodes_graph(Graph *g, FILE *log){
-	node_t *n;
-	u8i ret, i;
-	ret = 0;
-	for(i=0;i<g->nodes->size;i++){
-		n = ref_nodev(g->nodes, i);
-		if(n->closed) continue;
-		if(n->erefs[0].cnt || n->erefs[1].cnt) continue;
-		n->closed = 1;
-		if(log) fprintf(log, "DEL_ISO\tN%llu\n", i);
-		ret ++;
-	}
-	return ret;
-}
-
-static inline u8i cut_binary_edges_graph(Graph *g){
-	UUhash *hash;
-	node_t *n;
-	edge_ref_t eref;
-	edge_t *e, *p;
-	u8i idx, nid, ret;
-	ret = 0;
-	hash = init_UUhash(13);
-	for(nid=0;nid<g->nodes->size;nid++){
-		n = ref_nodev(g->nodes, nid);
-		if(n->closed) continue;
-		clear_UUhash(hash);
-		beg_iter_edges_graph(n, 0, &eref);
-		while((e = ref_iter_edges_graph_core(g->edges, &eref, 1))){
-			if(is_edge_closed(e) < WT_EDGE_CLOSED_LESS){
-				put_UUhash(hash, (UUhash_t){get_edge_didx(e, eref.flg), offset_edgev(g->edges, e)});
-			}
-		}
-		beg_iter_edges_graph(n, 1, &eref);
-		while((e = ref_iter_edges_graph_core(g->edges, &eref, 1))){
-			if(is_edge_closed(e) < WT_EDGE_CLOSED_LESS){
-				idx = getval_UUhash(hash, get_edge_didx(e, eref.flg));
-				if(idx != MAX_U8){
-					p = ref_edgev(g->edges, idx);
-					cut_edge_graph_core(g->nodes, g->edges, e, WT_EDGE_CLOSED_HARD);
-					cut_edge_graph_core(g->nodes, g->edges, p, WT_EDGE_CLOSED_HARD);
-					ret += 2;
-				}
-			}
-		}
-	}
-	free_UUhash(hash);
-	return ret;
-}
+static int debug_ret = 0;
 
 static inline u4i gen_utgs_graph(Graph *g){
 	utg_t *utg;
@@ -568,14 +120,15 @@ static inline u4i revise_utg_graph(Graph *g, u4i uid, tracev *path){
 	trace_t *t;
 	edge_t *e;
 	node_t *v;
-	u4i i, ret, cnt, len;
+	u4i i, ret, cnt, len, off;
 	ret = 0;
 	u = ref_utgv(g->utgs, uid);
-	cnt = len = 0;
+	cnt = len = off = 0;
 	for(i=0;i<path->size;i++){
 		t = ref_tracev(path, i);
 		e = (t->edges[t->dir].idx == EDGE_REF_NULL.idx)? NULL : ref_edgev(g->edges, t->edges[t->dir].idx);
 		if(u == NULL){
+			off = t->off;
 			u = next_ref_utgv(g->utgs);
 			ret ++;
 			ZEROS(u);
@@ -584,6 +137,7 @@ static inline u4i revise_utg_graph(Graph *g, u4i uid, tracev *path){
 			u->nodes[1].node = t->node;
 			u->nodes[1].dir  = !t->dir;
 		}
+		t->off -= off;
 		v = ref_nodev(g->nodes, t->node);
 		v->utg_idx = offset_utgv(g->utgs, u);
 		v->utg_dir = t->dir;
@@ -612,7 +166,7 @@ static inline u8i print_utgs_nodes_graph(Graph *g, FILE *out){
 		fprintf(out, "UTG%u\t%u\t%u", uid, utg->cnt, len);
 		for(i=0;i<path->size;i++){
 			t = ref_tracev(path, i);
-			fprintf(out, "\tN%llu:%c:%u", t->node, "+-"[t->dir], t->off);
+			fprintf(out, "\tN%llu:%c:%u", (u8i)t->node, "+-"[t->dir], t->off);
 		}
 		fprintf(out, "\n");
 	}
@@ -696,16 +250,17 @@ static inline void update_utg_graph(Graph *g, u4i uid, u8i visit){
 static inline void readpath_highlight_nodes_graph(Graph *g, u8i nid, u8i visit){
 	node_t *nd, *nd2;
 	read_t *rd;
-	reg_t  *rg, *rg2;
-	u8i ri, idx;
+	reg_t  *reg;
+	rd_reg_t *rg;
+	u8i ri;
+	u4i i;
 	nd2 = ref_nodev(g->nodes, nid);
 	for(ri=0;ri<nd2->regs.cnt;ri++){
-		rg2 = ref_regv(g->regs, nd2->regs.idx + ri);
-		rd  = ref_readv(g->reads, rg2->rid);
-		idx = rd->regs.idx;
-		while(idx){
-			rg = ref_regv(g->regs, idx);
-			idx = rg->read_link;
+		reg = ref_regv(g->regs, nd2->regs.idx + ri);
+		if(reg->closed) continue;
+		rd  = ref_readv(g->reads, reg->rid);
+		for(i=0;i<rd->regs.cnt;i++){
+			rg = ref_rdregv(g->rdregs, rd->regs.idx + i);
 			if(rg->closed) continue;
 			nd = ref_nodev(g->nodes, rg->node);
 			if(nd->closed) continue;
@@ -746,7 +301,7 @@ static inline u4i readpath_transitive_reduction_graph_core(Graph *g, u8i nid, Bi
 					r1 ++;
 					if(r1 > re1) break;
 				} else {
-					if(get_edge_sdir(e, eref.flg) == ((r1->beg > r2->beg) ^ r1->dir) && get_edge_ddir(e, eref.flg) == ((r1->beg > r2->beg) ^ r2->dir)){
+					if(get_edge_sdir(e, eref.flg) == ((r1->off > r2->off) ^ r1->dir) && get_edge_ddir(e, eref.flg) == ((r1->off > r2->off) ^ r2->dir)){
 						cnt ++;
 						if(get_bitvec(visits, offset_regv(g->regs, r1) - n->regs.idx)){
 							vst ++;
@@ -844,16 +399,34 @@ static inline u4i count_nonlinear_traces_graph(Graph *g, u8i _nid, int dir, u4i 
 	return mstep;
 }
 
+static inline node_t* divert_node_regs_graph(Graph *g, node_t *v, BitVec *rdbits){
+	node_t *w;
+	reg_t *reg;
+	u4i i;
+	w = next_ref_nodev(g->nodes);
+	ZEROS(w);
+	w->regs = v->regs;
+	sort_array(g->regs->buffer + v->regs.idx, v->regs.cnt, reg_t, num_cmpgtx(get_bitvec(rdbits, a.rid), get_bitvec(rdbits, a.rid), a.rid, b.rid));
+	for(i=0;i<v->regs.cnt;i++){
+		reg = ref_regv(g->regs, v->regs.idx + i);
+		if(get_bitvec(rdbits, reg->rid)){
+			break;
+		}
+	}
+	v->regs.cnt = i;
+	w->regs.idx = v->regs.idx + i;
+	w->regs.cnt -= i;
+	return w;
+}
+
 static inline u4i split_utg_graph(Graph *g, u4i uid, edge_ref_t *erefs[2], tracev *path, BitVec *rdbits){
 	utg_t *utg, *utg2;
 	trace_t *t;
 	node_t *v, *w;
 	edge_ref_t eref;
 	edge_t *e, *f;
-	read_t *rd;
-	reg_t *r, *s;
-	u8i idx, ndoff;
-	u4i k, ti, ri, uid2, eoff, ecov, cuts[2], i, j;
+	u8i ndoff;
+	u4i k, ti, uid2, eoff, ecov, cuts[2], i, j;
 	encap_utgv(g->utgs, 1);
 	utg  = ref_utgv(g->utgs, uid);
 	// check whether need to split
@@ -870,50 +443,15 @@ static inline u4i split_utg_graph(Graph *g, u4i uid, edge_ref_t *erefs[2], trace
 	eoff = 0;
 	for(ti=0;ti<path->size;ti++){
 		t = ref_tracev(path, ti);
+		encap_nodev(g->nodes, 1);
 		v = ref_nodev(g->nodes, t->node);
-		w = next_ref_nodev(g->nodes);
-		ZEROS(w);
+		w = divert_node_regs_graph(g, v, rdbits);
 		w->utg_idx = uid2;
 		w->utg_dir = v->utg_dir;
-		w->regs = v->regs;
 		v->bt_idx = eoff; // for recovery
 		w->bt_idx = eoff;
 		e = ref_edgev(g->edges, t->edges[t->dir].idx);
 		eoff += g->reglen + get_edge_off(e);
-		for(ri=0;ri<v->regs.cnt;ri++){
-			r = ref_regv(g->regs, v->regs.idx + ri);
-			if(get_bitvec(rdbits, r->rid)){
-				r->node = offset_nodev(g->nodes, w);
-			}
-		}
-		sort_array(g->regs->buffer + v->regs.idx, v->regs.cnt, reg_t, num_cmpgtx(a.node, b.node, a.rid, b.rid));
-		for(v->regs.cnt=0;v->regs.cnt<w->regs.cnt;v->regs.cnt++){
-			r = ref_regv(g->regs, v->regs.idx + v->regs.cnt);
-			if(r->node != t->node) break;
-		}
-		v->cov = v->regs.cnt;
-		w->cov = w->regs.cnt - v->regs.cnt;
-		// revise read_link
-		for(ri=0;ri<w->regs.cnt;ri++){
-			r = ref_regv(g->regs, w->regs.idx + ri);
-			rd = ref_readv(g->reads, r->rid);
-			idx = rd->regs.idx;
-			s = NULL;
-			while(idx){
-				if(idx >= w->regs.idx && idx < w->regs.idx + w->regs.cnt){
-					if(s){
-						s->read_link = w->regs.idx + ri;
-					} else {
-						rd->regs.idx = w->regs.idx + ri;
-					}
-					break;
-				}
-				s = ref_regv(g->regs, idx);
-				idx = s->read_link;
-			}
-		}
-		w->regs.idx = v->regs.idx + v->regs.cnt;
-		w->regs.cnt -= v->regs.cnt;
 		if(ti){ // add edge between new vertices
 			e = ref_edgev(g->edges, t->edges[!t->dir].idx);
 			f = next_ref_edgev(g->edges);
@@ -1072,227 +610,35 @@ static inline u8i get_utg_readpaths_graph(Graph *g, u4i uid, tracev *path, int e
 	return pregs->size;
 }
 
-static inline u4i readpath_utg_rescue_edges_graph_core(Graph *g, u4i uid, int ends, u4i mercy_edge_cov, tracev *path, BitVec *rdbits, pregv *pregs, edgev *edges, edgehash *ehash, edgeoffv *offs, u8v *rgidxs, UUhash *hash){
-	preg_t *pr;
-	read_t *rd;
-	reg_t *r1, *r2;
-	node_t *n1, *n2;
-	edge_t *E, *e, *f;
-	UUhash_t *U;
-	u8i idx, lst, *u;
-	u4i pridx, i, j, k, cnt;
-	int exists, eoff;
-	clear_tracev(path);
-	trace_utg_graph(g, uid, path);
-#if DEBUG
-	int print_rst;
-	print_rst = 0;
-	if(g->utgs->buffer[uid].nodes[0].node == debug_node || g->utgs->buffer[uid].nodes[1].node == debug_node){
-		print_rst = 1;
-		print_local_dot_graph(g, path->buffer[0].node, 10, "1.dot");
-	}
-#endif
-	get_utg_readpaths_graph(g, uid, path, ends, g->tip_step, rdbits, pregs);
-	clear_edgev(edges);
-	E = next_ref_edgev(edges);
-	ZEROS(E);
-	set_edge_cov(E, 1);
-	set_edge_closed(E, WT_EDGE_CLOSED_MASK);
-	clear_edgehash(ehash);
-	set_userdata_edgehash(ehash, edges);
-	clear_edgeoffv(offs);
-	for(pridx=0;pridx<pregs->size;pridx++){
-		pr = ref_pregv(pregs, pridx);
-		zero_bitvec(rdbits, pr->rid);
-		rd = ref_readv(g->reads, pr->rid);
-		idx = rd->regs.idx;
-		clear_u8v(rgidxs);
-		while(idx){
-			r1 = ref_regv(g->regs, idx);
-			if(r1->closed == 0 && g->nodes->buffer[r1->node].closed == 0 && g->nodes->buffer[r1->node].init_end){
-				push_u8v(rgidxs, idx);
-			}
-			idx = r1->read_link;
-		}
-		if(print_rst && (strcmp(g->kbm->reads->buffer[pr->rid].tag, "S0000216356") == 0 || strcmp(g->kbm->reads->buffer[pr->rid].tag, "S0000114166") == 0)){
-			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-		}
-		for(i=0;i+1<rgidxs->size;i++){
-			r1 = ref_regv(g->regs, rgidxs->buffer[i]);
-			n1 = ref_nodev(g->nodes, r1->node);
-			for(j=i+1;j<rgidxs->size;j++){
-				r2 = ref_regv(g->regs, rgidxs->buffer[j]);
-				n2 = ref_nodev(g->nodes, r2->node);
-				if(n1->utg_idx == n2->utg_idx) continue;
-				encap_edgev(edges, 1);
-				E = head_edgev(edges);
-				if(print_rst && ((r1->node == 11739 && r2->node == 11394) || (r2->node == 11739 && r1->node == 11394))){
-					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-				}
-				k = r1->node > r2->node;
-				set_edge_sidx(E, k, r1->node);
-				set_edge_didx(E, k, r2->node);
-				set_edge_sdir(E, k, r1->dir);
-				set_edge_ddir(E, k, r2->dir);
-				eoff = Int(r2->beg) - Int(r1->end);
-				set_edge_off(E, eoff);
-				u = prepare_edgehash(ehash, 0, &exists);
-				if(exists){
-					e = ref_edgev(edges, *u);
-					if(get_edge_cov(e) < WT_MAX_EDGE_COV) set_edge_cov(e, get_edge_cov(e) + 1);
-				} else {
-					*u = edges->size;
-					e = next_ref_edgev(edges);
-					*e = *E;
-				}
-				push_edgeoffv(offs, (edge_off_t){*u, eoff});
-			}
-		}
-	}
-	sort_array(offs->buffer, offs->size, edge_off_t, num_cmpgtx(a.idx, b.idx, a.off, b.off));
-	lst = 0;
-	for(idx=1;idx<=offs->size;idx++){
-		if(idx < offs->size && offs->buffer[idx].idx == offs->buffer[lst].idx) continue;
-		set_edge_off(ref_edgev(edges, offs->buffer[lst].idx), offs->buffer[(lst+idx)/2].off);
-		set_edge_cov(ref_edgev(edges, offs->buffer[lst].idx), idx - lst);
-		lst = idx;
-	}
-	// check whether out-links point to one other utg
-	clear_UUhash(hash);
-	for(idx=1;idx<edges->size;idx++){
-		u8i key, dis;
-		e = ref_edgev(edges, idx);
-		if(get_edge_cov(e) < mercy_edge_cov) continue;
-		f = edge_node2node_graph(g, get_edge_sidx(e, 0), get_edge_sdir(e, 0), get_edge_didx(e, 0), get_edge_ddir(e, 0), NULL);
-		if(f) continue;
-		k = (ref_nodev(g->nodes, get_edge_sidx(e, 1))->utg_idx == uid);
-		n1 = ref_nodev(g->nodes, get_edge_sidx(e, k));
-		if(((n1->init_end >> (get_edge_sdir(e, k) ^ n1->utg_dir)) & 0x01) == 0){
-			continue;
-		}
-		n2 = ref_nodev(g->nodes, get_edge_didx(e, k));
-		if(((n2->init_end >> ((!get_edge_ddir(e, k)) ^ n2->utg_dir)) & 0x01) == 0){
-			continue;
-		}
-		dis  = (get_edge_sdir(e, k) ^ n1->utg_dir)? g->utgs->buffer[n1->utg_idx].cnt - 1 - n1->bt_idx : n1->bt_idx;
-		dis += (get_edge_ddir(e, k) ^ n2->utg_dir)? g->utgs->buffer[n2->utg_idx].cnt - 1 - n2->bt_idx : n2->bt_idx;
-		key = (((u8i)n2->utg_idx) << 2) | ((get_edge_ddir(e, k) ^ n2->utg_dir) << 1) | (get_edge_sdir(e, k) ^ n1->utg_dir);
-		U = prepare_UUhash(hash, key, &exists);
-		if(exists){
-			if((U->val >> 10) > dis){
-				U->val = (dis << 10) | idx;
-			}
-		} else {
-			U->key = key;
-			U->val = (dis << 10) | idx;
-		}
-	}
-	cnt = 0;
-	reset_iter_UUhash(hash);
-	while((U = ref_iter_UUhash(hash))){
-		e = ref_edgev(edges, U->val & 0x3FF);
-		set_edge_closed(e, 0);
-		set_edge_hard(e, 1); // this edge won't be cut when be detected to be less than g->min_edge_cov
-		f = next_ref_edgev(g->edges);
-		*f = *e;
-		add_edge_graph(g, f);
-		cnt ++;
-#if DEBUG
-		if(print_rst){
-			fprintf(stdout, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s%s]\n", (u8i)get_edge_sidx(e, 0), (u8i)get_edge_didx(e, 0),
-				"+-"[get_edge_sdir(e, 0)], "+-"[get_edge_ddir(e, 0)], get_edge_cov(e), get_edge_off(e), colors[get_edge_sdir(e, 0)][get_edge_ddir(e, 0)], is_edge_closed(e)? " style=dashed" : "");
-		}
-#endif
-	}
-	return cnt;
-}
-
-static inline u8i readpath_utg_rescue_edges_graph(Graph *g){
-	BitVec *rdbits;
-	tracev *path;
-	pregv *pregs;
-	edgev *edges;
-	edgehash *ehash;
-	edgeoffv *offs;
-	u8v *rgidxs;
-	UUhash *hash;
-	u8i ret, idx;
-	u4i uid, cnt, i, k, mercy_edge_cov;
-	ret = 0;
-	mercy_edge_cov = num_min(g->min_edge_cov, 1);
-	rdbits = init_bitvec(g->reads->size);
-	path = init_tracev(32);
-	pregs = init_pregv(32);
-	edges = init_edgev(32);
-	ehash = init_edgehash(13);
-	offs = init_edgeoffv(32);
-	rgidxs = init_u8v(8);
-	hash = init_UUhash(13);
-	gen_utgs_graph(g);
-	for(idx=0;idx<g->nodes->size;idx++){
-		g->nodes->buffer[idx].init_end = 0;
-	}
-	for(uid=0;uid<g->utgs->size;uid++){
-		if(g->utgs->buffer[uid].cnt < 2 * g->tip_step) continue;
-		k = (count_utg_edges_graph(g, uid, 0)? 0 : 1) | (count_utg_edges_graph(g, uid, 1)? 0 : 2);
-		if(k == 0) continue;
-		clear_tracev(path);
-		trace_utg_graph(g, uid, path);
-		if(k & 0x02){
-			for(i=0;i<g->tip_step;i++){
-				g->nodes->buffer[path->buffer[i].node].init_end = 2;
-			}
-		}
-		if(k & 0x01){
-			for(i=0;i<g->tip_step;i++){
-				g->nodes->buffer[path->buffer[path->size - 1 - i].node].init_end = 1;
-			}
-		}
-	}
-	for(uid=0;uid<g->utgs->size;uid++){
-		if(g->utgs->buffer[uid].cnt < 2 * g->tip_step) continue;
-		k = (count_utg_edges_graph(g, uid, 0)? 0 : 1) | (count_utg_edges_graph(g, uid, 1)? 0 : 2);
-		if(k == 0) continue;
-		cnt = readpath_utg_rescue_edges_graph_core(g, uid, k, mercy_edge_cov, path, rdbits, pregs, edges, ehash, offs, rgidxs, hash);
-		ret += cnt;
-	}
-	free_bitvec(rdbits);
-	free_tracev(path);
-	free_edgev(edges);
-	free_edgehash(ehash);
-	free_edgeoffv(offs);
-	free_u8v(rgidxs);
-	free_UUhash(hash);
-	return ret;
-}
-
 static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev *path, BitVec *rdbits, pregv *pregs, uuhash *nhash, u8v *matrix, u8v *rgidxs, u8i *visit, u8v *heap){
 	utg_t *utg, *wtg;
 	trace_t *t;
 	node_t *v, *w;
 	edge_ref_t eref;
 	edge_t *e, *f;
-	reg_t *r, *r1, *r2;
+	reg_t *r;
+	rd_reg_t *r1, *r2;
 	preg_t *pr;
 	read_t *rd;
 	uuhash_t *nh;
 	u8i *mtx;
 	u8i idx;
 	u4i i, j, beg, end, dir, k, repidx, flg, rid, nid, len, ret, cnts[3];
-	u4i m, n, sum, eidxs[2];
+	u4i m, n, sum, eidxs[2], boomerang;
 	int exists;
 #if DEBUG
 	int print_rst;
 	print_rst = 0;
-	if(g->utgs->buffer[uid].nodes[0].node == debug_node || g->utgs->buffer[uid].nodes[1].node == debug_node){
+	if(debug_node < g->nodes->size && g->nodes->buffer[debug_node].utg_idx == uid){
 		print_rst = 1;
-		print_local_dot_graph(g, path->buffer[0].node, 10, "1.dot");
+		print_local_dot_graph(g, debug_node, 10, "1.dot");
 	}
 #endif
 	clear_uuhash(nhash);
 	clear_pregv(pregs);
 	ret = 0;
 	clear_u8v(matrix);
+	boomerang = 0;
 	for(k=0;k<2;k++){
 		if(k == 0){
 			t = tail_tracev(path);
@@ -1307,11 +653,14 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 			w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
 			nh = prepare_uuhash(nhash, w->utg_idx, &exists);
 			if(exists){
+				// Boomerang
+				boomerang ++;
+				return 0;
 			} else {
 				nh->key = w->utg_idx;
 				nh->val = ((eref.cnt - 1) << 1) | k;
-				push_u8v(matrix, (offset_edgev(g->edges, e) << 1) | eref.flg);
 			}
+			push_u8v(matrix, (offset_edgev(g->edges, e) << 1) | eref.flg);
 		}
 		cnts[k] = eref.cnt;
 	}
@@ -1326,13 +675,11 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 		rid = pr->rid;
 		rd = ref_readv(g->reads, rid);
 		r1 = NULL;
-		idx = rd->regs.idx;
 		clear_u8v(rgidxs);
 		flg = MAX_U4;
 		n = 0;
-		while(idx){
-			r2 = ref_regv(g->regs, idx);
-			idx = r2->read_link;
+		for(j=0;j<rd->regs.cnt;j++){
+			r2 = ref_rdregv(g->rdregs, rd->regs.idx + j);
 			if(r2->closed) continue;
 			if(ref_nodev(g->nodes, r2->node)->closed) continue;
 			repidx = ref_nodev(g->nodes, r2->node)->utg_idx;
@@ -1348,7 +695,7 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 			} else if((nh = get_uuhash(nhash, repidx))){
 				pr->eidx[nh->val & 0x01] = nh->val >> 1;
 			}
-			push_u8v(rgidxs, offset_regv(g->regs, r2));
+			push_u8v(rgidxs, offset_rdregv(g->rdregs, r2));
 		}
 		if(flg == MAX_U4){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
@@ -1372,18 +719,18 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 					j = flg + 1;
 				}
 			}
-			r = ref_regv(g->regs, rgidxs->buffer[j]);
-			len = num_diff(r->beg, g->regs->buffer[rgidxs->buffer[flg]].beg);
+			r1 = ref_rdregv(g->rdregs, rgidxs->buffer[j]);
+			len = num_diff(r1->off, g->rdregs->buffer[rgidxs->buffer[flg]].off);
 			len = num_min((len + 1) * 2, len + 8);
 			dir = dir ^ r->dir;
 			// trace to a node existing in nhash
-			v = ref_nodev(g->nodes, r->node);
+			v = ref_nodev(g->nodes, r1->node);
 			(*visit) ++;
 			v->bt_visit = *visit;
-			v->unvisit = dir;
+			v->bt_dir = dir;
 			v->bt_idx = 0; // distance
 			clear_u8v(heap);
-			push_u8v(heap, r->node);
+			push_u8v(heap, r1->node);
 			while(heap->size){
 				nid = heap->buffer[0];
 				array_heap_remove(heap->buffer, heap->size, heap->cap, u8i, 0, num_cmp(g->nodes->buffer[a].bt_idx, g->nodes->buffer[b].bt_idx));
@@ -1398,12 +745,12 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 						}
 					}
 				}
-				beg_iter_edges_graph(v, v->unvisit, &eref);
+				beg_iter_edges_graph(v, v->bt_dir, &eref);
 				while((e = ref_iter_edges_graph(g, &eref))){
 					w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
 					if(w->bt_visit == (*visit)) continue;
 					w->bt_visit = (*visit);
-					w->unvisit  = get_edge_ddir(e, eref.flg);
+					w->bt_dir   = get_edge_ddir(e, eref.flg);
 					w->bt_idx   = v->bt_idx + g->reglen + get_edge_off(e);
 					if(w->bt_idx > len) continue;
 					array_heap_push(heap->buffer, heap->size, heap->cap, u8i, get_edge_didx(e, eref.flg), num_cmp(g->nodes->buffer[a].bt_idx, g->nodes->buffer[b].bt_idx));
@@ -1428,7 +775,7 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 		printf("PATH:");
 		for(i=0;i<path->size;i++){
 			t = ref_tracev(path, i);
-			printf(" N%llu:%c", t->node, "+-"[t->dir]);
+			printf(" N%llu:%c", (u8i)t->node, "+-"[t->dir]);
 		}
 		printf("\n");
 		bs[0] = init_u8v(4);
@@ -1643,6 +990,9 @@ static inline u4i readpath_detach_branches_graph_core(Graph *g, u4i uid, tracev 
 			}
 		}
 	}
+	if(debug_ret && ret){
+		fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+	}
 	return ret;
 }
 
@@ -1691,6 +1041,55 @@ static inline u8i readpath_detach_branches_graph(Graph *g){
 	return ret;
 }
 
+static inline u4i readpath_cut_boomerangs_graph_core(Graph *g, u4i uid, UUhash *nhash){
+	utg_t *utg;
+	node_t *v;
+	edge_ref_t eref;
+	edge_t *e, *f;
+	UUhash_t *nh;
+	u8i key;
+	u4i k, ret;
+	int exists;
+	utg = ref_utgv(g->utgs, uid);
+	clear_UUhash(nhash);
+	ret = 0;
+	for(k=0;k<2;k++){
+		v = ref_nodev(g->nodes, utg->nodes[k].node);
+		beg_iter_edges_graph(v, utg->nodes[k].dir, &eref);
+		while((e = ref_iter_edges_graph(g, &eref))){
+			key = (get_edge_didx(e, eref.flg) << 1) | get_edge_ddir(e, eref.flg);
+			nh = prepare_UUhash(nhash, key, &exists);
+			if(exists){
+				f = ref_edgev(g->edges, nh->val);
+				if(get_edge_cov(e) > get_edge_cov(f)){
+					cut_edge_graph(g, f);
+				} else {
+					cut_edge_graph(g, e);
+				}
+				ret ++;
+			} else {
+				nh->key = key;
+				nh->val = offset_edgev(g->edges, e);
+			}
+		}
+	}
+	return ret;
+}
+
+static inline u8i readpath_cut_boomerangs_graph(Graph *g){
+	UUhash *nhash;
+	u8i ret;
+	u4i uid;
+	nhash = init_UUhash(13);
+	ret = 0;
+	gen_utgs_graph(g);
+	for(uid=0;uid<g->utgs->size;uid++){
+		ret += readpath_cut_boomerangs_graph_core(g, uid, nhash);
+	}
+	free_UUhash(nhash);
+	return ret;
+}
+
 // find a bubble, label visited utgs with *vst
 static inline u8i fwd_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *vst, u4i max_len, u4v *heap){
 	utg_t *s, *t;
@@ -1699,8 +1098,9 @@ static inline u8i fwd_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *v
 	edge_t *e;
 	u4i idx, k;
 	int ms;
-	(*vst) ++;
 	s = ref_utgv(g->utgs, uid);
+	if(s->closed) return MAX_U8;
+	(*vst) ++;
 	s->bt_vst = *vst;
 	s->bt_dir = dir;
 	s->bt_idx = 0;
@@ -1711,6 +1111,7 @@ static inline u8i fwd_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *v
 		idx = heap->buffer[0];
 		array_heap_remove(heap->buffer, heap->size, heap->cap, u4i, 0, num_cmp(g->utgs->buffer[a].bt_idx, g->utgs->buffer[b].bt_idx));
 		s = ref_utgv(g->utgs, idx);
+		s->bt_use = 0;
 		v = ref_nodev(g->nodes, s->nodes[s->bt_dir].node);
 		k = s->nodes[s->bt_dir].dir;
 		beg_iter_edges_graph(v, k, &eref);
@@ -1718,6 +1119,7 @@ static inline u8i fwd_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *v
 			if(Int(s->bt_idx + s->len) + get_edge_off(e) > ms) continue;
 			w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
 			t = ref_utgv(g->utgs, w->utg_idx);
+			if(t->closed) continue;
 			if(s == t){
 				continue;
 			}
@@ -1741,7 +1143,7 @@ static inline u8i fwd_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *v
 }
 
 // trace back along with utgs with *vst, store all utgs within bubble into uids
-static inline u4i rev_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *vst, u4v *stack, u4v *uids){
+static inline u4i rev_search_utg_bubble_graph(Graph *g, u4i bidxs[2], int dir, u8i *vst, u4v *stack, u4v *uids){
 	utg_t *s, *t;
 	node_t *v, *w;
 	edge_ref_t eref;
@@ -1752,20 +1154,25 @@ static inline u4i rev_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *v
 	(*vst) ++;
 	clear_u4v(stack);
 	clear_u4v(uids);
-	s = ref_utgv(g->utgs, uid);
+	s = ref_utgv(g->utgs, bidxs[1]);
 	s->bt_vst = *vst;
 	s->bt_dir = dir;
-	push_u4v(stack, uid);
+	push_u4v(stack, bidxs[1]);
 	while(pop_u4v(stack, &idx)){
 		s = ref_utgv(g->utgs, idx);
+		s->bt_use = 1;
 		push_u4v(uids, idx);
+		if(idx == bidxs[0]) continue;
 		v = ref_nodev(g->nodes, s->nodes[s->bt_dir].node);
 		k = s->nodes[s->bt_dir].dir;
 		beg_iter_edges_graph(v, k, &eref);
 		while((e = ref_iter_edges_graph(g, &eref))){
 			w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
 			t = ref_utgv(g->utgs, w->utg_idx);
-			if(t->bt_vst != vts){
+			if(t->bt_vst != vts) continue;
+			if((get_edge_ddir(e, eref.flg) ^ w->utg_dir) == t->bt_dir) continue;
+			if(t->bt_use){
+				//return w->utg_idx;
 				continue;
 			}
 			t->bt_vst = *vst;
@@ -1773,33 +1180,98 @@ static inline u4i rev_search_utg_bubble_graph(Graph *g, u4i uid, int dir, u8i *v
 			push_u4v(stack, w->utg_idx);
 		}
 	}
-	return uids->size;
+	return MAX_U4;
 }
 
-static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *uids, tracev *path, BitVec *rdbits[3], u8v *rdidxs[3]){
+static inline void print_utg_bubble_dot_graph(Graph *g, u8i vst, u4i bidxs[2], u4v *uids, char *filename){
+	FILE *out;
 	utg_t *ub, *ue;
+	node_t *v, *w;
+	edge_ref_t eref;
+	edge_t *e;
+	u4i i, uid;
+	out = open_file_for_write(filename, NULL, 1);
+	fprintf(out, "digraph {\n");
+	fprintf(out, " node [shape=record]\n");
+	for(i=0;i<uids->size;i++){
+		uid = uids->buffer[i];
+		ub = ref_utgv(g->utgs, uid);
+		fprintf(out, " U%u [label=\"{U%u %d %d | {N%llu:%c | N%llu:%c} | %d/%d:%c:%d/%d}\" color=%s]\n",
+			uid, uid, ub->cnt, ub->len, (u8i)ub->nodes[0].node, "+-"[ub->nodes[0].dir], (u8i)ub->nodes[1].node, "+-"[ub->nodes[1].dir], ub->bt_cin, ub->bt_nin, "NY"[ub->sel], ub->bt_sum, ub->bt_cov,
+			(uid == bidxs[0])? "red" : ((uid == bidxs[1])? "yellow" : "green"));
+		if(uid == bidxs[0]) continue;
+		v = ref_nodev(g->nodes, ub->nodes[ub->bt_dir].node);
+		beg_iter_edges_graph(v, ub->nodes[ub->bt_dir].dir, &eref);
+		while((e = ref_iter_edges_graph(g, &eref))){
+			w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
+			if(w->utg_idx == uid) continue;
+			ue = ref_utgv(g->utgs, w->utg_idx);
+			if(ue->bt_vst != vst) continue;
+			if((get_edge_ddir(e, eref.flg) ^ w->utg_dir) != ue->bt_dir) continue;
+			fprintf(out, " U%u -> U%u [label=\"%c%c:%d:%d\"]\n", uid, w->utg_idx, "+-"[ub->bt_dir], "+-"[ue->bt_dir], get_edge_cov(e), get_edge_off(e));
+		}
+	}
+	fprintf(out, "}\n");
+	close_file(out);
+}
+
+static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *uids, u8i vst, tracev *path, BitVec *rdbits[3], u8v *rdidxs[3], u4v *heap){
+	utg_t *ub, *ue, *utg;
 	trace_t *t;
-	node_t *v;
+	node_t *v, *w;
 	reg_t *r;
 	edge_ref_t eref;
 	edge_t *e;
-	u4i uid, i, j, l, k, cnt, ecov, ret, inner, ends[2];
-#if DEBUG
-	int print_rst;
-	if(g->utgs->buffer[bidxs[0]].nodes[0].node == debug_node || g->utgs->buffer[bidxs[0]].nodes[1].node == debug_node){
-		print_rst = 1;
-	} else {
-		print_rst = 0;
-	}
-#endif
+	u4i uid, i, j, l, k, cnt, utg_tail, ecov, ret, cross, inner, ends[2];
 	clear_u8v(rdidxs[0]);
 	clear_u8v(rdidxs[1]);
 	clear_u8v(rdidxs[2]);
 	ret = 0;
+	for(i=0;i<uids->size;i++){
+		uid = uids->buffer[i];
+		utg = ref_utgv(g->utgs, uid);
+		utg->bt_cov = 0;
+		utg->bt_sum = 0;
+		utg->bt_ptr = MAX_U4;
+		utg->bt_nin = 0;
+		utg->bt_cin = 0;
+		utg->bt_use = 0;
+		utg->sel = 0; // to be set 1 to be retained
+	}
+	for(i=0;i<uids->size;i++){
+		uid = uids->buffer[i];
+		ub = ref_utgv(g->utgs, uid);
+		v = ref_nodev(g->nodes, ub->nodes[!ub->bt_dir].node);
+		beg_iter_edges_graph(v, ub->nodes[!ub->bt_dir].dir, &eref);
+		while((e = ref_iter_edges_graph(g, &eref))){
+			w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
+			if(w->utg_idx == uid) continue;
+			if(w->utg_idx == bidxs[0]) continue;
+			ue = ref_utgv(g->utgs, w->utg_idx);
+			if(ue->bt_vst != vst) continue;
+			if((get_edge_ddir(e, eref.flg) ^ w->utg_dir) == ue->bt_dir) continue;
+			ub->bt_nin ++;
+		}
+	}
+	utg = ref_utgv(g->utgs, bidxs[0]);
+	if(utg->bt_nin <= 1){
+		// bubble not start at bidxs[0]
+		return 0;
+	}
+	utg_tail = 5;
 	for(k=0;k<2;k++){
+		utg = ref_utgv(g->utgs, bidxs[k]);
 		clear_tracev(path);
 		trace_utg_graph(g, bidxs[k], path);
-		for(j=0;j<path->size;j++){
+		u4i jb, je;
+		if(k ^ utg->bt_dir){
+			jb = num_max(path->size, utg_tail) - utg_tail;
+			je = path->size;
+		} else {
+			jb = 0;
+			je = num_min(path->size, utg_tail);
+		}
+		for(j=jb;j<je;j++){
 			t = ref_tracev(path, j);
 			v = ref_nodev(g->nodes, t->node);
 			for(l=0;l<v->regs.cnt;l++){
@@ -1808,17 +1280,32 @@ static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *
 				if(get_bitvec(rdbits[k], r->rid) == 0){
 					one_bitvec(rdbits[k], r->rid);
 					push_u8v(rdidxs[k], r->rid);
+					if(k && get_bitvec(rdbits[0], r->rid)){
+						// TODO: needs further check on strands
+						utg->bt_cov ++;
+					}
 				}
 			}
 		}
 	}
-	inner = 0;
+	utg = ref_utgv(g->utgs, bidxs[0]);
+	utg->bt_cov = g->utgs->buffer[bidxs[1]].bt_cov;
+	if(utg->bt_cov < g->min_edge_cov){
+		for(k=0;k<2;k++){
+			for(i=0;i<rdidxs[k]->size;i++){
+				zero_bitvec(rdbits[k], rdidxs[k]->buffer[i]);
+			}
+		}
+		return 0;
+	}
 	for(i=0;i<uids->size;i++){
 		uid = uids->buffer[i];
 		if(uid == bidxs[0] || uid == bidxs[1]){
 			continue;
 		}
-		inner ++;
+		cross = 0;
+		inner = 0;
+		utg = ref_utgv(g->utgs, uid);
 		clear_tracev(path);
 		trace_utg_graph(g, uid, path);
 		for(j=0;j<path->size;j++){
@@ -1830,49 +1317,122 @@ static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *
 				// find reads ending within bubble
 				if(get_bitvec(rdbits[2], r->rid) == 0){
 					k = (get_bitvec(rdbits[1], r->rid) << 1) | get_bitvec(rdbits[0], r->rid);
-					if(k == 0 || k == 3) continue;
+					if(k == 3){
+						cross ++;
+						continue;
+					} else if(k == 0){
+						continue;
+					}
 					k = k - 1; // 1 -> 0, 2 -> 1
+					k = k ^ r->dir ^ v->utg_dir ^ utg->bt_dir;
 					read_t *rd;
-					reg_t *rg;
+					rd_reg_t *rg;
 					node_t *w;
-					u8i idx;
+					u4i idx;
 					rd = ref_readv(g->reads, r->rid);
-					idx = rd->regs.idx;
 					cnt = 0;
-					ecov = 0;
 					ends[0] = ends[1] = MAX_U4;
-					while(idx){
-						rg = ref_regv(g->regs, idx);
-						idx = rg->read_link;
+					for(idx=0;idx<rd->regs.cnt;idx++){
+						rg = ref_rdregv(g->rdregs, rd->regs.idx + idx);
 						if(rg->closed) continue;
 						w = ref_nodev(g->nodes, rg->node);
 						if(w->closed) continue;
 						ends[cnt > 0] = w->utg_idx;
 						cnt ++;
-						if(w->utg_idx == uid) continue;
-						if(w->utg_idx == bidxs[k]) continue;
-						ecov ++;
-						break;
+						if(k == 0) break;
+						//if(w->utg_idx == uid) continue;
+						//if(w->utg_idx == bidxs[k]) continue;
+						//break;
 					}
-					if(cnt && ends[0] != bidxs[k] && ends[1] != bidxs[k]){
-#if DEBUG
-						if(print_rst){
-							fprintf(stderr, " -- Keep %s in %s -- %s:%d --\n", g->kbm->reads->buffer[r->rid].tag, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-						}
-#endif
-						continue;
+					if(ends[k] == uid){
+						inner ++;
+						one_bitvec(rdbits[2], r->rid);
+						push_u8v(rdidxs[2], r->rid);
 					}
-					one_bitvec(rdbits[2], r->rid);
-					push_u8v(rdidxs[2], r->rid);
 				}
 			}
 		}
+		utg->bt_cov = cross + inner; // how many reads crossing
 	}
+	// find a max cov (crossing reads) path
+	// NB: In fact, I haven't traced the cross reads. If possible, trace reads instead of intersect bt_cov
 	for(i=0;i<uids->size;i++){
 		uid = uids->buffer[i];
-		if(uid == bidxs[0] || uid == bidxs[1]){
-			continue;
+		utg = ref_utgv(g->utgs, uid);
+		utg->bt_use = 0;
+	}
+	clear_u4v(heap);
+	utg = ref_utgv(g->utgs, bidxs[1]);
+	utg->bt_sum = utg->bt_cov;
+	push_u4v(heap, bidxs[1]);
+	while(pop_u4v(heap, &uid)){
+		ub = ref_utgv(g->utgs, uid);
+		ub->bt_use = 1;
+		if(uid == bidxs[0]) continue;
+		v = ref_nodev(g->nodes, ub->nodes[ub->bt_dir].node);
+		beg_iter_edges_graph(v, ub->nodes[ub->bt_dir].dir, &eref);
+		while((e = ref_iter_edges_graph(g, &eref))){
+			w = ref_nodev(g->nodes, get_edge_didx(e, eref.flg));
+			if(w->utg_idx == uid) continue;
+			ue = ref_utgv(g->utgs, w->utg_idx);
+			if(ue->bt_vst != vst) continue;
+			if(ue->bt_use) continue;
+			if((get_edge_ddir(e, eref.flg) ^ w->utg_dir) != ue->bt_dir) continue;
+			u4i xnum = num_min(ub->bt_sum, ue->bt_cov);
+			if(xnum >= ue->bt_sum){
+				ue->bt_sum = xnum;
+				ue->bt_ptr = uid;
+			}
+			ue->bt_cin ++;
+			if(ue->bt_cin == ue->bt_nin){
+				push_u4v(heap, w->utg_idx);
+			} else if(ue->bt_cin > ue->bt_nin){
+				print_utg_bubble_dot_graph(g, vst, bidxs, uids, "1.dot");
+				abort();
+			}
 		}
+	}
+	utg = ref_utgv(g->utgs, bidxs[0]);
+	if(utg->bt_ptr == MAX_U4){
+		// there SHOULD be a loop
+		for(k=0;k<3;k++){
+			for(i=0;i<rdidxs[k]->size;i++){
+				zero_bitvec(rdbits[k], rdidxs[k]->buffer[i]);
+			}
+		}
+		return 0;
+	}
+	utg->sel = 1;
+	//if(utg->bt_sum < utg->bt_cov){
+	if(utg->bt_sum < g->min_edge_cov){
+		// cut inner nodes
+		cross = 1;
+		g->utgs->buffer[bidxs[1]].sel = 1;
+	} else {
+		cross = 0;
+		if(utg->bt_ptr == bidxs[1]){
+			cross = 1;
+		}
+		do {
+			utg = ref_utgv(g->utgs, utg->bt_ptr);
+			utg->sel = 1;
+		} while(utg->bt_ptr != MAX_U4);
+		if(g->utgs->buffer[bidxs[1]].sel == 0){
+#if DEBUG
+				print_utg_bubble_dot_graph(g, vst, bidxs, uids, "1.dot");
+				abort();
+#else
+				g->utgs->buffer[bidxs[1]].sel = 1;
+#endif
+		}
+	}
+	// remove reads regs
+	inner = 0;
+	for(i=0;i<uids->size;i++){
+		uid = uids->buffer[i];
+		utg = ref_utgv(g->utgs, uid);
+		if(utg->sel) continue;
+		inner ++;
 		clear_tracev(path);
 		trace_utg_graph(g, uid, path);
 		for(j=0;j<path->size;j++){
@@ -1884,15 +1444,14 @@ static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *
 				if(r->closed) continue;
 				 k = (get_bitvec(rdbits[1], r->rid) << 1) | get_bitvec(rdbits[0], r->rid);
 				 if(k == 3){
-					r->closed = 1;
+					set_reg_closed(g, r, 1);
 					cnt ++;
-				 } else if(k && get_bitvec(rdbits[2], r->rid)){
-					r->closed = 1;
+				 } else if(k && get_bitvec(rdbits[2], r->rid)){ // cut read stop at here
+					set_reg_closed(g, r, 1);
 					cnt ++;
 				 }
 			}
 			if(cnt == 0) continue;
-			cnt = 0;
 			for(k=0;k<2;k++){
 				beg_iter_edges_graph(v, k, &eref);
 				while((e = ref_iter_edges_graph(g, &eref))){
@@ -1900,36 +1459,61 @@ static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *
 					set_edge_cov(e, ecov);
 					if(ecov == 0 || (ecov < g->min_edge_cov && !get_edge_hard(e))){
 						cut_edge_graph(g, e);
-						cnt ++;
+						ret ++;
 					}
 				}
 			}
-			if(cnt){
-				ret ++;
-			}
-#if DEBUG
-			if(cnt == 10000){ // for debug call
-				print_local_dot_graph(g, t->node, 10, "1.dot");
-			}
-#endif
-			if(cnt == 0 || path->size < 2) continue;
-			// revise utg
-			revise_utg_graph(g, uid, path);
 		}
+		if(cnt == 0 || path->size < 2) continue;
+		// revise utg
+		//utg->closed = 1; // simply closed it
+		revise_utg_graph(g, uid, path);
 	}
 	for(k=0;k<3;k++){
 		for(i=0;i<rdidxs[k]->size;i++){
-			zero_bitvec(rdbits[k],  rdidxs[k]->buffer[i]);
+			zero_bitvec(rdbits[k], rdidxs[k]->buffer[i]);
 		}
 	}
-	if(inner == 0){
-#if DEBUG
-		if(bidxs[0] != bidxs[1]){ // not a self-loop
-			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-			abort();
+	ub = ref_utgv(g->utgs, bidxs[0]);
+	ue = ref_utgv(g->utgs, bidxs[1]);
+	e = edge_node2node_graph(g, ub->nodes[!ub->bt_dir].node, ub->nodes[!ub->bt_dir].dir, ue->nodes[ue->bt_dir].node, !ue->nodes[ue->bt_dir].dir, NULL);
+	if(cross){
+		// add cross edge
+		if(e){
+			ecov = cal_edge_cov_graph(g, e);
+			set_edge_cov(e, ecov);
+			if(ecov == 0 || (ecov < g->min_edge_cov && !get_edge_hard(e))){
+				if(get_edge_closed(e) == 0){
+					ret ++;
+					cut_edge_graph(g, e);
+				}
+			} else {
+				if(get_edge_closed(e)){
+					ret ++;
+					revive_edge_graph(g, e);
+				}
+			}
+		} else {
+			e = next_ref_edgev(g->edges);
+			ZEROS(e);
+			set_edge_sidx(e, 0, ub->nodes[!ub->bt_dir].node);
+			set_edge_didx(e, 0, ue->nodes[ue->bt_dir].node);
+			set_edge_sdir(e, 0, ub->nodes[!ub->bt_dir].dir);
+			set_edge_ddir(e, 0, !ue->nodes[ue->bt_dir].dir);
+			set_edge_off(e, (Int(ue->bt_idx - ub->bt_idx) - ub->len));
+			ecov = cal_edge_cov_graph(g, e);
+			set_edge_cov(e, ecov);
+			if(ecov >= g->min_edge_cov){
+				add_edge_graph(g, e);
+				ret ++;
+			}
 		}
-#endif
-		return 0;
+	} else {
+		// try cut direct edge
+		if(e && get_edge_closed(e) == 0){
+			cut_edge_graph(g, e);
+			ret ++;
+		}
 	}
 	if(ret == 0){
 #if DEBUG
@@ -1937,34 +1521,9 @@ static inline int readpath_merge_bubble_graph_core(Graph *g, u4i bidxs[2], u4v *
 		//abort();
 #endif
 		return 0;
-	}
-	// try add edge between beg and end of this bubble
-	ub = ref_utgv(g->utgs, bidxs[0]);
-	ue = ref_utgv(g->utgs, bidxs[1]);
-	e = edge_node2node_graph(g, ub->nodes[!ub->bt_dir].node, ub->nodes[!ub->bt_dir].dir, ue->nodes[ue->bt_dir].node, !ue->nodes[ue->bt_dir].dir, NULL);
-	if(e){
-		ecov = cal_edge_cov_graph(g, e);
-		set_edge_cov(e, ecov);
-		if(ecov == 0 || (ecov < g->min_edge_cov && !get_edge_hard(e))){
-			cut_edge_graph(g, e);
-		} else {
-			revive_edge_graph(g, e);
-		}
 	} else {
-		e = next_ref_edgev(g->edges);
-		ZEROS(e);
-		set_edge_sidx(e, 0, ub->nodes[!ub->bt_dir].node);
-		set_edge_didx(e, 0, ue->nodes[ue->bt_dir].node);
-		set_edge_sdir(e, 0, ub->nodes[!ub->bt_dir].dir);
-		set_edge_ddir(e, 0, !ue->nodes[ue->bt_dir].dir);
-		set_edge_off(e, (Int(ue->bt_idx - ub->bt_idx) - ub->len));
-		ecov = cal_edge_cov_graph(g, e);
-		set_edge_cov(e, ecov);
-		if(ecov >= g->min_edge_cov){
-			add_edge_graph(g, e);
-		}
+		return 1;
 	}
-	return 1;
 }
 
 static inline u4i readpath_merge_bubbles_graph(Graph *g, u4i max_len){
@@ -1990,20 +1549,23 @@ static inline u4i readpath_merge_bubbles_graph(Graph *g, u4i max_len){
 	usize = g->utgs->size; // utgs will increase, leave the new utg away
 	for(uid=0;uid<usize;uid++){
 		utg = ref_utgv(g->utgs, uid);
-		for(k=0;k<2;k++){
 #if DEBUG
-			if(utg->nodes[k].node == debug_node){
+			if(debug_node < g->nodes->size && g->nodes->buffer[debug_node].utg_idx == uid){
 				fprintf(stderr, " -- N%llu in %s -- %s:%d --\n", debug_node, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			}
 #endif
+		for(k=0;k<2;k++){
 			if(count_utg_edges_graph(g, uid, k) < 2) continue;
 			udi = fwd_search_utg_bubble_graph(g, uid, k, &vst, max_len, heap);
 			if(udi == MAX_U8) continue;
 			if(uid == (udi >> 1)) continue;
-			rev_search_utg_bubble_graph(g, udi >> 1, !(udi & 0x01), &vst, heap, uids);
 			bidxs[0] = uid;
 			bidxs[1] = udi >> 1;
-			mgr = readpath_merge_bubble_graph_core(g, bidxs, uids, path, rdbits, rdidxs);
+			rev_search_utg_bubble_graph(g, bidxs, !(udi & 0x01), &vst, heap, uids);
+			if(uids->size <= 2){
+				continue;
+			}
+			mgr = readpath_merge_bubble_graph_core(g, bidxs, uids, vst, path, rdbits, rdidxs, heap);
 			if(mgr){
 				ret ++;
 			}
@@ -2021,6 +1583,192 @@ static inline u4i readpath_merge_bubbles_graph(Graph *g, u4i max_len){
 	return ret;
 }
 
+static inline u4i readpath_utg_rescue_edges_graph_core(Graph *g, u4i uid, int ends, u4i mercy_edge_cov, tracev *path, BitVec *rdbits, pregv *pregs, edgev *edges, edgehash *ehash, edgeoffv *offs, u8v *rgidxs, UUhash *hash){
+	preg_t *pr;
+	read_t *rd;
+	rd_reg_t *r1, *r2;
+	node_t *n1, *n2;
+	edge_t *E, *e, *f;
+	UUhash_t *U;
+	u8i idx, lst, *u;
+	u4i pridx, i, j, k, cnt;
+	int exists, eoff;
+	clear_tracev(path);
+	trace_utg_graph(g, uid, path);
+#if DEBUG
+	int print_rst;
+	print_rst = 0;
+	if(debug_node < g->nodes->size && g->nodes->buffer[debug_node].utg_idx == uid){
+		print_rst = 1;
+		print_local_dot_graph(g, debug_node, 10, "1.dot");
+	}
+#endif
+	get_utg_readpaths_graph(g, uid, path, ends, g->tip_step, rdbits, pregs);
+	clear_edgev(edges);
+	E = next_ref_edgev(edges);
+	ZEROS(E);
+	set_edge_cov(E, 1);
+	set_edge_closed(E, WT_EDGE_CLOSED_MASK);
+	clear_edgehash(ehash);
+	set_userdata_edgehash(ehash, edges);
+	clear_edgeoffv(offs);
+	for(pridx=0;pridx<pregs->size;pridx++){
+		pr = ref_pregv(pregs, pridx);
+		zero_bitvec(rdbits, pr->rid);
+		rd = ref_readv(g->reads, pr->rid);
+		clear_u8v(rgidxs);
+		for(i=0;i<rd->regs.cnt;i++){
+			r1 = ref_rdregv(g->rdregs, rd->regs.idx + i);
+			if(r1->closed == 0 && g->nodes->buffer[r1->node].closed == 0 && g->nodes->buffer[r1->node].init_end){
+				push_u8v(rgidxs, idx);
+			}
+		}
+		for(i=0;i+1<rgidxs->size;i++){
+			r1 = ref_rdregv(g->rdregs, rgidxs->buffer[i]);
+			n1 = ref_nodev(g->nodes, r1->node);
+			for(j=i+1;j<rgidxs->size;j++){
+				r2 = ref_rdregv(g->rdregs, rgidxs->buffer[j]);
+				n2 = ref_nodev(g->nodes, r2->node);
+				if(n1->utg_idx == n2->utg_idx) continue;
+				encap_edgev(edges, 1);
+				E = head_edgev(edges);
+				k = r1->node > r2->node;
+				set_edge_sidx(E, k, r1->node);
+				set_edge_didx(E, k, r2->node);
+				set_edge_sdir(E, k, r1->dir);
+				set_edge_ddir(E, k, r2->dir);
+				eoff = Int(r2->off) - Int(r1->off + r1->len);
+				set_edge_off(E, eoff);
+				u = prepare_edgehash(ehash, 0, &exists);
+				if(exists){
+					e = ref_edgev(edges, *u);
+					if(get_edge_cov(e) < WT_MAX_EDGE_COV) set_edge_cov(e, get_edge_cov(e) + 1);
+				} else {
+					*u = edges->size;
+					e = next_ref_edgev(edges);
+					*e = *E;
+				}
+				push_edgeoffv(offs, (edge_off_t){*u, eoff});
+			}
+		}
+	}
+	sort_array(offs->buffer, offs->size, edge_off_t, num_cmpgtx(a.idx, b.idx, a.off, b.off));
+	lst = 0;
+	for(idx=1;idx<=offs->size;idx++){
+		if(idx < offs->size && offs->buffer[idx].idx == offs->buffer[lst].idx) continue;
+		set_edge_off(ref_edgev(edges, offs->buffer[lst].idx), offs->buffer[(lst+idx)/2].off);
+		set_edge_cov(ref_edgev(edges, offs->buffer[lst].idx), idx - lst);
+		lst = idx;
+	}
+	// check whether out-links point to one other utg
+	clear_UUhash(hash);
+	for(idx=1;idx<edges->size;idx++){
+		u8i key, dis;
+		e = ref_edgev(edges, idx);
+		if(get_edge_cov(e) < mercy_edge_cov) continue;
+		f = edge_node2node_graph(g, get_edge_sidx(e, 0), get_edge_sdir(e, 0), get_edge_didx(e, 0), get_edge_ddir(e, 0), NULL);
+		if(f) continue;
+		k = (ref_nodev(g->nodes, get_edge_sidx(e, 1))->utg_idx == uid);
+		n1 = ref_nodev(g->nodes, get_edge_sidx(e, k));
+		if(((n1->init_end >> (get_edge_sdir(e, k) ^ n1->utg_dir)) & 0x01) == 0){
+			continue;
+		}
+		n2 = ref_nodev(g->nodes, get_edge_didx(e, k));
+		if(((n2->init_end >> ((!get_edge_ddir(e, k)) ^ n2->utg_dir)) & 0x01) == 0){
+			continue;
+		}
+		dis  = (get_edge_sdir(e, k) ^ n1->utg_dir)? g->utgs->buffer[n1->utg_idx].cnt - 1 - n1->bt_idx : n1->bt_idx;
+		dis += (get_edge_ddir(e, k) ^ n2->utg_dir)? g->utgs->buffer[n2->utg_idx].cnt - 1 - n2->bt_idx : n2->bt_idx;
+		key = (((u8i)n2->utg_idx) << 2) | ((get_edge_ddir(e, k) ^ n2->utg_dir) << 1) | (get_edge_sdir(e, k) ^ n1->utg_dir);
+		U = prepare_UUhash(hash, key, &exists);
+		if(exists){
+			if((U->val >> 10) > dis){
+				U->val = (dis << 10) | idx;
+			}
+		} else {
+			U->key = key;
+			U->val = (dis << 10) | idx;
+		}
+	}
+	cnt = 0;
+	reset_iter_UUhash(hash);
+	while((U = ref_iter_UUhash(hash))){
+		e = ref_edgev(edges, U->val & 0x3FF);
+		set_edge_closed(e, 0);
+		set_edge_hard(e, 1); // this edge won't be cut when be detected to be less than g->min_edge_cov
+		f = next_ref_edgev(g->edges);
+		*f = *e;
+		add_edge_graph(g, f);
+		cnt ++;
+#if DEBUG
+		if(print_rst){
+			fprintf(stdout, "N%llu -> N%llu [label=\"%c%c:%d:%d\" color=%s%s]\n", (u8i)get_edge_sidx(e, 0), (u8i)get_edge_didx(e, 0),
+				"+-"[get_edge_sdir(e, 0)], "+-"[get_edge_ddir(e, 0)], get_edge_cov(e), get_edge_off(e), colors[get_edge_sdir(e, 0)][get_edge_ddir(e, 0)], is_edge_closed(e)? " style=dashed" : "");
+		}
+#endif
+	}
+	return cnt;
+}
+
+static inline u8i readpath_utg_rescue_edges_graph(Graph *g){
+	BitVec *rdbits;
+	tracev *path;
+	pregv *pregs;
+	edgev *edges;
+	edgehash *ehash;
+	edgeoffv *offs;
+	u8v *rgidxs;
+	UUhash *hash;
+	u8i ret, idx;
+	u4i uid, cnt, i, k, mercy_edge_cov;
+	ret = 0;
+	mercy_edge_cov = num_min(g->min_edge_cov, 3);
+	rdbits = init_bitvec(g->reads->size);
+	path = init_tracev(32);
+	pregs = init_pregv(32);
+	edges = init_edgev(32);
+	ehash = init_edgehash(13);
+	offs = init_edgeoffv(32);
+	rgidxs = init_u8v(8);
+	hash = init_UUhash(13);
+	gen_utgs_graph(g);
+	for(idx=0;idx<g->nodes->size;idx++){
+		g->nodes->buffer[idx].init_end = 0;
+	}
+	for(uid=0;uid<g->utgs->size;uid++){
+		if(g->utgs->buffer[uid].cnt < 2 * g->tip_step) continue;
+		k = (count_utg_edges_graph(g, uid, 0)? 0 : 1) | (count_utg_edges_graph(g, uid, 1)? 0 : 2);
+		if(k == 0) continue;
+		clear_tracev(path);
+		trace_utg_graph(g, uid, path);
+		if(k & 0x02){
+			for(i=0;i<g->tip_step;i++){
+				g->nodes->buffer[path->buffer[i].node].init_end = 2;
+			}
+		}
+		if(k & 0x01){
+			for(i=0;i<g->tip_step;i++){
+				g->nodes->buffer[path->buffer[path->size - 1 - i].node].init_end = 1;
+			}
+		}
+	}
+	for(uid=0;uid<g->utgs->size;uid++){
+		if(g->utgs->buffer[uid].cnt < 2 * g->tip_step) continue;
+		k = (count_utg_edges_graph(g, uid, 0)? 0 : 1) | (count_utg_edges_graph(g, uid, 1)? 0 : 2);
+		if(k == 0) continue;
+		cnt = readpath_utg_rescue_edges_graph_core(g, uid, k, mercy_edge_cov, path, rdbits, pregs, edges, ehash, offs, rgidxs, hash);
+		ret += cnt;
+	}
+	free_bitvec(rdbits);
+	free_tracev(path);
+	free_edgev(edges);
+	free_edgehash(ehash);
+	free_edgeoffv(offs);
+	free_u8v(rgidxs);
+	free_UUhash(hash);
+	return ret;
+}
+
 static inline u8i mask_all_branching_nodes_graph(Graph *g){
 	node_t *n;
 	u8i node, ret;
@@ -2029,16 +1777,16 @@ static inline u8i mask_all_branching_nodes_graph(Graph *g){
 		n = ref_nodev(g->nodes, node);
 		if(n->closed) continue;
 		if(n->erefs[0].cnt > 1 || n->erefs[1].cnt > 1){
-			n->unvisit = 1;
+			n->bt_dir = 1;
 			ret ++;
 		} else {
-			n->unvisit = 0;
+			n->bt_dir = 0;
 		}
 	}
 	for(node=0;node<g->nodes->size;node++){
 		n = ref_nodev(g->nodes, node);
 		if(n->closed) continue;
-		if(n->unvisit == 0) continue;
+		if(n->bt_dir == 0) continue;
 		del_node_graph(g, n);
 	}
 	return ret;
@@ -2048,7 +1796,7 @@ static inline u4i readpath_densify_nodes_graph(Graph *g, u8i eidx){
 }
 
 typedef struct {
-	u8i rid:30, dir:1, beg:16, end:16, view:1;
+	u8i rid:30, dir:1, off:16, len:4, view:12;
 } lay_reg_t;
 define_list(layregv, lay_reg_t);
 
@@ -2099,21 +1847,21 @@ static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs)
 			if(r1 >= re1) break;
 		} else {
 			rid = r1->rid;
-			if(r1->beg < r2->beg){
+			if(r1->off < r2->off){
 				if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
-				beg = r1->beg; end = r2->end;
+				beg = r1->off; end = r2->off + r2->len;
 				if(beg > end){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 				} else {
-					push_layregv(regs, (lay_reg_t){rid, 0, beg, end, 0});
+					push_layregv(regs, (lay_reg_t){rid, 0, beg, end - beg, 0});
 				}
 			} else {
 				if(!(q->dir1 ^ r1->dir)){ r1 ++; r2 ++; continue; }
-				beg = r2->beg; end = r1->end;
+				beg = r2->off; end = r1->off + r1->len;
 				if(beg > end){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 				} else {
-					push_layregv(regs, (lay_reg_t){rid, 1, beg, end, 0});
+					push_layregv(regs, (lay_reg_t){rid, 1, beg, end - beg, 0});
 				}
 			}
 			r1 ++;
@@ -2154,7 +1902,7 @@ for(i=mlay->t_idx;i<mlay->path->size;i+=mlay->n_cpu){
 	lay->seqoff = mlay->seqs->size;
 	gen_lay_regs_core_graph(mlay->g, let, mlay->regs);
 	lay->rcnt = mlay->regs->size - lay->roff;
-	sort_array(mlay->regs->buffer + lay->roff, lay->rcnt, lay_reg_t, num_cmpgt(b.end - b.beg, a.end - a.beg));
+	sort_array(mlay->regs->buffer + lay->roff, lay->rcnt, lay_reg_t, num_cmpgt(b.len, a.len));
 	if(lay->rcnt == 0 && mlay->log){
 		thread_beg_syn(mlay);
 		fprintf(mlay->log, " -- N%llu(%c) -> N%llu(%c) has no read path --\n", (u8i)let->node1, "+-"[let->dir1], (u8i)let->node2, "+-"[let->dir2]); fflush(mlay->log);
@@ -2162,14 +1910,14 @@ for(i=mlay->t_idx;i<mlay->path->size;i+=mlay->n_cpu){
 	}
 	for(j=0;j<lay->rcnt;j++){
 		reg = ref_layregv(mlay->regs, lay->roff + j);
-		encap_string(seqs, (reg->end - reg->beg) * KBM_BIN_SIZE + 1);
+		encap_string(seqs, (reg->len) * KBM_BIN_SIZE + 1);
 		if(reg->dir){
-			fwdseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, seqs->string + seqs->size);
+			revseq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[reg->rid].binoff + reg->off) * KBM_BIN_SIZE, reg->len * KBM_BIN_SIZE, seqs->string + seqs->size);
 		} else {
-			fwdseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, seqs->string + seqs->size);
+			fwdseq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[reg->rid].binoff + reg->off) * KBM_BIN_SIZE, reg->len * KBM_BIN_SIZE, seqs->string + seqs->size);
 		}
-		seqs->string[seqs->size + (reg->end - reg->beg) * KBM_BIN_SIZE] = 0;
-		seqs->size += (reg->end - reg->beg) * KBM_BIN_SIZE + 1;
+		seqs->string[seqs->size + reg->len * KBM_BIN_SIZE] = 0;
+		seqs->size += reg->len * KBM_BIN_SIZE + 1;
 	}
 }
 thread_end_loop(mlay);
@@ -2236,9 +1984,9 @@ static inline u4i print_utgs_graph(Graph *g, char *prefix, char *lay_suffix, u4i
 				soff = lay->seqoff;
 				for(c=0;c<lay->rcnt;c++){
 					reg = ref_layregv(regs, lay->roff + c);
-					fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE);
+					fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->off * KBM_BIN_SIZE, reg->len * KBM_BIN_SIZE);
 					fprintf(bw->out, "%s\n", seqs->string + soff);
-					soff += (reg->end - reg->beg) * KBM_BIN_SIZE + 1;
+					soff += reg->len * KBM_BIN_SIZE + 1;
 				}
 			}
 			end_bufferedwriter(bw);
@@ -2286,17 +2034,17 @@ static inline u8i print_dot_full_graph(Graph *g, FILE *out){
 			read_map_t *map;
 			u4i refoff;
 			map = ref_readmapv(g->rdmaps, r->rid);
-			if(r->beg >= map->qb && r->end <= map->qe){
+			if(r->off >= map->qb && r->off + r->len <= map->qe){
 				if(map->refdir){
-					refoff = map->tb + (map->qe - r->end) * KBM_BIN_SIZE;
+					refoff = map->tb + (map->qe - r->off - r->len) * KBM_BIN_SIZE;
 				} else {
-					refoff = map->tb + (r->beg - map->qb) * KBM_BIN_SIZE;
+					refoff = map->tb + (r->off - map->qb) * KBM_BIN_SIZE;
 				}
-				fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %s_%c_%u_%u}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, g->reftags->buffer[map->refidx], "FR"[map->refdir ^ r->dir], refoff, (r->end - r->beg) * KBM_BIN_SIZE);
+				fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %s_%c_%u_%u}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, g->reftags->buffer[map->refidx], "FR"[map->refdir ^ r->dir], refoff, r->len * KBM_BIN_SIZE);
 				continue;
 			}
 		}
-		fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
+		fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->off, r->len);
 	}
 	for(i=0;i<g->nodes->size;i++){
 		if((i % 1000) == 0) flush_bufferedwriter(bw);
@@ -2344,17 +2092,17 @@ static inline u8i print_dot_graph(Graph *g, FILE *out){
 			read_map_t *map;
 			u4i refoff;
 			map = ref_readmapv(g->rdmaps, r->rid);
-			if(r->beg >= map->qb && r->end <= map->qe){
+			if(r->off >= map->qb && r->off + r->len <= map->qe){
 				if(map->refdir){
-					refoff = map->tb + (map->qe - r->end) * KBM_BIN_SIZE;
+					refoff = map->tb + (map->qe - r->off - r->len) * KBM_BIN_SIZE;
 				} else {
-					refoff = map->tb + (r->beg - map->qb) * KBM_BIN_SIZE;
+					refoff = map->tb + (r->off - map->qb) * KBM_BIN_SIZE;
 				}
-				fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %s_%c_%u_%u}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, g->reftags->buffer[map->refidx], "FR"[map->refdir ^ r->dir], refoff, (r->end - r->beg) * KBM_BIN_SIZE);
+				fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %s_%c_%u_%u}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, g->reftags->buffer[map->refidx], "FR"[map->refdir ^ r->dir], refoff, r->len * KBM_BIN_SIZE);
 				continue;
 			}
 		}
-		fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
+		fprintf(bw->out, "N%llu [label=\"{N%llu %d | %s | %c_%d_%d}\"]\n", i, i, n->regs.cnt, g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->off, r->len);
 	}
 	for(i=0;i<g->nodes->size;i++){
 		if((i % 1000) == 0) flush_bufferedwriter(bw);
@@ -2387,7 +2135,7 @@ static inline u8i print_nodes_graph(Graph *g, FILE *out){
 		}
 		for(j=0;j<n->regs.cnt;j++){
 			r = ref_regv(g->regs, n->regs.idx + j);
-			fprintf(out, "\t%s_%c_%d_%d", g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->beg, r->end - r->beg);
+			fprintf(out, "\t%s_%c_%d_%d", g->kbm->reads->buffer[r->rid].tag, "FR"[r->dir], r->off, r->len);
 			if(r->closed) fputc('*', out);
 		}
 		fprintf(out, "\n");
@@ -2397,17 +2145,14 @@ static inline u8i print_nodes_graph(Graph *g, FILE *out){
 
 static inline u8i print_reads_graph(Graph *g, FILE *out){
 	read_t *rd;
-	reg_t  *r;
-	u8i idx;
-	u4i i;
+	rd_reg_t  *r;
+	u4i i, j;
 	for(i=0;i<g->kbm->reads->size;i++){
 		rd = ref_readv(g->reads, i);
-		fprintf(out, "%s\t%d\t%u", g->kbm->reads->buffer[i].tag, g->kbm->reads->buffer[i].rdlen, rd->regs.cnt);
-		idx = rd->regs.idx;
-		while(idx){
-			r = ref_regv(g->regs, idx);
-			fprintf(out, "\tN%llu%s:%c_%d_%d", (unsigned long long)r->node, (r->closed? "*" : (g->nodes->buffer[r->node].closed? "!" : "")), "FR"[r->dir], r->beg, r->end - r->beg);
-			idx = r->read_link;
+		fprintf(out, "%s\t%d\t%u", g->kbm->reads->buffer[i].tag, g->kbm->reads->buffer[i].bincnt * KBM_BIN_SIZE, rd->regs.cnt);
+		for(j=0;j<rd->regs.cnt;j++){
+			r = ref_rdregv(g->rdregs, rd->regs.idx + j);
+			fprintf(out, "\tN%llu%s:%c_%d_%d", (unsigned long long)r->node, (r->closed? "*" : (g->nodes->buffer[r->node].closed? "!" : "")), "FR"[r->dir], r->off, r->len);
 		}
 		fprintf(out, "\n");
 	}
