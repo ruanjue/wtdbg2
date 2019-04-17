@@ -136,8 +136,8 @@ static inline lay_seq_t* iter_kbmblock(void *obj){
 				break;
 			}
 			hit = ref_kbmmapv(kb->aux->hits, kb->hidx ++);
-			tsoff = kb->aux->kbm->reads->buffer[hit->tidx].rdoff;
-			rdlen = kb->aux->kbm->reads->buffer[hit->tidx].rdlen;
+			tsoff = kb->aux->kbm->reads->buffer[hit->tidx].seqoff * KBM_BIN_SIZE;
+			rdlen = kb->aux->kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE;
 			off   = hit->qb;
 			rdoff = hit->qdir? Int(rdlen - hit->te) : hit->tb;
 			{
@@ -318,7 +318,7 @@ static inline int map_kbmpoa(CTGCNS *cc, KBMAux *aux, char *rdtag, u4i qidx, Bas
 	int self_aln, max_hit, min_aln, min_mat;
 	kb = (KBMBlock*)cc->obj;
 	reset_ctgcns(cc, kb, iter_kbmblock, info_kbmblock);
-	seqlen = cvt_kbm_read_length(seqlen);
+	seqlen = kbm_cvt_length(seqlen);
 	if(seqlen < 4 * KBM_BIN_SIZE + UInt(aux->par->min_aln)) return 0;
 	if(rdseq && rdseq != aux->kbm->rdseqs){
 		self_aln = 0;
@@ -376,7 +376,7 @@ static inline int map_kbmpoa(CTGCNS *cc, KBMAux *aux, char *rdtag, u4i qidx, Bas
 		cc->cns->size = seqlen;
 		normalize_basebank(cc->cns);
 	} else if(cc->cns->size < seqlen){
-		cc->cns->size = cvt_kbm_read_length(cc->cns->size);
+		cc->cns->size = kbm_cvt_length(cc->cns->size);
 		normalize_basebank(cc->cns);
 	}
 	if(cc->cns->size == 0){
