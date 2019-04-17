@@ -1461,7 +1461,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 		nbp = ((u8i)(ie - ib)) * KBM_BSIZE;
 		if(reset_kbm){
 			reset_index_kbm(g->kbm);
-			fprintf(KBM_LOGF, "[%s] indexing bins[(%llu,%llu)/%llu] (%llu/%llu bp), %d threads\n", date(), ib, ie, g->kbm->bins->size, nbp, g->kbm->avail_bases, ncpu); fflush(KBM_LOGF);
+			fprintf(KBM_LOGF, "[%s] indexing bins[(%llu,%llu)/%llu] (%llu/%llu bp), %d threads\n", date(), ib, ie, (u8i)g->kbm->bins->size, nbp, (u8i)g->kbm->rdseqs->size, ncpu); fflush(KBM_LOGF);
 			kmlog = (in > 1)? NULL : open_file_for_write(prefix, ".kmerdep", 1);
 			index_kbm(g->kbm, ib, ie, ncpu, kmlog);
 			if(kmlog){
