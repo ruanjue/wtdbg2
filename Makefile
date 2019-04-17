@@ -1,5 +1,5 @@
 VERSION=2.4
-RELEASE=20190312
+RELEASE=20190417
 
 CC  := gcc
 BIN := /usr/local/bin
@@ -15,7 +15,7 @@ CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DVERSION="$(VERSION)" -DRE
 endif
 
 GLIBS=-lm -lrt -lpthread -lz
-GENERIC_SRC=mem_share.h chararray.h sort.h list.h pgzf.h  sort.h list.h dna.h thread.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h
+GENERIC_SRC=mem_share.h chararray.h sort.h list.h pgzf.h sort.h list.h dna.h thread.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h
 
 PROGS=kbm2 wtdbg2 wtdbg-cns wtpoa-cns pgzf
 

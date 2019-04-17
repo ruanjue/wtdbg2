@@ -84,6 +84,7 @@ static struct option prog_opts[] = {
 	{"node-max",                         1, 0, 1008},
 	{"ttr-cutoff-depth",                 1, 0, 1009},
 	{"ttr-cutoff-ratio",                 1, 0, 1010},
+	{"dump-seqs",                        1, 0, 1036},
 	{"dump-kbm",                         1, 0, 1011},
 	{"load-seqs",                        1, 0, 2002},
 	{"load-kbm",                         1, 0, 1012},
@@ -297,6 +298,9 @@ int usage(int level){
 	"   set --ttr-cutoff-depth 0 to disable ttr masking\n"
 	" --dump-kbm <string>\n"
 	"   Dump kbm index into file for loaded by `kbm` or `wtdbg`\n"
+	" --dump-seqs <string>\n"
+	"   Dump kbm index (only sequences, no k-mer index) into file for loaded by `kbm` or `wtdbg`\n"
+	"   Please note: normally load it with --load-kbm, not with --load-seqs\n"
 	" --load-kbm <string>\n"
 	"   Instead of reading sequences and building kbm index, which is time-consumed, loading kbm-index from already dumped file.\n"
 	"   Please note that, once kbm-index is mmaped by kbm -R <kbm-index> start, will just get the shared memory in minute time.\n"
@@ -549,6 +553,7 @@ int main(int argc, char **argv){
 			case 1008: max_node_cov = atoi(optarg); break;
 			case 1009: ttr_n_cov = atoi(optarg); break;
 			case 1010: ttr_e_cov = atof(optarg); break;
+			case 1036: dump_seqs = optarg; break;
 			case 2002: load_seqs = optarg; break;
 			case 1011: dump_kbm = optarg; break;
 			case 1012: load_kbm = optarg; break;
@@ -838,6 +843,14 @@ int main(int argc, char **argv){
 			}
 			ready_kbm(kbm);
 			fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
+			if(dump_seqs){
+				FILE *dump;
+				fprintf(KBM_LOGF, "[%s] dump kbm-index (only seqs) to %s ...", date(), dump_seqs); fflush(KBM_LOGF);
+				dump = open_file_for_write(dump_seqs, NULL, 1);
+				mem_dump_obj_file(g->kbm, 1, &kbm_obj_desc, 1, 0, dump);
+				fclose(dump);
+				fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
+			}
 		}
 	}
 	print_proc_stat_info(0);

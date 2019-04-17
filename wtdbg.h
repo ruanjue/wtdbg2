@@ -1461,7 +1461,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 		nbp = ((u8i)(ie - ib)) * KBM_BSIZE;
 		if(reset_kbm){
 			reset_index_kbm(g->kbm);
-			fprintf(KBM_LOGF, "[%s] indexing bins[%llu,%llu] (%llu bp), %d threads\n", date(), ib, ie, nbp, ncpu); fflush(KBM_LOGF);
+			fprintf(KBM_LOGF, "[%s] indexing bins[(%llu,%llu)/%llu] (%llu/%llu bp), %d threads\n", date(), ib, ie, g->kbm->bins->size, nbp, g->kbm->avail_bases, ncpu); fflush(KBM_LOGF);
 			kmlog = (in > 1)? NULL : open_file_for_write(prefix, ".kmerdep", 1);
 			index_kbm(g->kbm, ib, ie, ncpu, kmlog);
 			if(kmlog){
@@ -1471,7 +1471,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 			fprintf(KBM_LOGF, "[%s] Done\n", date()); fflush(KBM_LOGF);
 			if(in == 1 && dump_kbm){
 				FILE *dump;
-				fprintf(KBM_LOGF, "[%s] dump kbm index to %s ...", date(), dump_kbm); fflush(KBM_LOGF);
+				fprintf(KBM_LOGF, "[%s] dump kbm-index to %s ...", date(), dump_kbm); fflush(KBM_LOGF);
 				dump = open_file_for_write(dump_kbm, NULL, 1);
 				mem_dump_obj_file(g->kbm, 1, &kbm_obj_desc, 1, 0, dump);
 				fclose(dump);
