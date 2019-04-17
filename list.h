@@ -530,13 +530,13 @@ define_quick_sort(sort_##list_type##_core, e_type, cmp_func);	\
 	\
 static inline void sort_##list_type(list_type *list){ sort_##list_type##_core(ref_##list_type(list, 0), count_##list_type(list), NULL); }
 
-#define define_list(name, e_type) define_list_core(name, e_type, size_t, 0xFFFFFU)
+#define define_list(name, e_type) define_list_core(name, e_type, u8i, 0xFFFFFU)
 
 #define native_number_cmp(e1, e2, obj) (((e1) == (e2))? 0 : (((e1) < (e2))? -1 : 1))
 
 #define define_native_list(name, e_type)	\
-define_list_core(name, e_type, size_t, 0xFFFFFU);	\
-define_list_ext(name, e_type, size_t, native_number_cmp);
+define_list_core(name, e_type, u8i, 0xFFFFFU);	\
+define_list_ext(name, e_type, u8i, native_number_cmp);
 
 define_native_list(u8list,  u1i);
 define_native_list(u1v, u1i);
