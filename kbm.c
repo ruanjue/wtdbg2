@@ -142,7 +142,7 @@ if(maln->corr_mode){
 		for(i=0;i<tidxs->size;i++){
 			tidx = get_u4v(tidxs, i);
 			rd = ref_kbmreadv(maln->aux->kbm->reads, tidx);
-			query_index_kbm(raux, rd->tag, tidx, maln->aux->kbm->rdseqs, rd->rdoff, rd->rdlen);
+			query_index_kbm(raux, rd->tag, tidx, maln->aux->kbm->rdseqs, rd->seqoff * KBM_BIN_SIZE, rd->bincnt * KBM_BIN_SIZE);
 			map_kbm(raux);
 			for(j=0;j<raux->hits->size;j++){
 				flip_hit_kbmaux(maln->aux, raux, j);
@@ -326,7 +326,7 @@ int kbm_main(int argc, char **argv){
 		if(server == 1){
 			fprintf(KBM_LOGF, "[%s] loading kbm index from %s\n", date(), loadf);
 			kbm = mem_load_obj_file(&kbm_obj_desc, loadf, NULL, NULL, NULL, NULL);
-			fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-k %d -p %d -S %d')\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod / KBM_N_HASH);
+			fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-k %d -p %d -S %d')\n", date(), kbm->avail_reads, kbm->avail_bases, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod / KBM_N_HASH);
 			fprintf(KBM_LOGF, "[%s] kbm-index server start\n", date());
 			return 0;
 		} else if(server == 2){
@@ -347,7 +347,7 @@ int kbm_main(int argc, char **argv){
 				kbm = mem_read_obj_file(&kbm_obj_desc, loadf, NULL, NULL, NULL, NULL);
 			}
 		}
-		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-k %d -p %d -S %d')\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod / KBM_N_HASH);
+		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-k %d -p %d -S %d')\n", date(), kbm->avail_reads, kbm->avail_bases, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod / KBM_N_HASH);
 		// Please note that, kbm->tag2idx is not functional after mem_load
 		// check KBMPar
 		if((opt_flags >> 0) & 0x01){
@@ -554,7 +554,7 @@ int kbm_main(int argc, char **argv){
 						nhit += aux->hits->size;
 					}
 				}
-				trunc_string(seq->seq, cvt_kbm_read_length(seq->seq->size));
+				trunc_string(seq->seq, kbm_cvt_length(seq->seq->size));
 				clear_basebank(maln->rdseqs);
 				seq2basebank(maln->rdseqs, seq->seq->string, seq->seq->size);
 				clear_string(maln->rdtag);
@@ -578,8 +578,8 @@ int kbm_main(int argc, char **argv){
 				if(qidx == MAX_U4 || tidx == MAX_U4) continue;
 				if(qidx > tidx){ swap_var(qidx, tidx); }
 				maln->qidx = qidx;
-				maln->rdoff = kbm->reads->buffer[qidx].rdoff;
-				maln->rdlen = kbm->reads->buffer[qidx].rdlen;
+				maln->rdoff = kbm->reads->buffer[qidx].seqoff * KBM_BSIZE;
+				maln->rdlen = kbm->reads->buffer[qidx].bincnt * KBM_BSIZE;
 				aux->bmin = kbm->reads->buffer[tidx].binoff;
 				aux->bmax = kbm->reads->buffer[tidx].binoff + kbm->reads->buffer[tidx].bincnt;
 				fprintf(out, "%s <-> %s\n", kbm->reads->buffer[qidx].tag, kbm->reads->buffer[tidx].tag);
@@ -604,8 +604,8 @@ int kbm_main(int argc, char **argv){
 				if(nc < 1) continue;
 				qidx = getval_cuhash(kbm->tag2idx, get_col_str(fr, 0));
 				if(qidx == MAX_U4) continue;
-				print_exists_index_kbm(kbm, kbm->reads->buffer[qidx].tag, kbm->rdseqs, kbm->reads->buffer[qidx].rdoff,
-					kbm->reads->buffer[qidx].rdlen, kmers, stdout);
+				print_exists_index_kbm(kbm, kbm->reads->buffer[qidx].tag, kbm->rdseqs, kbm->reads->buffer[qidx].seqoff * KBM_BSIZE,
+					kbm->reads->buffer[qidx].bincnt * KBM_BSIZE, kmers, stdout);
 			}
 			free_kmeroffv(kmers[0]);
 			free_kmeroffv(kmers[1]);
@@ -620,7 +620,7 @@ int kbm_main(int argc, char **argv){
 					continue;
 				}
 				fprintf(out, ">%s\n", kbm->reads->buffer[qidx].tag);
-				println_fwdseq_basebank(kbm->rdseqs, kbm->reads->buffer[qidx].rdoff, kbm->reads->buffer[qidx].rdlen, out);
+				println_fwdseq_basebank(kbm->rdseqs, kbm->reads->buffer[qidx].seqoff * KBM_BSIZE, kbm->reads->buffer[qidx].bincnt * KBM_BSIZE, out);
 				fflush(out);
 			}
 		}
@@ -676,8 +676,8 @@ int kbm_main(int argc, char **argv){
 				fprintf(KBM_LOGF, "\r%u\t%llu", qidx, nhit); fflush(KBM_LOGF);
 			}
 			maln->qidx = qidx;
-			maln->rdoff = kbm->reads->buffer[qidx].rdoff;
-			maln->rdlen = kbm->reads->buffer[qidx].rdlen;
+			maln->rdoff = kbm->reads->buffer[qidx].seqoff * KBM_BSIZE;
+			maln->rdlen = kbm->reads->buffer[qidx].bincnt * KBM_BSIZE;
 			thread_wake(maln);
 		}
 		fprintf(KBM_LOGF, "\r%u\t%llu\n", qidx, nhit); fflush(KBM_LOGF);
