@@ -42,13 +42,13 @@ static struct option prog_opts[] = {
 	{"realn-min-match",                  1, 0, 3004},
 	{"realn-min-similarity",             1, 0, 3005},
 	{"realn-max-var",                    1, 0, 3006},
-	{"corr-mode",                        1, 0, 2010},
-	{"corr-min",                         1, 0, 2012},
-	{"corr-max",                         1, 0, 2013},
-	{"corr-cov",                         1, 0, 2014},
-	{"corr-block-size",                  1, 0, 2015},
-	{"corr-block-step",                  1, 0, 2016},
-	{"keep-multiple-alignment-parts",    1, 0, 2011},
+	//{"corr-mode",                        1, 0, 2010},
+	//{"corr-min",                         1, 0, 2012},
+	//{"corr-max",                         1, 0, 2013},
+	//{"corr-cov",                         1, 0, 2014},
+	//{"corr-block-size",                  1, 0, 2015},
+	//{"corr-block-step",                  1, 0, 2016},
+	//{"keep-multiple-alignment-parts",    1, 0, 2011},
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
 	{"version",                          0, 0, 'V'},
@@ -79,12 +79,12 @@ static struct option prog_opts[] = {
 	{"ctg-min-nodes",                    1, 0, 1018},
 	{"minimal-output",                   0, 0, 1019},
 	{"bin-complexity-cutoff",            1, 0, 1020},
-	{"aln-dovetail",                     1, 0, 1021},
-	{"no-local-graph-analysis",          0, 0, 1022},
+	//{"aln-dovetail",                     1, 0, 1021},
+	//{"no-local-graph-analysis",          0, 0, 1022},
 	{"no-read-length-sort",              0, 0, 1023},
 	{"keep-isolated-nodes",              0, 0, 1024},
-	{"no-read-clip",                     0, 0, 1025},
-	{"no-chainning-clip",                0, 0, 1026},
+	//{"no-read-clip",                     0, 0, 1025},
+	//{"no-chainning-clip",                0, 0, 1026},
 	{"aln-bestn",                        1, 0, 1027},
 	{"aln-maxhit",                       1, 0, 1028},
 	{"aln-kmer-sampling",                1, 0, 1029},
@@ -191,8 +191,8 @@ int usage(int level){
 	"   See -s 0.05\n"
 	" --aln-max-var <float>\n"
 	"   Max length variation of two aligned fragments, default: 0.25\n"
-	" --aln-dovetail <int>\n"
-	"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: 256\n"
+	//" --aln-dovetail <int>\n"
+	//"   Retain dovetail overlaps only, the max overhang size is <--aln-dovetail>, the value should be times of 256, -1 to disable filtering, default: 256\n"
 	" --aln-strand <int>\n"
 	"   1: forward, 2: reverse, 3: both. Please don't change the deault vaule 3, unless you exactly know what you are doing\n"
 	" --aln-maxhit <int>\n"
@@ -216,23 +216,23 @@ int usage(int level){
 	"   Set aln-max-var in realignment, default: 0.25\n"
 	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
-	" --corr-mode <float>\n"
-	"   Default: 0.0. If set > 0 and set --g <genome_size>, will turn on correct-align mode.\n"
-	"   Wtdbg will select <genome_size> * <corr-mode> bases from reads of middle length, and align them aginst all reads.\n"
-	"   Then, wtdbg will correct them using POACNS, and query corrected sequences against all reads again\n"
-	"   In correct-align mode, --aln-bestn = unlimited, --no-read-clip, --no-chaining-clip. Will support those features in future\n"
-	" --corr-min <int>\n"
-	" --corr-max <int>\n"
-	"   For each read to be corrected, uses at least <corr-min> alignments, and at most <corr-max> alignments\n"
-	"   Default: --corr_min = 5, --corr-max = 10\n"
-	" --corr-cov <float>\n"
-	"   Default: 0.75. When aligning reads to be corrected, the alignments should cover at least <corr-cov> of read length\n"
-	" --corr-block-size <int>\n"
-	"   Default: 2048. MUST be times of 256bp. Used in POACNS\n"
-	" --corr-block-step <int>\n"
-	"   Default: 1536. MUST be times of 256bp. Used in POACNS\n"
-	" --keep-multiple-alignment-parts\n"
-	"   By default, wtdbg will keep only the best alignment between two reads after chainning. This option will disable it, and keep multiple\n"
+	//" --corr-mode <float>\n"
+	//"   Default: 0.0. If set > 0 and set --g <genome_size>, will turn on correct-align mode.\n"
+	//"   Wtdbg will select <genome_size> * <corr-mode> bases from reads of middle length, and align them aginst all reads.\n"
+	//"   Then, wtdbg will correct them using POACNS, and query corrected sequences against all reads again\n"
+	//"   In correct-align mode, --aln-bestn = unlimited, --no-read-clip, --no-chaining-clip. Will support those features in future\n"
+	//" --corr-min <int>\n"
+	//" --corr-max <int>\n"
+	//"   For each read to be corrected, uses at least <corr-min> alignments, and at most <corr-max> alignments\n"
+	//"   Default: --corr_min = 5, --corr-max = 10\n"
+	//" --corr-cov <float>\n"
+	//"   Default: 0.75. When aligning reads to be corrected, the alignments should cover at least <corr-cov> of read length\n"
+	//" --corr-block-size <int>\n"
+	//"   Default: 2048. MUST be times of 256bp. Used in POACNS\n"
+	//" --corr-block-step <int>\n"
+	//"   Default: 1536. MUST be times of 256bp. Used in POACNS\n"
+	//" --keep-multiple-alignment-parts\n"
+	//"   By default, wtdbg will keep only the best alignment between two reads after chainning. This option will disable it, and keep multiple\n"
 	" --verbose +\n"
 	"   See -v. -vvvv will display the most detailed information\n"
 	" --quiet\n"
@@ -252,9 +252,9 @@ int usage(int level){
 	"   Default: 50.0. Retaining 50.0 folds of genome coverage, combined with -g and --rdcov-filter.\n"
 	" --rdcov-filter [0|1]\n"
 	"   Default 0. Strategy 0: retaining longest reads. Strategy 1: retaining medain length reads. \n"
-	" --err-free-nodes\n"
-	"   Select nodes from error-free-sequences only. E.g. you have contigs assembled from NGS-WGS reads, and long noisy reads.\n"
-	"   You can type '--err-free-seq your_ctg.fa --input your_long_reads.fa --err-free-nodes' to perform assembly somehow act as long-reads scaffolding\n"
+	//" --err-free-nodes\n"
+	//"   Select nodes from error-free-sequences only. E.g. you have contigs assembled from NGS-WGS reads, and long noisy reads.\n"
+	//"   You can type '--err-free-seq your_ctg.fa --input your_long_reads.fa --err-free-nodes' to perform assembly somehow act as long-reads scaffolding\n"
 	" --node-len <int>\n"
 	"   The default value is 1024, which is times of KBM_BIN_SIZE(always equals 256 bp). It specifies the length of intervals (or call nodes after selecting).\n"
 	"   kbm indexs sequences into BINs of 256 bp in size, so that many parameter should be times of 256 bp. There are: --node-len, --node-ovl, --aln-min-length, --aln-dovetail ."
@@ -307,19 +307,19 @@ int usage(int level){
 	"   Min num of nodes in a contig to be ouput, 3\n"
 	" --minimal-output\n"
 	"   Will generate as less output files (<--prefix>.*) as it can\n"
-	" --no-local-graph-analysis\n"
-	"   Before building edges, for each node, local-graph-analysis reads all related reads and according nodes, and builds a local graph to judge whether to mask it\n"
-	"   The analysis aims to find repetitive nodes\n"
+	//" --no-local-graph-analysis\n"
+	//"   Before building edges, for each node, local-graph-analysis reads all related reads and according nodes, and builds a local graph to judge whether to mask it\n"
+	//"   The analysis aims to find repetitive nodes\n"
 	" --no-read-length-sort\n"
 	"   Defaultly, `wtdbg` sorts input sequences by length DSC. The order of reads affects the generating of nodes in selecting important intervals\n"
 	" --keep-isolated-nodes\n"
 	"   In graph clean, `wtdbg` normally masks isolated (orphaned) nodes\n"
-	" --no-read-clip\n"
-	"   Defaultly, `wtdbg` clips a input sequence by analyzing its overlaps to remove high error endings, rolling-circle repeats (see PacBio CCS), and chimera.\n"
-	"   When building edges, clipped region won't contribute. However, `wtdbg` will use them in the final linking of unitigs\n"
-	" --no-chainning-clip\n"
-	"   Defaultly, performs alignments chainning in read clipping\n"
-	"   ** If '--aln-bestn 0 --no-read-clip', alignments will be parsed directly, and less RAM spent on recording alignments\n"
+	//" --no-read-clip\n"
+	//"   Defaultly, `wtdbg` clips a input sequence by analyzing its overlaps to remove high error endings, rolling-circle repeats (see PacBio CCS), and chimera.\n"
+	//"   When building edges, clipped region won't contribute. However, `wtdbg` will use them in the final linking of unitigs\n"
+	//" --no-chainning-clip\n"
+	//"   Defaultly, performs alignments chainning in read clipping\n"
+	//"   ** If '--aln-bestn 0 --no-read-clip', alignments will be parsed directly, and less RAM spent on recording alignments\n"
 	"\n"
 		);
 	}
@@ -348,7 +348,7 @@ int main(int argc, char **argv){
 	char *prefix, *dump_seqs, *load_seqs, *load_paf, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
 	char regtag[14];
 	int len, tag_size, asyn_read, seq_type;
-	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
+	u8i tot_bp, cnt, bub, tip, rep, bom, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
 	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_len, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
@@ -512,13 +512,13 @@ int main(int argc, char **argv){
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 2004: par->aln_var = atof(optarg); break;
 			case 's': par->min_sim = atof(optarg); opt_flags |= (1 << 3); break;
-			case 2010: corr_mode = atof(optarg); break;
-			case 2012: corr_min = atoi(optarg); break;
-			case 2013: corr_max = atoi(optarg); break;
-			case 2014: corr_cov = atof(optarg); break;
-			case 2015: corr_bsize = atoi(optarg); break;
-			case 2016: corr_bstep = atoi(optarg); break;
-			case 2011: uniq_hit = 0; break;
+			//case 2010: corr_mode = atof(optarg); break;
+			//case 2012: corr_min = atoi(optarg); break;
+			//case 2013: corr_max = atoi(optarg); break;
+			//case 2014: corr_cov = atof(optarg); break;
+			//case 2015: corr_bsize = atoi(optarg); break;
+			//case 2016: corr_bstep = atoi(optarg); break;
+			//case 2011: uniq_hit = 0; break;
 			case 'v': KBM_LOG ++; break;
 			case 'q': quiet = 1; break;
 			case 'h': return usage(0);
@@ -550,12 +550,12 @@ int main(int argc, char **argv){
 			case 1018: min_ctg_nds = atoi(optarg); break;
 			case 1019: less_out = 1; break;
 			case 1020: par->min_bin_degree = atoi(optarg); break;
-			case 1021: max_overhang = atoi(optarg); break;
+			//case 1021: max_overhang = atoi(optarg); break;
 			case 1022: cnn_filter = 0; break;
 			case 1023: par->rd_len_order = 0; break;
 			case 1024: del_iso = 0; break;
-			case 1025: rdclip = 0; break;
-			case 1026: chainning = 0; break;
+			//case 1025: rdclip = 0; break;
+			//case 1026: chainning = 0; break;
 			case 1027: bestn = atoi(optarg); break;
 			case 1028: par->max_hit = atoi(optarg); break;
 			case 1029: par->ksampling = atoi(optarg); break;
@@ -670,7 +670,7 @@ int main(int argc, char **argv){
 			fprintf(KBM_LOGF, " -- try read from file --\n");
 			kbm = mem_read_obj_file(&kbm_obj_desc, load_kbm, NULL, NULL, NULL, NULL);
 		}
-		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-S %d')\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, kbm->par->kmer_mod / KBM_N_HASH);
+		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-S %d')\n", date(), kbm->avail_reads, kbm->avail_bases, kbm->par->kmer_mod / KBM_N_HASH);
 		{
 			// check KBMPar
 			if((opt_flags >> 0) & 0x01){
@@ -703,7 +703,7 @@ int main(int argc, char **argv){
 			}
 		}
 		nfix = 0;
-		tot_bp = kbm->rdseqs->size;
+		tot_bp = kbm->avail_bases;
 	} else if(load_seqs){
 		fprintf(KBM_LOGF, "[%s] loading kbm index from %s\n", date(), load_seqs);
 		if((kbm = mem_find_obj_file(&kbm_obj_desc, load_seqs, NULL, NULL, NULL, NULL, 0)) == NULL){
@@ -711,10 +711,10 @@ int main(int argc, char **argv){
 			fprintf(KBM_LOGF, " -- try read from file --\n");
 			kbm = mem_read_obj_file(&kbm_obj_desc, load_seqs, NULL, NULL, NULL, NULL);
 		}
-		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size);
+		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp\n", date(), kbm->avail_reads, kbm->avail_bases);
 		kbm = clone_seqs_kbm(kbm, par);
 		nfix = 0;
-		tot_bp = kbm->rdseqs->size;
+		tot_bp = kbm->avail_bases;
 	} else {
 		kbm = init_kbm(par);
 		fprintf(KBM_LOGF, "[%s] loading reads\n", date());
@@ -831,7 +831,7 @@ int main(int argc, char **argv){
 				}
 			}
 			ready_kbm(kbm);
-			fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), (unsigned)kbm->reads->size, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
+			fprintf(KBM_LOGF, "\n[%s] Done, %u reads (>=%u bp), %llu bp, %u bins\n", date(), kbm->avail_reads, tidy_reads, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
 		}
 	}
 	print_proc_stat_info(0);
@@ -851,10 +851,6 @@ int main(int argc, char **argv){
 		}
 		fprintf(KBM_LOGF, "[%s] Set --edge-cov to %d\n", date(), edge_cov); fflush(KBM_LOGF);
 	}
-	if(genome_size <= 0 && corr_mode > 0){
-		fprintf(KBM_LOGF, "[%s] MUST set -g <?> with --corr-mode %f\n", date(), corr_mode); fflush(KBM_LOGF);
-		return 1;
-	}
 	if(node_cov == 0) node_cov = edge_cov;
 	fprintf(KBM_LOGF, "KEY PARAMETERS: -k %d -p %d -K %f %s-S %f -s %f -g %llu -X %f -e %d -L %d\n",
 		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "" : "-A ", ((double)par->kmer_mod) / KBM_N_HASH, par->min_sim, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
@@ -863,20 +859,20 @@ int main(int argc, char **argv){
 		g->rpar = realign? rpar : NULL;
 		g->genome_size = genome_size;
 		g->num_index = num_index;
-		g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
-		g->corr_gcov = corr_mode;
-		g->corr_min = corr_min;
-		g->corr_max = corr_max;
-		g->corr_cov = corr_cov;
-		g->corr_bsize = corr_bsize;
-		g->corr_bstep = corr_bstep;
+		//g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
+		//g->corr_gcov = corr_mode;
+		//g->corr_min = corr_min;
+		//g->corr_max = corr_max;
+		//g->corr_cov = corr_cov;
+		//g->corr_bsize = corr_bsize;
+		//g->corr_bstep = corr_bstep;
 		g->node_order = node_order;
 		g->mem_stingy = mem_stingy;
 		g->reglen = reglen / KBM_BIN_SIZE;
 		g->regovl = regovl / KBM_BIN_SIZE;
-		g->max_overhang = max_overhang < 0? -1 : max_overhang / KBM_BIN_SIZE;
+		//g->max_overhang = max_overhang < 0? -1 : max_overhang / KBM_BIN_SIZE;
 		g->node_max_conflict = node_drop;
-		g->node_merge_cutoff = node_mrg;
+		//g->node_merge_cutoff = node_mrg;
 		g->min_node_cov = node_cov;
 		g->max_node_cov_sg = node_cov;
 		g->max_node_cov = max_node_cov;
@@ -895,8 +891,8 @@ int main(int argc, char **argv){
 		g->rep_filter = rep_filter;
 		g->rep_detach = rep_detach;
 		g->cut_tip = cut_tip;
-		g->chainning_hits = chainning;
-		g->uniq_hit = uniq_hit;
+		//g->chainning_hits = chainning;
+		//g->uniq_hit = uniq_hit;
 		g->bestn = bestn;
 		g->minimal_output = less_out;
 	}
@@ -912,14 +908,9 @@ int main(int argc, char **argv){
 		evtlog = open_file_for_write(prefix, ".events", 1);
 	} else evtlog = NULL;
 	if(load_nodes){
-		if(load_clips == NULL){
-			fprintf(KBM_LOGF, " ** no clip information **\n"); fflush(KBM_LOGF);
-		}
 		fprintf(KBM_LOGF, "[%s] loading nodes from %s ... ", date(), load_nodes); fflush(KBM_LOGF);
-		FileReader *clp = load_clips? open_filereader(load_clips, asyn_read) : NULL;
 		FileReader *nds = open_filereader(load_nodes, asyn_read);
-		load_nodes_graph(g, clp, nds);
-		if(clp) close_filereader(clp);
+		load_nodes_graph(g, nds, ncpu);
 		close_filereader(nds);
 		fprintf(KBM_LOGF, " %llu nodes\n", (u8i)g->nodes->size);
 		print_proc_stat_info(0);
@@ -934,12 +925,12 @@ int main(int argc, char **argv){
 		}
 		fprintf(KBM_LOGF, "\n");
 		fr = open_all_filereader(pws->size, pws->buffer, asyn_read);
-		build_nodes_graph(g, max_idx_bp, ncpu, fr, rdclip, prefix, NULL);
+		build_nodes_graph(g, max_idx_bp, ncpu, fr, prefix, NULL);
 		close_filereader(fr);
 		fprintf(KBM_LOGF, "[%s] Done, %llu nodes\n", date(), (unsigned long long)g->nodes->size);
 	} else {
 		fprintf(KBM_LOGF, "[%s] generating nodes, %d threads\n", date(), ncpu);
-		build_nodes_graph(g, max_idx_bp, ncpu, NULL, rdclip, prefix, dump_kbm);
+		build_nodes_graph(g, max_idx_bp, ncpu, NULL, prefix, dump_kbm);
 		fprintf(KBM_LOGF, "[%s] Done, %llu nodes\n", date(), (unsigned long long)g->nodes->size);
 	}
 	if(load_nodes == NULL || strlen(load_nodes) != strlen(prefix) + strlen(".1.nodes") || strncmp(load_nodes, prefix, strlen(prefix)) || strcmp(load_nodes + strlen(prefix), ".1.nodes")){
@@ -950,35 +941,20 @@ int main(int argc, char **argv){
 		cnt = mask_nodes_by_cov_graph(g, evtlog);
 		fprintf(KBM_LOGF, "[%s] masked %llu high coverage nodes (>%d or <%d)\n", date(), (unsigned long long)cnt, max_node_cov, node_cov);
 	}
-	/*
-	if(cnn_filter){
-		cnt = mask_nodes_by_connectivity_graph(g, ncpu, evtlog);
-		fprintf(KBM_LOGF, "[%s] masked %llu repeat-like nodes by local subgraph analysis\n", date(), (unsigned long long)cnt);
-	}
-	*/
 	if(tip_like){
 		cnt = mask_possible_tip_nodes_graph(g);
 		fprintf(KBM_LOGF, "[%s] masked %llu tip-like nodes\n", date(), (unsigned long long)cnt);
 	}
-	fprintf(KBM_LOGF, "[%s] generating edges\n", date());
+	fprintf(KBM_LOGF, "[%s] generating edges ...", date()); fflush(KBM_LOGF);
 	cnt = build_edges_graph(g, ncpu, evtlog);
-	fprintf(KBM_LOGF, "[%s] Done, %llu edges\n", date(), cnt);
+	fprintf(KBM_LOGF, " Done, %llu edges\n", cnt);
 	if(ttr_n_cov){
-		//print_node_edges_cov_graph(g, evtlog);
 		cnt = mask_nodes_by_edge_cov_graph(g, ttr_n_cov, ttr_e_cov, evtlog);
 		fprintf(KBM_LOGF, "[%s] deleted %llu nodes, might be tandom repeats\n", date(), (unsigned long long)cnt);
 	}
 	if(!less_out) generic_print_graph(g, print_reads_graph, prefix, ".1.reads");
 	if(!less_out) generic_print_graph(g, print_dot_full_graph,   prefix, ".1.dot.gz");
 	fprintf(KBM_LOGF, "[%s] graph clean\n", date()); fflush(KBM_LOGF);
-	if(0){
-		cnt = mask_read_weak_regs_graph(g, ncpu);
-		fprintf(KBM_LOGF, "[%s] masked %llu regions(%d bp) as unreliable, total regs %llu\n", date(), (unsigned long long)cnt, reglen, (u8i)g->regs->size);
-	}
-	//if(rescue_low_edges){
-		//cnt = rescue_mercy_edges_graph(g);
-		//fprintf(KBM_LOGF, "[%s] rescued %llu low cov edges\n", date(), (unsigned long long)cnt);
-	//}
 	cnt = cut_binary_edges_graph(g);
 	fprintf(KBM_LOGF, "[%s] deleted %llu binary edges\n", date(), (unsigned long long)cnt);
 	if(!g->rep_detach && del_iso){
@@ -997,9 +973,16 @@ int main(int argc, char **argv){
 	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".2.dot.gz");
 	while(1){
 		do {
-			rep = bub = 0;
+			rep = bub = bom = 0;
 			do {
-				cnt = readpath_detach_branches_graph(g);
+				//cnt = readpath_cut_boomerangs_graph(g);
+				cnt = 0;
+				bom += cnt;
+			} while(cnt);
+			if(bom) fprintf(KBM_LOGF, "[%s] cut %llu boomerangs\n", date(), bom);
+			do {
+				//cnt = readpath_detach_branches_graph(g);
+				cnt = 0;
 				rep += cnt;
 			} while(cnt);
 			if(rep) fprintf(KBM_LOGF, "[%s] detached %llu branches\n", date(), rep);
@@ -1007,15 +990,17 @@ int main(int argc, char **argv){
 				cnt = readpath_merge_bubbles_graph(g, bub_step);
 				bub += cnt;
 			} while(cnt);
-			if(bub) fprintf(KBM_LOGF, "[%s] merge %llu bubbles\n", date(), bub);
+			if(bub) fprintf(KBM_LOGF, "[%s] merged %llu bubbles\n", date(), bub);
 		} while(rep + bub);
-		rep = mask_all_branching_nodes_graph(g);
-		fprintf(KBM_LOGF, "[%s] masked %llu branching nodes\n", date(), rep);
+		//rep = mask_all_branching_nodes_graph(g);
+		rep = 0;
+		if(rep) fprintf(KBM_LOGF, "[%s] masked %llu branching nodes\n", date(), rep);
 		if(del_iso){
 			cnt = del_isolated_nodes_graph(g, evtlog);
-			fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
+			if(cnt) fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
 		}
-		cnt = readpath_utg_rescue_edges_graph(g);
+		//cnt = readpath_utg_rescue_edges_graph(g);
+		cnt = 0;
 		if(cnt){
 			fprintf(KBM_LOGF, "[%s] rescue %llu edges\n", date(), cnt);
 		} else {
