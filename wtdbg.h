@@ -1452,7 +1452,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	nhit = 0;
 	for(ii=0;ii<in;ii++){
 		ib = ie;
-		ie = ib + ic;
+		ie = num_min(ib + ic, g->kbm->bins->size);
 		while(ie > 0 && ie < g->kbm->bins->size && g->kbm->bins->buffer[ie - 1].ridx == g->kbm->bins->buffer[ie].ridx) ie ++;
 		if(g->corr_mode == 0){
 			qb = 0;
