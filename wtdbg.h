@@ -1408,36 +1408,6 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 		end_bufferedwriter(bw);
 	}
 	rdflags = (!g->corr_mode && g->par->skip_contained)? init_bitvec(g->kbm->reads->size) : NULL;
-	thread_beg_init(mdbg, n_cpu);
-	mdbg->g = g;
-	memset((void*)&mdbg->reg, 0, sizeof(reg_t));
-	mdbg->reg.closed = 1;
-	mdbg->aux = init_kbmaux(g->kbm);
-	if(g->rpar){
-		mdbg->raux = init_kbmaux(init_kbm(g->rpar));
-	} else {
-		mdbg->raux = NULL;
-	}
-	if(g->corr_mode){
-		KBMBlock *kb;
-		POGPar par;
-		kb = init_kbmblock(g->corr_bsize, g->corr_bstep);
-		//mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, 1, g->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE);
-		par = DEFAULT_POG_PAR;
-		par.refmode = 1;
-		mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, g->corr_max, 200, 100, 1, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE, &par);
-	} else {
-		mdbg->cc = NULL;
-	}
-	mdbg->aux->par = (KBMPar*)malloc(sizeof(KBMPar));
-	memcpy(mdbg->aux->par, g->par, sizeof(KBMPar));
-	mdbg->regs = regs;
-	mdbg->rdflags = rdflags;
-	mdbg->beg = 0;
-	mdbg->end = 0;
-	mdbg->raw = raw;
-	mdbg->alno = alno;
-	thread_end_init(mdbg);
 	in = g->corr_mode? 1 : g->num_index;
 	if(g->kbm->seeds->size){
 		reset_kbm = 0;
@@ -1504,6 +1474,38 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 			}
 		}
 		{
+			{
+				thread_beg_init(mdbg, n_cpu);
+				mdbg->g = g;
+				memset((void*)&mdbg->reg, 0, sizeof(reg_t));
+				mdbg->reg.closed = 1;
+				mdbg->aux = init_kbmaux(g->kbm);
+				if(g->rpar){
+					mdbg->raux = init_kbmaux(init_kbm(g->rpar));
+				} else {
+					mdbg->raux = NULL;
+				}
+				if(g->corr_mode){
+					KBMBlock *kb;
+					POGPar par;
+					kb = init_kbmblock(g->corr_bsize, g->corr_bstep);
+					//mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, 1, g->corr_max, 200, 100, 1, 96, 2, -5, -2, -4, -1, 16, 3, 0.5, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE);
+					par = DEFAULT_POG_PAR;
+					par.refmode = 1;
+					mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, g->corr_max, 200, 100, 1, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE, &par);
+				} else {
+					mdbg->cc = NULL;
+				}
+				mdbg->aux->par = (KBMPar*)malloc(sizeof(KBMPar));
+				memcpy(mdbg->aux->par, g->par, sizeof(KBMPar));
+				mdbg->regs = regs;
+				mdbg->rdflags = rdflags;
+				mdbg->beg = 0;
+				mdbg->end = 0;
+				mdbg->raw = raw;
+				mdbg->alno = alno;
+				thread_end_init(mdbg);
+			}
 			thread_beg_iter(mdbg);
 			mdbg->task = 1;
 			thread_end_iter(mdbg);
@@ -1578,24 +1580,26 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 					thread_wake(mdbg);
 				}
 			}
+			{
+				thread_beg_close(mdbg);
+				free(mdbg->aux->par);
+				free_kbmaux(mdbg->aux);
+				if(g->corr_mode){
+					free_kbmblock((KBMBlock*)mdbg->cc->obj);
+					free_ctgcns(mdbg->cc);
+				}
+				if(mdbg->raux){
+					free_kbm(mdbg->raux->kbm);
+					free_kbmaux(mdbg->raux);
+				}
+				thread_end_close(mdbg);
+			}
 		}
 		if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", qe - qb, nhit);
 		if(reset_kbm){
 			reset_index_kbm(g->kbm);
 		}
 	}
-	thread_beg_close(mdbg);
-	free(mdbg->aux->par);
-	free_kbmaux(mdbg->aux);
-	if(g->corr_mode){
-		free_kbmblock((KBMBlock*)mdbg->cc->obj);
-		free_ctgcns(mdbg->cc);
-	}
-	if(mdbg->raux){
-		free_kbm(mdbg->raux->kbm);
-		free_kbmaux(mdbg->raux);
-	}
-	thread_end_close(mdbg);
 	if(bw) close_bufferedwriter(bw);
 	if(alno) fclose(alno);
 	if(rdflags) free_bitvec(rdflags);
