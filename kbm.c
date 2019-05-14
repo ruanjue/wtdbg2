@@ -616,8 +616,8 @@ int kbm_main(int argc, char **argv){
 		} else if(run_mode == 2){
 			kmeroffv *kmers[2];
 			int nc;
-			kmers[0] = init_kmeroffv(32);
-			kmers[1] = init_kmeroffv(32);
+			kmers[0] = adv_init_kmeroffv(32, 0, 1);
+			kmers[1] = adv_init_kmeroffv(32, 0, 1);
 			while((nc = readtable_filereader(fr)) >= 0){
 				//fprintf(stdout, "%s\n", fr->line->string);
 				if(nc < 1) continue;

@@ -1362,8 +1362,8 @@ static inline KBMAux* init_kbmaux(KBM *kbm){
 	aux->qnbit = (aux->qnbin + 63) & 0xFFFFFFC0U;
 	aux->bmin = 0;
 	aux->bmax = MAX_U8;
-	aux->koffs[0] = init_kmeroffv(32);
-	aux->koffs[1] = init_kmeroffv(32);
+	aux->koffs[0] = adv_init_kmeroffv(32, 0, 1);
+	aux->koffs[1] = adv_init_kmeroffv(32, 0, 1);
 	aux->refs = init_kbmrefv(64);
 	aux->rank = init_u4v(64);
 	aux->nheap = 1024;
