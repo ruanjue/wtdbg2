@@ -7,22 +7,13 @@ use strict;
 
 our ($opt_h, $opt_l, $opt_f);
 
-getopts("hf:");
+getopts("hl:f:");
 &usage if($opt_h);
 
+my $map_len = $opt_l || 100;
 my $map_cov = $opt_f || 0.75;
 
-my $reffile = shift or &usage;
-
 my %refs = ();
-
-open(IN, $reffile) or die $!;
-while(<IN>){
-	# <ref_tag> <ref_len>
-	my @ts = split;
-	$refs{$ts[0]} = $ts[1];
-}
-close IN;
 
 my %cigar_hash = (M=>[1,1], I=>[1,0], D=>[0,1], N=>[0,1], S=>[1,0], H=>[1,0], P=>[0,0], '='=>[1,1], X=>[1,1]);
 
@@ -31,6 +22,9 @@ my @hits = ();
 while(<>){
 	if(/^@/){
 		print;
+		if(/^\@SQ\sSN:(\S+)\sLN:(\d+)/){
+			$refs{$1} = $2;
+		}
 		next;
 	}
 	my $str = $_;
@@ -38,8 +32,12 @@ while(<>){
 	my $tag = $ts[0];
 	my $flg = $ts[1];
 	my $ref = $ts[2];
+	next if($ref eq '*');
 	my $rlen = $refs{$ref};
-	next unless($rlen);
+	if(not defined $rlen){
+		print;
+		die("Cannot find '$ref' in SAM Header");
+	}
 	my $tb = $ts[3];
 	my $te = $tb;
 	my $qb = 0;
@@ -72,6 +70,7 @@ while(<>){
 		$qb = $len - $qe;
 		$qe = $tmp;
 	}
+	next unless($qe - $qb >= $map_len and $te - $tb >= $map_len);
 	next unless($qe - $qb >= $map_cov * $len or $te - $tb >= $map_cov * $rlen);
 	my $hit = [$tag, $len, $qb, $qe, $ref, $rlen, $tb, $te, $str];
 	&select_best_hit($hit);
@@ -81,7 +80,7 @@ while(<>){
 1;
 
 sub usage {
-	print STDERR qq{Usage: $0 [-f 0.75:coverage] <refs.len> <sam_file>\n};
+	print STDERR qq{Usage: $0 [-l 100:map_len] [-f 0.75:map_cov] <sam_file_in_query_order_with_header>\n};
 	exit 1;
 }
 
