@@ -3,19 +3,18 @@
 git clone https://github.com/ruanjue/wtdbg2
 cd wtdbg2 && make
 # assemble long reads
-./wtdbg2 -x rs -g 4.6m -i reads.fa.gz -t16 -fo prefix
+./wtdbg2 -x rs -g 4.6m -i reads.fa.gz -t 16 -fo dbg
+
 # derive consensus
-./wtpoa-cns -t16 -i prefix.ctg.lay.gz -fo prefix.ctg.fa
+./wtpoa-cns -t 16 -i dbg.ctg.lay.gz -fo dbg.ctg.slf.fa
 
 # polish consensus, not necessary if you want to polish the assemblies using other tools
-minimap2 -t 16 -x map-pb -a prefix.ctg.fa reads.fa.gz | samtools view -Sb - >prefix.ctg.map.bam
-samtools sort prefix.ctg.map.bam prefix.ctg.map.srt
-samtools view prefix.ctg.map.srt.bam | ./wtpoa-cns -t 16 -d prefix.ctg.fa -i - -fo prefix.ctg.2nd.fa
+# best_sam_hits4longreads.pl is newly introduced to select best hit per query, it will improve the consensus quality
+minimap2 -t 16 -x map-pb -a dbg.ctg.slf.fa reads.fa.gz | scripts/best_sam_hits4longreads.pl | samtools sort >dbg.ctg.map.srt.bam
+samtools view dbg.ctg.map.srt.bam | ./wtpoa-cns -t 16 -d dbg.ctg.slf.fa -i - -fo dbg.ctg.lrp.fa
 
 # polish contigs using short reads
-bwa mem -t 16 prefix.ctg.fa sr.1.fa sr.2.fa | samtools view -Sb - >sr.bam
-samtools sort sr.bam sr.srt
-samtools view sr.srt.bam | ./wtpoa-cns -t 16 -x sam-sr -d prefix.ctg.fa -i - -fo prefix.ctg.3rd.fa
+bwa mem -t 16 dbg.ctg.lrp.fa sr.1.fa sr.2.fa | samtools sort -O SAM | ./wtpoa-cns -t 16 -x sam-sr -d dbg.ctg.lrp.fa -i - -fo dbg.ctg.srp.fa
 ```
 
 ## <a name="intro"></a>Introduction
