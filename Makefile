@@ -1,5 +1,5 @@
-VERSION=2.4
-RELEASE=20190417
+VERSION=2.4.1
+RELEASE=20190603
 
 CC  := gcc
 BIN := /usr/local/bin
@@ -17,7 +17,7 @@ endif
 GLIBS=-lm -lrt -lpthread -lz
 GENERIC_SRC=mem_share.h chararray.h sort.h list.h pgzf.h sort.h list.h dna.h thread.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h
 
-PROGS=kbm2 wtdbg2 wtdbg-cns wtpoa-cns pgzf
+PROGS=kbm2 wtdbg2 wtdbg-cns wtpoa-cns pgzf best_sam_hits4longreads
 
 all: $(PROGS)
 
@@ -35,6 +35,9 @@ wtpoa-cns: $(GENERIC_SRC) wtpoa.h wtpoa-cns.c poacns.h tripoa.h ksw.h ksw.c
 
 pgzf: mem_share.h sort.h list.h thread.h pgzf.h pgzf.c
 	$(CC) $(CFLAGS) -o $@ pgzf.c $(GLIBS)
+
+best_sam_hits4longreads: $(GENERIC_SRC) best_sam_hits4longreads.c
+	$(CC) $(CFLAGS) -o $@ best_sam_hits4longreads.c $(GLIBS)
 
 clean:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out $(PROGS)
