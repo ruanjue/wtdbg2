@@ -28,7 +28,7 @@ int select_best_hit(lrhitv *hits, String *lines, u4i minlen, float mincov, FILE 
 			x = num_max(h1->qb, h2->qb);
 			y = num_min(h1->qe, h2->qe);
 			if(y - x >= (1 - mincov) * (h1->qe - h1->qb)){
-				pass = 1;
+				pass = 0;
 				break;
 			}
 		}
@@ -44,7 +44,7 @@ int select_best_hit(lrhitv *hits, String *lines, u4i minlen, float mincov, FILE 
 
 int usage(char *prog){
 	printf(
-	"Usage: %s [-h] [-l min_map_len:100] [-f min_map_cov:0.70]\n"
+	"Usage: %s [-h] [-v] [-l min_map_len:100] [-f min_map_cov:0.70]\n"
 	, prog
 	);
 	return 1;
@@ -62,15 +62,17 @@ int main(int argc, char **argv){
 	char *str, *reftag;
 	u4i minlen, i, reflen;
 	float mincov;
-	int c;
+	int c, verbose;
 	u1i movs[256];
 	minlen = 100;
 	mincov = 0.70;
+	verbose = 0;
 	out = stdout;
-	while((c = getopt(argc, argv, "hl:f:")) != -1){
+	while((c = getopt(argc, argv, "hvl:f:")) != -1){
 		switch(c){
 			case 'l': minlen = atoi(optarg); break;
 			case 'f': mincov = atof(optarg); break;
+			case 'v': verbose = 1; break;
 			default: return usage(argv[0]);
 		}
 	}
@@ -92,7 +94,7 @@ int main(int argc, char **argv){
 	movs[(int)'X'] = 0b11;
 	while((c = readline_filereader(fr))){
 		if(fr->line->string[0] == '@'){
-			fputs(fr->line->string, out);
+			fprintf(out, "%s\n", fr->line->string);
 			if(fr->line->string[1] == 'S' && fr->line->string[2] == 'Q'){
 				if((c = split_line_filereader(fr, '\t')) > 2){
 					reftag = NULL;
@@ -161,7 +163,7 @@ int main(int argc, char **argv){
 			ln = 0;
 			op = 0;
 			while(str[0]){
-				if(str[0] >= '0' && str[1] <= '9'){
+				if(str[0] >= '0' && str[0] <= '9'){
 					ln = ln * 10 + str[0] - '0';
 				} else {
 					op = movs[(int)str[0]];
@@ -193,6 +195,9 @@ int main(int argc, char **argv){
 			hit->qlen = len;
 			hit->qb = qb;
 			hit->qe = qe;
+			if(verbose){
+				fprintf(out, "#%s\t%u\t+\t%u\t%u\t%s\t%c\t%u\t%u\n", get_col_str(fr, 0), len, qb, qe, get_col_str(fr, 2), "+-"[(hit->flag & 0x10) >> 4], tb, te);
+			}
 			push_lrhitv(hits, HIT);
 		}
 	}
