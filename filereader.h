@@ -571,16 +571,15 @@ static inline void rollback_filereader(FileReader *fr){
 	fr->n_line --;
 }
 
-static inline int readtable_filereader(FileReader *fr){
+static inline int split_line_filereader(FileReader *fr, char delimiter){
 	VString *vs;
 	int i;
-	if(readline_filereader(fr) == 0) return -1;
 	clear_VStrv(fr->tabs);
 	vs = next_ref_VStrv(fr->tabs);
 	vs->string = fr->line->string;
 	vs->size = 0;
 	for(i=0;i<fr->line->size;i++){
-		if(fr->line->string[i] == fr->delimiter){
+		if(fr->line->string[i] == delimiter){
 			vs->size = fr->line->string + i - vs->string;
 			vs = next_ref_VStrv(fr->tabs);
 			vs->string = fr->line->string + i + 1;
@@ -589,6 +588,11 @@ static inline int readtable_filereader(FileReader *fr){
 	}
 	vs->size = fr->line->string + fr->line->size - vs->string;
 	return (int)fr->tabs->size;
+}
+
+static inline int readtable_filereader(FileReader *fr){
+	if(readline_filereader(fr) == 0) return -1;
+	return split_line_filereader(fr, fr->delimiter);
 }
 
 static inline int get_col_len(FileReader *fr, int col){
