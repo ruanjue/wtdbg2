@@ -44,7 +44,7 @@ int select_best_hit(lrhitv *hits, String *lines, u4i minlen, float mincov, FILE 
 
 int usage(char *prog){
 	printf(
-	"Usage: %s [-h] [-v] [-l min_map_len:100] [-f min_map_cov:0.70]\n"
+	"Usage: %s [-h] [-v] [-B:retain secondary aligment] [-l min_map_len:100] [-f min_map_cov:0.70]\n"
 	, prog
 	);
 	return 1;
@@ -62,16 +62,18 @@ int main(int argc, char **argv){
 	char *str, *reftag;
 	u4i minlen, i, reflen;
 	float mincov;
-	int c, verbose;
+	int c, primary_hit, verbose;
 	u1i movs[256];
 	minlen = 100;
 	mincov = 0.70;
+	primary_hit = 1;
 	verbose = 0;
 	out = stdout;
-	while((c = getopt(argc, argv, "hvl:f:")) != -1){
+	while((c = getopt(argc, argv, "hvBl:f:")) != -1){
 		switch(c){
 			case 'l': minlen = atoi(optarg); break;
 			case 'f': mincov = atof(optarg); break;
+			case 'B': primary_hit = 0; break;
 			case 'v': verbose = 1; break;
 			default: return usage(argv[0]);
 		}
@@ -133,19 +135,19 @@ int main(int argc, char **argv){
 			append_string(lines, fr->line->string, fr->line->size);
 			add_char_string(lines, '\0');
 			if((c = split_line_filereader(fr, '\t')) < 11){
-				trunc_lrhitv(hits, 1);
 				fprintf(stderr, "[WARNNING:too_few_columns] %s\n", lines->string + hit->stroff);
 				continue;
 			}
 			hit->taglen = get_col_len(fr, 0);
 			hit->flag = atol(get_col_str(fr, 1));
+			if(primary_hit && (hit->flag & 0x900)){
+				continue;
+			}
 			if(get_col_str(fr, 2)[0] == '*'){
-				trunc_lrhitv(hits, 1);
 				continue;
 			}
 			hit->refidx = getval_cuhash(refs, get_col_str(fr, 2));
 			if(hit->refidx == MAX_U4){
-				trunc_lrhitv(hits, 1);
 				fprintf(stderr, "[WARNNING:unknown_refname] %s\n", lines->string + hit->stroff);
 				continue;
 			}
