@@ -346,7 +346,7 @@ static inline void print_msa_pog(POG *g, FILE *out){
 		for(j=b;j<e;j++){
 			c = g->msa->buffer[j];
 			if(c < 4) n ++;
-			str[j-b] = "ACGT-"[c];
+			str[j-b] = "ACGT-acgt*"[c];
 			//fputc("ACGT-"[c], out);
 		}
 		str[e-b] = 0;
