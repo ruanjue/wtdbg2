@@ -2026,13 +2026,16 @@ static inline void build_edges_graph(Graph *g, int ncpu, FILE *log){
 				E->off = ((int)r2->beg) - r1->end;
 				u = prepare_edgehash(g->ehash, 0, &exists);
 				if(exists){
-					if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
+					//if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
 				} else {
 					*u = g->edges->size;
 					push_edgev(g->edges, *E);
 				}
 				if(i + 1 == regs->size){
-					g->edges->buffer[*u].closed = 0;
+					if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
+					if(g->edges->buffer[*u].cov >= g->min_edge_cov){
+						g->edges->buffer[*u].closed = 0;
+					}
 				}
 				push_edgeoffv(offs, (edge_off_t){*u, ((int)r2->beg) - r1->end});
 			}
