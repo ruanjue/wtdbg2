@@ -10,7 +10,7 @@ cd wtdbg2 && make
 
 # polish consensus, not necessary if you want to polish the assemblies using other tools
 # best_sam_hits4longreads is newly introduced to select best hit per query, it will improve the consensus quality
-minimap2 -t 16 -x map-pb -a dbg.ctg.slf.fa reads.fa.gz | best_sam_hits4longreads | samtools sort >dbg.ctg.map.srt.bam
+minimap2 -t 16 -x map-pb -a dbg.ctg.slf.fa reads.fa.gz | best_sam_hits4longreads | samtools sort -@16 >dbg.ctg.map.srt.bam
 samtools view dbg.ctg.map.srt.bam | ./wtpoa-cns -t 16 -d dbg.ctg.slf.fa -i - -fo dbg.ctg.lrp.fa
 
 # polish contigs using short reads
