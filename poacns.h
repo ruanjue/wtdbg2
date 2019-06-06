@@ -1257,7 +1257,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		mnode = POG_TAIL_NODE;
 		x = seqlen - 1;
 	}
-	if(x == Int(seqlen) && mnode != POG_TAIL_NODE){
+	if(x == Int(seqlen - 1) && mnode != POG_TAIL_NODE){
 		v = ref_pognodev(g->nodes, POG_TAIL_NODE);
 		//u = ref_pognodev(g->nodes, mnode);
 		//g->btds->buffer[v->coff + x] = (0 | (v->vst << 2));
