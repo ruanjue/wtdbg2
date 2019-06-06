@@ -2943,9 +2943,12 @@ static inline seqletv* path2seqlets_graph(Graph *g, pathv *path){
 			push_seqletv(qs, (seqlet_t){t1->node, p1->dir ^ t1->dir, t2->node, p2->dir ^ t2->dir, off, len});
 		}
 		if(p2->dir){
-			for(j=p2->tx+1;j<=p2->ty;j++){
-				t1 = ref_tracev(g->traces, frg2->toff + frg2->tcnt - 1 - j);
-				t2 = ref_tracev(g->traces, frg2->toff + frg2->tcnt - 0 - j);
+			//for(j=p2->tx+1;j<=p2->ty;j++){
+				//t1 = ref_tracev(g->traces, frg2->toff + frg2->tcnt - 1 - j);
+				//t2 = ref_tracev(g->traces, frg2->toff + frg2->tcnt - 0 - j);
+			for(j=p2->ty;j>p2->tx;j--){
+				t1 = ref_tracev(g->traces, frg2->toff + j - 1);
+				t2 = ref_tracev(g->traces, frg2->toff + j);
 				off = p2->off + frg2->len - (t2->off + g->reglen);
 				len = t2->off - t1->off + g->reglen;
 				push_seqletv(qs, (seqlet_t){t2->node, !t2->dir, t1->node, !t1->dir, off, len});
