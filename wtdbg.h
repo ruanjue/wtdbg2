@@ -33,7 +33,7 @@
 #define WT_MAX_NODE			0x000000FFFFFFFFFFLLU
 #define WT_MAX_EDGE			0x000000FFFFFFFFFFLLU
 #define WT_MAX_NODE_EDGES	0xFFFF
-#define WT_MAX_EDGE_COV		0x7FFF
+#define WT_MAX_EDGE_COV		0xFFF
 
 typedef struct {
 	u8i rid:30, dir:1, beg:16, end:16, closed:1;
