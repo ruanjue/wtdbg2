@@ -49,7 +49,7 @@ int usage(){
 	" -I <int>    Insertion score, [-2]\n"
 	" -D <int>    Deletion score, [-4]\n"
 	" -H <float>  Homopolymer merge score used in dp-call-cns mode, [-3]\n"
-	" -B <int>    Bandwidth, [96]\n"
+	" -B <int>    Bandwidth, [160]\n"
 	" -W <int>    Window size in the middle of the first read for fast align remaining reads, [200]\n"
 	"             If $W is negative, will disable fast align, but use the abs($W) as Band align score cutoff\n"
 	" -w <int>    Min size of aligned size in window, [$W * 0.5]\n"
