@@ -24,6 +24,8 @@
 #include "filewriter.h"
 #include "pgzf.h"
 
+static inline u8i print_local_dot_graph(Graph *g, char *prefix, char *suffix);
+
 static inline void print_node_edges_cov_graph(Graph *g, FILE *out){
 	node_t *n;
 	edge_t *e;
@@ -746,6 +748,46 @@ static inline u8i linear_path_graph(Graph *g, pathv *path, int max_len, int *msg
 	return len;
 }
 
+static inline int wander_path_graph(Graph *g, u4i frg_idx, int frg_dir, pathv *heap, u8i vst, int max_len){
+	path_t T, S;
+	frg_t *n, *w;
+	lnk_t *e;
+	edge_ref_t *f;
+	u8i idx;
+	int len;
+	clear_pathv(heap);
+	T.off = 0;
+	T.frg = frg_idx;
+	T.dir = frg_dir;
+	ref_frgv(g->frgs, frg_idx)->bt_visit = vst;
+	push_pathv(heap, T);
+	while(heap->size){
+		S = heap->buffer[0];
+		array_heap_remove(heap->buffer, heap->size, heap->cap, path_t, 0, num_cmp(a.off, b.off));
+		n = ref_frgv(g->frgs, S.frg);
+		idx = n->lnks[S.dir].idx;
+		while(idx){
+			f = ref_edgerefv(g->lrefs, idx);
+			idx = f->next;
+			e = ref_lnkv(g->lnks, f->idx);
+			if(e->closed) continue;
+			if(e->weak) continue;
+			w = ref_frgv(g->frgs, f->flg? e->frg1: e->frg2);
+			if(w->bt_visit == vst) continue;
+			w->bt_visit = vst;
+			len = S.off + e->off + w->len;
+			if(len >= max_len){
+				return len;
+			}
+			T.frg = f->flg? e->frg1: e->frg2;
+			T.dir = f->flg? !e->dir1 : e->dir2;
+			T.off = len;
+			array_heap_push(heap->buffer, heap->size, heap->cap, path_t, T, num_cmp(a.off, b.off));
+		}
+	}
+	return 0;
+}
+
 static inline int cal_offset_traces_graph(Graph *g, tracev *path, u8i beg, u8i end, int offset){
 	trace_t *t;
 	node_t *n;
@@ -1185,6 +1227,77 @@ static inline  u8i rescue_low_cov_edges_graph(Graph *g){
 	return ret;
 }
 
+static inline u8i cut_relative_low_cov_edges_graph(Graph *g, float lowf){
+	node_t *n;
+	edge_t *e;
+	edge_ref_t *f;
+	u4v *ecovs, *emaxs;
+	u8i idx, x, ret;
+	u4i k, max, min, val, i;
+	for(idx=0;idx<g->edges->size;idx++){
+		e = ref_edgev(g->edges, idx);
+		e->flag = 0;
+	}
+	ecovs = init_u4v(64);
+	emaxs = init_u4v(64);
+	ret = 0;
+	for(idx=0;idx<g->nodes->size;idx++){
+		n = ref_nodev(g->nodes, idx);
+		if(n->closed) continue;
+		clear_u4v(ecovs);
+		max = 0;
+		min = WT_MAX_EDGE_COV;
+		for(k=0;k<2;k++){
+			x = n->edges[k].idx;
+			while(x){
+				f = ref_edgerefv(g->erefs, x);
+				x = f->next;
+				e = ref_edgev(g->edges, f->idx);
+				if(e->closed) continue;
+				if(e->cov > max) max = e->cov;
+				if(e->cov < min) min = e->cov;
+				push_u4v(ecovs, (Int(e->off) << 12) | (e->cov));
+			}
+		}
+		if(min >= max * lowf){
+			continue;
+		}
+		min = max * lowf;
+		sort_array(ecovs->buffer, ecovs->size, u4i, num_cmpgt(Int(a) >> 12, Int(b) >> 12));
+		clear_u4v(emaxs);
+		max = 0;
+		for(i=ecovs->size;i>0;i--){
+			val = ecovs->buffer[i - 1] & 0xFFF;
+			if(val > max) max = val;
+			push_u4v(emaxs, max);
+		}
+		reverse_u4v(emaxs);
+		for(k=0;k<2;k++){
+			x = n->edges[k].idx;
+			while(x){
+				f = ref_edgerefv(g->erefs, x);
+				x = f->next;
+				e = ref_edgev(g->edges, f->idx);
+				if(e->closed) continue;
+				if(e->cov >= min) continue;
+				for(i=0;i<ecovs->size;i++){
+					if(e->off >= (Int(ecovs->buffer[i]) >> 12)){
+						break;
+					}
+				}
+				if(i == ecovs->size) continue; // Never happen
+				if(e->cov < lowf * emaxs->buffer[i]){
+					cut_edge_graph(g, e);
+					ret ++;
+				}
+			}
+		}
+	}
+	free_u4v(ecovs);
+	free_u4v(emaxs);
+	return ret;
+}
+
 static inline u4i rescue_low_cov_tip_edges_core(Graph *g, u8i nid){
 	node_t *n, *w, *ww;
 	edge_t *e, *ee;
@@ -1329,6 +1442,7 @@ static inline u4i rescue_weak_tip_lnks_core(Graph *g, u8i nid){
 			f = ref_edgerefv(g->lrefs, idx);
 			idx = f->next;
 			e = ref_lnkv(g->lnks, f->idx);
+			if(e->closed) continue;
 			if(e->weak == 0) continue;
 			if(f->flg){
 				wid = e->frg1; dir = !e->dir1;
@@ -1355,15 +1469,23 @@ static inline u8i rescue_weak_tip_lnks2_graph(Graph *g){
 }
 
 static inline u8i rescue_weak_tip_lnks_graph(Graph *g){
+	pathv *heap;
 	u8v *weaks[2];
 	frg_t *n;
 	lnk_t *e;
 	edge_ref_t *f;
-	u8i nid, i, ret;
-	u4i k, eidx, idx;
+	u8i nid, i, vst, idx, eidx, ret;
+	u4i k;
+	int max_len;
 	weaks[0] = init_u8v(g->frgs->size);
 	weaks[1] = init_u8v(g->frgs->size);
 	ret = 0;
+	for(nid=0;nid<g->frgs->size;nid++){
+		n = ref_frgv(g->frgs, nid);
+		n->bt_visit = 0;
+	}
+	heap = init_pathv(32);
+	vst = 1;
 	for(nid=0;nid<g->frgs->size;nid++){
 		n = ref_frgv(g->frgs, nid);
 		for(k=0;k<2;k++){
@@ -1375,24 +1497,40 @@ static inline u8i rescue_weak_tip_lnks_graph(Graph *g){
 				while(idx){
 					f = ref_edgerefv(g->lrefs, idx);
 					e = ref_lnkv(g->lnks, f->idx);
-					if(e->weak){
+					if(e->closed && e->weak){
 						if(eidx == 0) eidx = f->idx;
-						else eidx = MAX_VALUE_U4;
+						else eidx = MAX_VALUE_U8;
 					}
 					idx = f->next;
+				}
+			}
+			if(eidx != 0 && eidx != MAX_VALUE_U8){
+				e = ref_lnkv(g->lnks, eidx);
+				max_len = wander_path_graph(g, nid, k, heap, vst, e->off);
+				if(max_len >= e->off){
+					eidx |= 1LLU << 63;
 				}
 			}
 			push_u8v(weaks[k], eidx);
 		}
 	}
+	free_pathv(heap);
 	for(k=0;k<2;k++){
 		for(i=0;i<weaks[k]->size;i++){
-			if(weaks[k]->buffer[i] == 0 || weaks[k]->buffer[i] == MAX_VALUE_U4) continue;
-			e = ref_lnkv(g->lnks, weaks[k]->buffer[i]);
+			if(weaks[k]->buffer[i] == 0 || weaks[k]->buffer[i] == MAX_VALUE_U8) continue;
+			e = ref_lnkv(g->lnks, weaks[k]->buffer[i] & (MAX_VALUE_U8 >> 1));
 			if(i != e->frg1) continue;
-			if(weaks[0]->buffer[e->frg2] == weaks[k]->buffer[i] || weaks[1]->buffer[e->frg2] == weaks[k]->buffer[i]){
-				ret ++;
-				revive_lnk_graph(g, e);
+			if((weaks[0]->buffer[e->frg2] & (MAX_VALUE_U8 >> 1)) == (weaks[k]->buffer[i] & (MAX_VALUE_U8 >> 1))){
+				if(!(weaks[0]->buffer[e->frg2] & (1LLU < 63)) || !(weaks[k]->buffer[i] & (1LLU << 63))){
+					ret ++;
+					revive_lnk_graph(g, e);
+				}
+			}
+			if((weaks[1]->buffer[e->frg2] & (MAX_VALUE_U8 >> 1)) == (weaks[k]->buffer[i] & (MAX_VALUE_U8 >> 1))){
+				if(!(weaks[1]->buffer[e->frg2] & (1LLU < 63)) || !(weaks[k]->buffer[i] & (1LLU << 63))){
+					ret ++;
+					revive_lnk_graph(g, e);
+				}
 			}
 		}
 	}
@@ -2645,48 +2783,6 @@ static inline u8i pop_frg_bubbles_graph(Graph *g, uint16_t max_step){
 	return ret;
 }
 
-static inline u8i remove_boomerangs_frg_graph(Graph *g, u4i max_frg_len){
-	frg_t *frg;
-	u8i i, ret;
-	ret = 0;
-	for(i=0;i<g->frgs->size;i++){
-		frg = ref_frgv(g->frgs, i);
-		if(frg->closed) continue;
-		if(frg->len > max_frg_len) continue;
-		if(frg->lnks[0].cnt == 0 && frg->lnks[1].cnt > 1){
-		} else if(frg->lnks[1].cnt == 0 && frg->lnks[0].cnt > 1){
-		} else continue;
-		ret ++;
-		del_frg_lnks_graph(g, frg);
-	}
-	return ret;
-}
-
-static inline u8i cut_weak_branches_frg_graph(Graph *g){
-	frg_t *frg1, *frg2;
-	lnk_t *lnk;
-	u8v *cuts;
-	u8i i, ret;
-	cuts = init_u8v(32);
-	for(i=0;i<g->lnks->size;i++){
-		lnk = ref_lnkv(g->lnks, i);
-		if(lnk->weak == 0) continue;
-		frg1 = ref_frgv(g->frgs, lnk->frg1);
-		frg2 = ref_frgv(g->frgs, lnk->frg2);
-		if(frg1->lnks[lnk->dir1].cnt > 1){
-			push_u8v(cuts, i);
-		} else if(frg2->lnks[!lnk->dir2].cnt > 1){
-			push_u8v(cuts, i);
-		}
-	}
-	ret = cuts->size;
-	for(i=0;i<cuts->size;i++){
-		cut_lnk_graph(g, ref_lnkv(g->lnks, cuts->buffer[i]));
-	}
-	free_u8v(cuts);
-	return ret;
-}
-
 static inline u4i resolve_yarn_core_graph(Graph *g, u4i max_step, btv *bts, u4v *heap, u8i nid, u4i dir, u8i visit){
 	bt_t *bt, *tb;
 	node_t *n, *m;
@@ -2731,7 +2827,9 @@ static inline u4i resolve_yarn_core_graph(Graph *g, u4i max_step, btv *bts, u4v 
 			if(e->closed) continue;
 			tb = next_ref_btv(bts);
 			tb->n = ref_nodev(g->nodes, f->flg? e->node1 : e->node2);
-			//if(tb->n == bts->buffer[1].n) return 0;
+			//if(tb->n == bts->buffer[1].n){
+				//return 0;
+			//}
 			tb->e = e;
 			tb->dir = f->flg? !e->dir1 : e->dir2;
 			tb->step = bt->step + 1;
@@ -2787,6 +2885,8 @@ static inline u4i resolve_yarn_core_graph(Graph *g, u4i max_step, btv *bts, u4v 
 static inline u8i resolve_yarns_graph(Graph *g, u4i max_step){
 	btv *bts;
 	u4v *heap;
+	tracev *path;
+	trace_t *t;
 	node_t *n;
 	u8i nid, visit, ret, _ret;
 	int dir;
@@ -2794,13 +2894,39 @@ static inline u8i resolve_yarns_graph(Graph *g, u4i max_step){
 	for(nid=0;nid<g->nodes->size;nid++) g->nodes->buffer[nid].bt_visit = 0;
 	bts = init_btv(32);
 	heap = init_u4v(32);
+	path = init_tracev(4);
 	visit = 0;
+#if DEBUG
+	if(max_step == 1000000){ // never happen
+		print_local_dot_graph(g, "1.dot", NULL);
+	}
+#endif
 	for(nid=0;nid<g->nodes->size;nid++){
 		n = ref_nodev(g->nodes, nid);
 		if(n->closed) continue;
 		if(n->edges[0].cnt <= 1 && n->edges[1].cnt > 1){
+			if(n->edges[0].cnt == 1){
+				clear_tracev(path);
+				t = next_ref_tracev(path);
+				t->node = nid;
+				t->dir = 0;
+				if(linear_trace_graph(g, path, 4, NULL) < 4){
+					// solve yarn from linear nodes
+					continue;
+				}
+			}
 			dir = 1;
 		} else if(n->edges[1].cnt <= 1 && n->edges[0].cnt > 1){
+			if(n->edges[0].cnt == 1){
+				clear_tracev(path);
+				t = next_ref_tracev(path);
+				t->node = nid;
+				t->dir = 1;
+				if(linear_trace_graph(g, path, 4, NULL) < 4){
+					// solve yarn from linear nodes
+					continue;
+				}
+			}
 			dir = 0;
 		} else continue;
 		_ret = resolve_yarn_core_graph(g, max_step, bts, heap, nid, dir, ++visit);
@@ -2808,6 +2934,49 @@ static inline u8i resolve_yarns_graph(Graph *g, u4i max_step){
 	}
 	free_btv(bts);
 	free_u4v(heap);
+	free_tracev(path);
+	return ret;
+}
+
+static inline u8i remove_boomerangs_frg_graph(Graph *g, u4i max_frg_len){
+	frg_t *frg;
+	u8i i, ret;
+	ret = 0;
+	for(i=0;i<g->frgs->size;i++){
+		frg = ref_frgv(g->frgs, i);
+		if(frg->closed) continue;
+		if(frg->len > max_frg_len) continue;
+		if(frg->lnks[0].cnt == 0 && frg->lnks[1].cnt > 1){
+		} else if(frg->lnks[1].cnt == 0 && frg->lnks[0].cnt > 1){
+		} else continue;
+		ret ++;
+		del_frg_lnks_graph(g, frg);
+	}
+	return ret;
+}
+
+static inline u8i cut_weak_branches_frg_graph(Graph *g){
+	frg_t *frg1, *frg2;
+	lnk_t *lnk;
+	u8v *cuts;
+	u8i i, ret;
+	cuts = init_u8v(32);
+	for(i=0;i<g->lnks->size;i++){
+		lnk = ref_lnkv(g->lnks, i);
+		if(lnk->weak == 0) continue;
+		frg1 = ref_frgv(g->frgs, lnk->frg1);
+		frg2 = ref_frgv(g->frgs, lnk->frg2);
+		if(frg1->lnks[lnk->dir1].cnt > 1){
+			push_u8v(cuts, i);
+		} else if(frg2->lnks[!lnk->dir2].cnt > 1){
+			push_u8v(cuts, i);
+		}
+	}
+	ret = cuts->size;
+	for(i=0;i<cuts->size;i++){
+		cut_lnk_graph(g, ref_lnkv(g->lnks, cuts->buffer[i]));
+	}
+	free_u8v(cuts);
 	return ret;
 }
 
@@ -3550,7 +3719,13 @@ static inline u4i gen_lnks_graph(Graph *g, int ncpu, FILE *log){
 			}
 			*l = lnks->buffer[m];
 			l->cov  = cov;
-			l->weak = (l->cov < g->max_node_cov_sg);
+			if(l->cov < g->max_node_cov_sg){
+				l->weak = 1;
+				l->closed = WT_EDGE_CLOSED_LESS;
+			} else {
+				l->weak = 0;
+				l->closed = 0;
+			}
 			j = i;
 			cov = lnks->buffer[i].cov;
 		} else {
@@ -3970,7 +4145,8 @@ static inline void get_subgraph_nodes_graph(Graph *g, ptrrefhash *nodes, u8v *st
 	}
 }
 
-static inline u8i print_local_dot_graph(Graph *g, FILE *out){
+static inline u8i print_local_dot_graph(Graph *g, char *prefix, char *suffix){
+	FILE *out;
 	ptrrefhash *hash;
 	u8v *stack;
 	ptr_ref_t *p;
@@ -3980,6 +4156,7 @@ static inline u8i print_local_dot_graph(Graph *g, FILE *out){
 	edge_t *e;
 	unsigned long long i, idx;
 	u4i j, k, max;
+	out = open_file_for_write(prefix, suffix, 1);
 	hash = init_ptrrefhash(1023);
 	stack = init_u8v(32);
 	put_ptrrefhash(hash, (ptr_ref_t){local_dot_node, 0});
@@ -4023,6 +4200,7 @@ static inline u8i print_local_dot_graph(Graph *g, FILE *out){
 		}
 	}
 	fprintf(out, "}\n");
+	fclose(out);
 	return 0;
 }
 
