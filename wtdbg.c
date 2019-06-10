@@ -421,7 +421,7 @@ int main(int argc, char **argv){
 	load_clips = NULL;
 	load_nodes = NULL;
 	store_low_cov_edge = 1;
-	cut_low_edges = 0.2;
+	cut_low_edges = 0.0;
 	rescue_low_edges = 1;
 	bub_step = 40;
 	tip_step = 10;
