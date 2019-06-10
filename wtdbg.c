@@ -375,7 +375,7 @@ int main(int argc, char **argv){
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy, num_index;
 	double genome_size, genome_depx;
-	float node_drop, node_mrg, ttr_e_cov, fval, corr_mode, corr_cov;
+	float node_drop, node_mrg, ttr_e_cov, fval, cut_low_edges, corr_mode, corr_cov;
 	pbs = init_cplist(4);
 	ngs = init_cplist(4);
 	pws = init_cplist(4);
@@ -421,6 +421,7 @@ int main(int argc, char **argv){
 	load_clips = NULL;
 	load_nodes = NULL;
 	store_low_cov_edge = 1;
+	cut_low_edges = 0.2;
 	rescue_low_edges = 1;
 	bub_step = 40;
 	tip_step = 10;
@@ -990,6 +991,10 @@ int main(int argc, char **argv){
 	if(0){
 		cnt = mask_read_weak_regs_graph(g, ncpu);
 		fprintf(KBM_LOGF, "[%s] masked %llu regions(%d bp) as unreliable, total regs %llu\n", date(), (unsigned long long)cnt, reglen, (u8i)g->regs->size);
+	}
+	if(cut_low_edges){
+		cnt = cut_relative_low_cov_edges_graph(g, cut_low_edges);
+		fprintf(KBM_LOGF, "[%s] cut %llu low cov edges\n", date(), (unsigned long long)cnt);
 	}
 	if(rescue_low_edges){
 		//cnt = rescue_low_cov_tip_edges_graph(g);
