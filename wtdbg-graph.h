@@ -1227,6 +1227,107 @@ static inline  u8i rescue_low_cov_edges_graph(Graph *g){
 	return ret;
 }
 
+static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step){
+	tracev *path;
+	trace_t *t;
+	node_t *v, *w;
+	edge_t *e;
+	edge_ref_t *f;
+	u8i node, vst, idx, fidx[3], ret;
+	u4i k, d, i, cov[2];
+	for(node=0;node<g->nodes->size;node++){
+		v = ref_nodev(g->nodes, node);
+		v->bt_visit = 0;
+	}
+	ret = 0;
+	vst = 0;
+	path = init_tracev(8);
+	for(node=0;node<g->nodes->size;node++){
+		v = ref_nodev(g->nodes, node);
+		if(v->closed) continue;
+		for(k=0;k<2;k++){
+			if(v->edges[k].cnt != 1) continue;
+			idx = v->edges[k].idx;
+			cov[0] = cov[1] = 0;
+			fidx[0] = fidx[1] = fidx[2] = 0;
+			while(idx){
+				f = ref_edgerefv(g->erefs, idx);
+				idx = f->next;
+				e = ref_edgev(g->edges, f->idx);
+				if(e->closed){
+					if(e->cov > cov[1]){
+						cov[1] = e->cov;
+						fidx[1] = offset_edgerefv(g->erefs, f);
+					}
+				} else {
+					cov[0] = e->cov;
+					fidx[0] = offset_edgerefv(g->erefs, f);
+				}
+			}
+			if(cov[0] >= cov[1]){
+				continue;
+			}
+			clear_tracev(path);
+			t = next_ref_tracev(path);
+			t->node = node;
+			t->dir  = k;
+			linear_trace_graph(g, path, max_step, NULL);
+			if(path->size <= 2){
+				continue;
+			}
+			vst ++;
+			for(i=1;i<path->size;i++){
+				t = ref_tracev(path, i);
+				w = ref_nodev(g->nodes, t->node);
+				w->bt_visit = vst;
+			}
+			cov[1] = 0;
+			fidx[1] = 0;
+			idx = v->edges[k].idx;
+			while(idx){
+				f = ref_edgerefv(g->erefs, idx);
+				idx = f->next;
+				e = ref_edgev(g->edges, f->idx);
+				if(e->closed == 0) continue;
+				w = ref_nodev(g->nodes, f->flg? e->node1 : e->node2);
+				if(w->bt_visit == vst){
+					if(e->cov > cov[0]){
+						if(e->cov > cov[1]){
+							cov[1] = e->cov;
+							fidx[1] = offset_edgerefv(g->erefs, f);
+						}
+					}
+				}
+			}
+			if(fidx[1] == 0){
+				continue;
+			}
+			f = ref_edgerefv(g->erefs, fidx[1]);
+			e = ref_edgev(g->edges, f->idx);
+			if(f->flg){
+				w = ref_nodev(g->nodes, e->node1);
+				d = e->dir1;
+			} else {
+				w = ref_nodev(g->nodes, e->node2);
+				d = !e->dir2;
+			}
+			f = first_living_edge_graph(g, w, d, NULL); // assert f != NULL
+			fidx[2] = offset_edgerefv(g->erefs, f);
+			{
+				e = ref_edgev(g->edges, ref_edgerefv(g->erefs, fidx[0])->idx);
+				cut_edge_graph(g, e);
+				e = ref_edgev(g->edges, ref_edgerefv(g->erefs, fidx[2])->idx);
+				cut_edge_graph(g, e);
+				e = ref_edgev(g->edges, ref_edgerefv(g->erefs, fidx[1])->idx);
+				revive_edge_graph(g, e);
+				ret ++;
+			}
+		}
+	}
+	free_tracev(path);
+	return ret;
+}
+
 static inline u8i cut_relative_low_cov_edges_graph(Graph *g, float lowf){
 	node_t *n;
 	edge_t *e;
