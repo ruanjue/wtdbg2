@@ -35,7 +35,9 @@ int usage(){
 	"Options:\n"
 	" -t <int>    Number of threads, [4]\n"
 	" -d <string> Reference sequences for SAM input, will invoke sorted-SAM input mode\n"
-	" -u          Only process reference regions present in/between SAM alignments\n"
+	" -u <int>    XORed flags to handle SAM input. [0]\n"
+	"             0x1: Only process reference regions present in/between SAM alignments\n"
+	"             0x2: Don't fileter secondary/supplementary SAM records with flag (0x100 | 0x800)\n"
 	" -r          Force to use reference mode\n"
 	" -p <string> Similar with -d, but translate SAM into wtdbg layout file\n"
 	" -i <string> Input file(s) *.ctg.lay from wtdbg, +, [STDIN]\n"
@@ -81,7 +83,7 @@ int main(int argc, char **argv){
 	char *outf;
 	u4i i;
 	int reglen, shuffle, winlen, winmin, fail_skip;
-	int seqmax, wsize, print_lay, sam_present;
+	int seqmax, wsize, print_lay, flags;
 	int c, ncpu, overwrite;
 	par = DEFAULT_POG_PAR;
 	ncpu = 4;
@@ -97,14 +99,14 @@ int main(int argc, char **argv){
 	outf = NULL;
 	overwrite = 0;
 	print_lay = 0;
-	sam_present = 0;
-	while((c = getopt(argc, argv, "hvVt:d:rp:ui:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
+	flags = 0;
+	while((c = getopt(argc, argv, "hvVt:d:rp:u:i:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
 			case 'p': print_lay = 1;
 			case 'd': push_cplist(dbfs, optarg); break;
-			case 'u': sam_present = 1; break;
+			case 'u': flags = atoi(optarg); break;
 			case 'r': par.refmode = 1; break;
 			case 'i': push_cplist(infs, optarg); break;
 			case 'o': outf = optarg; break;
@@ -213,7 +215,7 @@ int main(int argc, char **argv){
 		}
 		free_biosequence(seq);
 		close_filereader(db);
-		sb = init_samblock(refs, fr, wsize, reglen, sam_present);
+		sb = init_samblock(refs, fr, wsize, reglen, flags);
 		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, shuffle, seqmax, 0, 0, fail_skip, UInt((wsize - reglen) * 1.2 + 100), &par);
 		cc->print_progress = 100;
 		if(print_lay){

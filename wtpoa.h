@@ -459,11 +459,11 @@ typedef struct {
 	u8i     rdidx;
 	u4i     cidx, bidx, sidx, lidx;
 	u2i     bsize, bstep; // block size, and slide steps
-	int     sam_present; // if 1, only polish reference presented in SAM lines
+	int     flags; // if flags & 0x1, only polish reference presented in SAM lines. 0x2: Don't filter secondary/supplementary alignments
 	u4i     bidx2;
 } SAMBlock;
 
-static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bstep, int sam_present){
+static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bstep, int flags){
 	SAMBlock *sb;
 	lay_seq_t *stop;
 	assert(bstep <= bsize && 2 * bstep >= bsize);
@@ -483,7 +483,7 @@ static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, 
 	sb->bstep = bstep;
 	sb->sidx = MAX_U4; // last output lay_seq
 	sb->lidx = MAX_U4; // last input lay_seq
-	sb->sam_present = sam_present;
+	sb->flags = flags;
 	stop = pop_layseqr(sb->seqs);
 	stop->chridx = refs->nseq + 1;
 	stop->bidx   = 0;
@@ -503,7 +503,7 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 	u4i sqidx, len, i, j;
 	if(sb->cidx > sb->refs->nseq) return sq;
 	sqidx = offset_layseqr(sb->seqs, sq);
-	if(sb->sam_present && sb->bidx2 == MAX_U4){
+	if((sb->flags & 0x1) && sb->bidx2 == MAX_U4){
 		sb->bidx = sq->bidx;
 	}
 	sb->bidx2 = sb->bidx;
@@ -552,7 +552,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 	lay_seq_t *sc, *sl;
 	u4i chr, chridx, scidx, off, minlen, rddir, rdoff, nxt, val, len, op;
 	char *ptr, *str;
-	int c;
+	int c, samflag;
 	sb = (SAMBlock*)obj;
 	if(sb->sidx != MAX_U4){
 		recyc_layseqr(sb->seqs, sb->sidx);
@@ -565,7 +565,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 		while(sb->lidx == MAX_U4){
 			c = readtable_filereader(sb->fr);
 			if(c == -1){
-				if(sb->sam_present){
+				if(sb->flags & 0x1){
 				} else {
 					sc = ref_layseqr(sb->seqs, 0);
 					sc = _push_padding_ref_samblock(sb, sc);
@@ -574,7 +574,12 @@ static inline lay_seq_t* iter_samblock(void *obj){
 			}
 			if(sb->fr->line->string[0] == '@') continue;
 			if(c < 11) continue;
-			if(get_col_str(sb->fr, 9)[0] == '*') continue;
+			samflag = atoi(get_col_str(sb->fr, 1));
+			if(samflag & 0x004) continue;
+			//if(get_col_str(sb->fr, 9)[0] == '*') continue;
+			if(!(sb->flags & 0x2)){
+				if(samflag & (0x100 | 0x800)) continue; // filter secondary/supplementary alignments
+			}
 			// chr
 			if((chr = getval_cuhash(sb->refs->rdhash, get_col_str(sb->fr, 2))) == MAX_U4){
 				continue;
