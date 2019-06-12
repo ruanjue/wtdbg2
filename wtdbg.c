@@ -1055,6 +1055,7 @@ int main(int argc, char **argv){
 				yarn += cnt;
 				if(cnt) c = 1;
 			} while(cnt);
+			c += rescue_high_cov_edges_graph(g, 2);
 		} while(c);
 		if(bub + tip){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns;\n", date(), bub, tip, yarn); fflush(KBM_LOGF); }
 	}
