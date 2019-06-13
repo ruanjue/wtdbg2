@@ -51,7 +51,7 @@ int usage(){
 	" -I <int>    Insertion score, [-2]\n"
 	" -D <int>    Deletion score, [-4]\n"
 	" -H <float>  Homopolymer merge score used in dp-call-cns mode, [-3]\n"
-	" -B <expr>   Bandwidth in POA, [Wmin[,Wmax[,mat_rate]]], mat_rate = matched_bases/total_bases [64,512,0.92]\n"
+	" -B <expr>   Bandwidth in POA, [Wmin[,Wmax[,mat_rate]]], mat_rate = matched_bases/total_bases [64,1024,0.92]\n"
 	"             Program will double bandwidth from Wmin to Wmax when mat_rate is lower than setting\n"
 	" -W <int>    Window size in the middle of the first read for fast align remaining reads, [200]\n"
 	"             If $W is negative, will disable fast align, but use the abs($W) as Band align score cutoff\n"
