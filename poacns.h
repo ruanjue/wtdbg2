@@ -86,7 +86,7 @@ typedef struct {
 	int W_score;
 	int W, rW, cW; // 64, 16, 8
 	int Wmax; // 512
-	float W_mat_rate; // 0.9
+	float W_mat_rate; // 0.92
 	int M, X, I, D, E;
 	float H; // homopolymer merge
 	int T; // bonus for end
@@ -94,7 +94,7 @@ typedef struct {
 	float msa_min_freq;
 } POGPar;
 
-static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 64, 16, 8, 512, 0.9, 2, -5, -2, -4, -1, -3, 20, 3, 0.5};
+static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 64, 16, 8, 512, 0.92, 2, -5, -2, -4, -1, -3, 20, 3, 0.5};
 
 typedef struct {
 	u4i coff:29, bt:3;
