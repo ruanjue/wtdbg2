@@ -84,7 +84,9 @@ typedef struct {
 	int sse;
 	int near_dialog;
 	int W_score;
-	int W, rW, cW; // 160, 16, 8
+	int W, rW, cW; // 64, 16, 8
+	int Wmax; // 512
+	float W_mat_rate; // 0.9
 	int M, X, I, D, E;
 	float H; // homopolymer merge
 	int T; // bonus for end
@@ -92,7 +94,7 @@ typedef struct {
 	float msa_min_freq;
 } POGPar;
 
-static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 160, 16, 8, 2, -5, -2, -4, -1, -3, 20, 3, 0.5};
+static const POGPar DEFAULT_POG_PAR = (POGPar){0, 0, POG_ALNMODE_OVERLAP, 0, 1, 0, 0, 64, 16, 8, 512, 0.9, 2, -5, -2, -4, -1, -3, 20, 3, 0.5};
 
 typedef struct {
 	u4i coff:29, bt:3;
@@ -1016,6 +1018,45 @@ static inline u2i get_rdbase_pog(POG *g, u4i rid, u4i pos){
 	}
 }
 
+static inline int _cal_matches_alignment_pog(POG *g, u4i rid, int *xb, int xe){
+	pog_node_t *u, *v;
+	u4i nidx, seqoff, btx, bt, vst;
+	int x, seqlen, mat;
+	seqlen = g->seqs->rdlens->buffer[rid];
+	seqoff = g->seqs->rdoffs->buffer[rid];
+	x = xe;
+	nidx = POG_TAIL_NODE;
+	v = ref_pognodev(g->nodes, nidx);
+	btx = 1;
+	mat = 0;
+	while(x >= 0){
+		u  = ref_pognodev(g->nodes, nidx);
+		bt = g->btvs->buffer[u->voff + x - u->rbeg];
+		vst = bt >> 2;
+		bt  = bt & 0x03;
+		if(bt == POG_DP_BT_M){
+			mat ++;
+			x --;
+		} else if(bt & POG_DP_BT_I){
+			x --;
+		} else {
+		}
+		if(bt & POG_DP_BT_I){
+		} else {
+			nidx = g->btxs->buffer[g->nodes->buffer[nidx].erev + vst];
+		}
+		if(x < 0){
+			break;
+		}
+		u = ref_pognodev(g->nodes, nidx);
+		if(x < u->rbeg || x >= u->rend){
+			break;
+		}
+	}
+	*xb = x;
+	return mat;
+}
+
 static inline int _alignment2graph_pog(POG *g, u4i rid, int xb, int xe){
 	pog_node_t *u, *v;
 	pog_edge_t *e;
@@ -1126,11 +1167,11 @@ static inline int _alignment2graph_pog(POG *g, u4i rid, int xb, int xe){
 	return xb;
 }
 
-static inline int align_rd_pog(POG *g, u2i rid){
+static inline int align_rd_pog_core(POG *g, u2i rid, int W, int *xe){
 	pog_node_t *u, *v;
 	pog_edge_t *e;
 	u4i seqoff, seqlen, seqlex, slen, seqinc;
-	b4i score, x, xb, xe;
+	b4i score, x;
 	b2i *qp, *row;
 	__m128i SMASK;
 	u4i nidx, eidx, coff, roff, mnode;
@@ -1192,7 +1233,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 				inc_b2v(g->btds, seqinc);
 			}
 			g->btxs->buffer[v->erev + v->vst] = nidx; // save backtrace nidx
-			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, v->vst, u->coff, coff, u->roff, roff, qp, g->par->W, -1);
+			sse_band_row_rdaln_pog(g, nidx, e->node, seqlen, v->vst, u->coff, coff, u->roff, roff, qp, W, -1);
 			if(v->vst){
 				merge_row_rdaln_pog(g, seqlen, coff, v->coff, roff, v->roff);
 				push_u4v(g->rowr, roff);
@@ -1234,7 +1275,7 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		abort();
 	}
 #endif
-	if(g->par->W == 0){
+	if(W == 0){
 		row = ref_b2v(g->rows, v->roff);
 		j = 0;
 		for(i=1;i<seqlen;i++){
@@ -1263,12 +1304,35 @@ static inline int align_rd_pog(POG *g, u2i rid){
 		g->btxs->buffer[v->erev + v->vst] = mnode;
 		v->vst ++;
 	}
-	xe = x;
-	xb = x;
-	xb = _alignment2graph_pog(g, rid, xb, xe);
-	if(cns_debug > 1){
-		fprintf(stderr, "ALIGN[%03d] len=%u ref=%d,%d aligned=%d,%d score=%d\n", rid, g->seqs->rdlens->buffer[rid], g->sbegs->buffer[rid], g->sends->buffer[rid], xb, xe + 1, score);
+	*xe = x;
+	return score;
+}
+
+static inline int align_rd_pog(POG *g, u2i rid){
+	int xb, xe, rlen, xlen, score, W, mat;
+	rlen = g->seqs->rdlens->buffer[rid];
+	xlen = rlen / 8 * 8;
+	W = g->par->W? g->par->W : xlen;
+	xlen = num_min(xlen, g->par->Wmax);
+	mat = 0;
+	// try increase W when align score is low
+	while(1){
+		score = align_rd_pog_core(g, rid, W, &xe);
+		mat = _cal_matches_alignment_pog(g, rid, &xb, xe);
+		if(cns_debug > 1){
+			fprintf(stderr, "ALIGN[%03d] len=%u ref=%d,%d band=%d aligned=%d,%d mat=%d,%0.3f score=%d\n", rid, g->seqs->rdlens->buffer[rid], g->sbegs->buffer[rid], g->sends->buffer[rid], W, xb + 1, xe + 1, mat, 1.0 * mat / rlen, score);
+		}
+		if(rid == 0){
+			break;
+		}
+		if(mat >= rlen * g->par->W_mat_rate){
+			break;
+		}
+		if(W >= xlen) break;
+		W = num_min(W * 2, xlen);
 	}
+	xb = 0;
+	xb = _alignment2graph_pog(g, rid, xb, xe);
 	return score;
 }
 
