@@ -29,7 +29,7 @@ $opts{mm2} = gwhich("minimap2") || die;
 my $prefix = defined($opts{o})? $opts{o} : $ARGV[0];
 my $smt_threads = $opts{t} < 4? $opts{t} : 4;
 
-my $asm_opt = "-t $opts{t} -fo $prefix";
+my $asm_opt = "-t $opts{t} -fo $prefix -X $opts{X}";
 $asm_opt .= " -g $opts{g}" if defined($opts{g}) && $opts{g} =~ /^\d/;
 $asm_opt .= " -x $opts{x}" if defined($opts{x});
 $asm_opt .= " -i $ARGV[$_]" for (0 .. @ARGV-1);
@@ -47,7 +47,9 @@ unless (defined $opts{P}) {
 if (defined $opts{O}) {
 	print "$_\n" for (@lines);
 } else {
-	system($_) for (@lines);
+	for (@lines) {
+		system($_) == 0 || die "The following command returns non-zero code:\n  $_\n";
+	}
 }
 
 sub which {
