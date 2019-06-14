@@ -1021,6 +1021,7 @@ int main(int argc, char **argv){
 	if(!less_out) generic_print_graph(g, print_dot_graph,   prefix, ".2.dot.gz");
 	{
 		bub = tip = rep = yarn = 0;
+		u8i high = 0;
 		int safe = 1;
 		do {
 			c = 0;
@@ -1055,9 +1056,9 @@ int main(int argc, char **argv){
 				yarn += cnt;
 				if(cnt) c = 1;
 			} while(cnt);
-			c += rescue_high_cov_edges_graph(g, 2);
+			c += (high = rescue_high_cov_edges_graph(g, 2, 20));
 		} while(c);
-		if(bub + tip){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns;\n", date(), bub, tip, yarn); fflush(KBM_LOGF); }
+		if(bub + tip + high){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns; rescued %llu high edges\n", date(), bub, tip, yarn, high); fflush(KBM_LOGF); }
 	}
 	if(del_iso){
 		cnt = del_isolated_nodes_graph(g, evtlog);
