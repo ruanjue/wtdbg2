@@ -158,6 +158,12 @@ if(eidx != MAX_U4){
 	if(qe > cc->reglen) qb = qe - cc->reglen;
 	if(te > cc->reglen) te = cc->reglen;
 	kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, (cc->I + cc->D) / 2, (cc->I + cc->D) / 2, cc->E, mem_cache);
+	if(XX.mat < 100 || XX.mat < Int(XX.aln * 0.9)){
+		// full length alignment
+		qb = 0; qe = seq1->size;
+		tb = 0; te = seq2->size;
+		kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, (cc->I + cc->D) / 2, (cc->I + cc->D) / 2, cc->E, mem_cache);
+	}
 	XX.qb += qb;
 	XX.qe += qb;
 	XX.tb += tb;
