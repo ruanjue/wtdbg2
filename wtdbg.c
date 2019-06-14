@@ -1090,15 +1090,6 @@ int main(int argc, char **argv){
 	fprintf(KBM_LOGF, "[%s] cut %llu transitive links\n", date(), (unsigned long long)cnt);
 	cnt = remove_boomerangs_frg_graph(g, 30 * 1000 / KBM_BIN_SIZE);
 	fprintf(KBM_LOGF, "[%s] remove %llu boomerangs\n", date(), (unsigned long long)cnt);
-	cnt = 0;
-	while(1){
-		u8i c;
-		if((c = detach_repetitive_frg_graph(g, 100 * 1000 / KBM_BIN_SIZE)) == 0){
-			break;
-		}
-		cnt += c;
-	}
-	fprintf(KBM_LOGF, "[%s] detached %llu repeat-associated paths\n", date(), (unsigned long long)cnt);
 	cnt = cut_weak_branches_frg_graph(g);
 	fprintf(KBM_LOGF, "[%s] remove %llu weak branches\n", date(), (unsigned long long)cnt);
 	//cnt = cut_low_cov_lnks_graph(g, 1);
@@ -1109,6 +1100,17 @@ int main(int argc, char **argv){
 	//if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.3.dot");
 	cnt = pop_frg_bubbles_graph(g, bub_step);
 	fprintf(KBM_LOGF, "[%s] pop %llu bubbles\n", date(), (unsigned long long)cnt);
+	{
+		cnt = 0;
+		while(1){
+			u8i c;
+			if((c = detach_repetitive_frg_graph(g, 100 * 1000 / KBM_BIN_SIZE)) == 0){
+				break;
+			}
+			cnt += c;
+		}
+		fprintf(KBM_LOGF, "[%s] detached %llu repeat-associated paths\n", date(), (unsigned long long)cnt);
+	}
 	cnt = trim_frgtips_graph(g, frgtip_len);
 	fprintf(KBM_LOGF, "[%s] cut %llu tips\n", date(), (unsigned long long)cnt);
 	if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".ctg.dot.gz");
