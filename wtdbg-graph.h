@@ -1227,7 +1227,7 @@ static inline  u8i rescue_low_cov_edges_graph(Graph *g){
 	return ret;
 }
 
-static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step){
+static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step, u4i cov_cutoff){
 	tracev *path;
 	trace_t *t;
 	node_t *v, *w;
@@ -1262,7 +1262,11 @@ static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step){
 				} else {
 					cov[0] = e->cov;
 					fidx[0] = offset_edgerefv(g->erefs, f);
+					if(cov[0] >= cov_cutoff) break;
 				}
+			}
+			if(cov[0] >= cov_cutoff){
+				continue;
 			}
 			if(cov[0] >= cov[1]){
 				continue;
@@ -3958,14 +3962,16 @@ static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs)
 			r1 ++;
 		} else {
 			rid = r1->rid;
-			if(r1->beg < r2->beg){
-				if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
-				beg = r1->beg; end = r2->end;
-				push_layregv(regs, (lay_reg_t){rid, 0, beg, end, 0});
-			} else {
-				if(!(q->dir1 ^ r1->dir)){ r1 ++; r2 ++; continue; }
-				beg = r2->beg; end = r1->end;
-				push_layregv(regs, (lay_reg_t){rid, 1, beg, end, 0});
+			if(r1->closed == 0 && r2->closed == 0){
+				if(r1->beg < r2->beg){
+					if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
+					beg = r1->beg; end = r2->end;
+					push_layregv(regs, (lay_reg_t){rid, 0, beg, end, 0});
+				} else {
+					if(!(q->dir1 ^ r1->dir)){ r1 ++; r2 ++; continue; }
+					beg = r2->beg; end = r1->end;
+					push_layregv(regs, (lay_reg_t){rid, 1, beg, end, 0});
+				}
 			}
 			r1 ++; r2 ++;
 		}
