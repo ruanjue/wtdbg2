@@ -40,7 +40,7 @@ my @lines = ();
 push(@lines, qq/$opts{asm} $asm_opt/);
 push(@lines, qq/$opts{cns} -t $opts{t} -i $prefix.ctg.lay.gz -fo $prefix.raw.fa/);
 unless (defined $opts{P}) {
-	push(@lines, qq/$opts{mm2} -a$opts{M} -x $opts{M} -t$opts{t} -r2k $prefix.raw.fa $mm2_input | $opts{smt} sort -m $opts{m} -\@$smt_threads -o $prefix.bam/);
+	push(@lines, qq/$opts{mm2} -ax $opts{M} -t$opts{t} -r2k $prefix.raw.fa $mm2_input | $opts{smt} sort -m $opts{m} -\@$smt_threads -o $prefix.bam/);
 	push(@lines, qq/$opts{smt} view -F0x900 $prefix.bam | $opts{cns} -t $opts{t} -d $prefix.raw.fa -i - -fo $prefix.cns.fa/);
 }
 
