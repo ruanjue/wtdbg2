@@ -191,6 +191,7 @@ static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 	uuhash_t *u;
 	u8i roff;
 	u4i ridx, i, ksize, kmer, kmask, rlen, khit, mincnt;
+	double logv;
 	int exists;
 	sb = tp->seqs;
 	if(sb->nseq == 0) return;
@@ -227,6 +228,7 @@ static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 		}
 		if(tp->refmode) break;
 	}
+	logv = log(1.2);
 	for(ridx=0;ridx<sb->nseq;ridx++){
 		rlen = sb->rdlens->buffer[ridx];
 		kmer = 0;
@@ -244,17 +246,17 @@ static inline void shuffle_reads_by_kmers_tripog(TriPOG *tp){
 			if(ridx == 0){
 				push_f4v(kords, 3e+38F);
 			} else {
-				push_f4v(kords, ((double)khit) / num_max(rlen, sb->rdlens->buffer[0]));
+				push_f4v(kords, ((double)khit) * logv / log(num_max(rlen, sb->rdlens->buffer[0])));
 			}
 		} else {
-			push_f4v(kords, ((double)khit) / rlen);
+			push_f4v(kords, ((double)khit) * logv / log(rlen));
 		}
 		push_u4v(kidxs, ridx);
 	}
 	sort_array(kidxs->buffer, kidxs->size, u4i, num_cmpgt(kords->buffer[b], kords->buffer[a]));
 	if(cns_debug > 1){
 		for(i=0;i<kidxs->size;i++){
-			fprintf(stderr, "SHUFFLE[%u] %u\t%0.4f\n", i, kidxs->buffer[i], kords->buffer[kidxs->buffer[i]]);
+			fprintf(stderr, "SHUFFLE[%u] %u\t%u\t%0.4f\n", i, kidxs->buffer[i], sb->rdlens->buffer[kidxs->buffer[i]], kords->buffer[kidxs->buffer[i]]);
 		}
 	}
 	for(i=0;i<kidxs->size;i++){
