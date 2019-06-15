@@ -2284,16 +2284,16 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 	u4i i, x, y, z, f;
 	if(size < 2) return 0;
 	sort_array(srcs, size, kbm_map_t, num_cmpgt(a.tb, b.tb));
-	*dst = srcs[0];
+	*dst = srcs[size - 1];
 	dst->cgoff = dst_cigars->size;
-	append_bitsvec(dst_cigars, src_cigars, srcs[0].cgoff, srcs[0].cglen);
-	for(i=1;i<size;i++){
-		hit = srcs + i;
-		if(dst->te > hit->tb){
+	append_bitsvec(dst_cigars, src_cigars, srcs[size - 1].cgoff, srcs[size - 1].cglen);
+	for(i=size-1;i>0;i--){
+		hit = srcs + i - 1;
+		if(dst->tb < hit->te){
 			goto FAILED;
 		} else {
-			y = hit->tb - dst->te;
-			dst->te = hit->te;
+			y = dst->tb - hit->te;
+			dst->tb = hit->tb;
 		}
 		if(dst->qdir){
 			if(hit->qe > dst->qb){
@@ -2303,11 +2303,11 @@ static inline int simple_chain_all_maps_kbm(kbm_map_t *srcs, u4i size, BitsVec *
 				dst->qb = hit->qb;
 			}
 		} else {
-			if(dst->qe > hit->qb){
+			if(dst->qb < hit->qe){
 				goto FAILED;
 			} else {
-				x = hit->qb - dst->qe;
-				dst->qe = hit->qe;
+				x = dst->qb - hit->qe;
+				dst->qb = hit->qb;
 			}
 		}
 		dst->mat += hit->mat;
