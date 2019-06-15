@@ -1056,7 +1056,11 @@ int main(int argc, char **argv){
 				yarn += cnt;
 				if(cnt) c = 1;
 			} while(cnt);
-			c += (high = rescue_high_cov_edges_graph(g, 2, 20));
+			cnt = rescue_high_cov_edges_graph(g, 2, 20);
+			if(cnt){
+				high += cnt;
+				c = 1;
+			}
 		} while(c);
 		if(bub + tip + high){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns; rescued %llu high edges\n", date(), bub, tip, yarn, high); fflush(KBM_LOGF); }
 	}
