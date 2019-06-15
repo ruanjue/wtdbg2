@@ -1,5 +1,5 @@
-VERSION=2.4.1
-RELEASE=20190603
+VERSION=2.5
+RELEASE=20190615
 
 CC  := gcc
 BIN := /usr/local/bin
@@ -17,7 +17,7 @@ endif
 GLIBS=-lm -lrt -lpthread -lz
 GENERIC_SRC=mem_share.h chararray.h sort.h list.h pgzf.h sort.h list.h dna.h thread.h filereader.h filewriter.h bitvec.h bit2vec.h bitsvec.h hashset.h
 
-PROGS=kbm2 wtdbg2 wtdbg-cns wtpoa-cns pgzf best_sam_hits4longreads
+PROGS=kbm2 wtdbg2 wtdbg-cns wtpoa-cns pgzf
 
 all: $(PROGS)
 
