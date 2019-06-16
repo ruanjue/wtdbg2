@@ -2484,7 +2484,8 @@ static inline u8i trim_frgtips_graph(Graph *g, int max_len){
 typedef struct {
 	node_t *n;
 	edge_t *e; // incoming edge
-	u8i dir:1, ind:1, step:8, bt:16, ending:16, score:20, keep:2;
+	u8i dir:1, ind:1, step:8, bt:16, ending:16, keep:2;
+	int score:20;
 } bt_t;
 define_list(btv, bt_t);
 #define WT_MAX_BTIDX	0xFFFF
@@ -2689,7 +2690,7 @@ static inline u4i pop_bubble_core_graph(Graph *g, uint16_t max_step, btv *bts, u
 			tb->step = bt->step + 1;
 			tb->bt   = bidx;
 			tb->ind = 0;
-			tb->score = bt->score + e->cov;
+			tb->score = bt->score + num_min(0, e->cov - 20); // set normal e->cov = 20
 			tb->ending = 0;
 		}
 		if(bt->ind && (bt->bt == 0 || lst + 1 == bts->size)){
@@ -2725,7 +2726,8 @@ static inline u4i pop_bubble_core_graph(Graph *g, uint16_t max_step, btv *bts, u
 			}
 			tb->n->unvisit --;
 			if(tb->n->unvisit == 0){
-				if(tb->step > bts->buffer[tb->n->bt_idx].step){
+				if(num_cmpgt(tb->score, bts->buffer[tb->n->bt_idx].score)){
+				//if(tb->step > bts->buffer[tb->n->bt_idx].step){
 					bts->buffer[tb->n->bt_idx].ending = i;
 					tb->n->bt_idx = i;
 					tb->ending = 0;
