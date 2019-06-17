@@ -34,11 +34,11 @@ $asm_opt .= " -g $opts{g}" if defined($opts{g}) && $opts{g} =~ /^\d/;
 $asm_opt .= " -x $opts{x}" if defined($opts{x});
 $asm_opt .= " -i $ARGV[$_]" for (0 .. @ARGV-1);
 
-my %map_opts = {
+my %map_opts = (
 	rs=>'map-pb', rsII=>'map-pb', sq=>'map-pb', sequel=>'map-pb',
 	ont=>'map-ont', nanopore=>'map-ont',
 	ccs=>'map-pb', corrected=>'map-pb'
-};
+);
 
 if(not defined $opts{M}){
 	if(defined $opts{x}){
