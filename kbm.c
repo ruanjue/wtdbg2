@@ -573,7 +573,7 @@ int kbm_main(int argc, char **argv){
 						nhit += aux->hits->size;
 					}
 				}
-				trunc_string(seq->seq, cvt_kbm_read_length(seq->seq->size));
+				trunc_string(seq->seq, cvt_kbm_read_length(seq->seq->size, KBM_BIN_SIZE));
 				clear_basebank(maln->rdseqs);
 				seq2basebank(maln->rdseqs, seq->seq->string, seq->seq->size);
 				clear_string(maln->rdtag);
@@ -677,10 +677,10 @@ int kbm_main(int argc, char **argv){
 					if(par->test_mode == 0 && skip_ctn){
 						// whether reads[tidx] is contained by reads[qidx]
 						kbm_map_t *hit;
-						int margin = KBM_BSIZE;
+						int margin = KBM_BIN_SIZE;
 						hit = ref_kbmmapv(aux->hits, i);
-						if((hit->tb <= margin && hit->te + margin >= (int)kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE)
-							&& (hit->qb > margin || hit->qe + margin < (int)kbm->reads->buffer[hit->qidx].bincnt * KBM_BSIZE)){
+						if((hit->tb <= margin && hit->te + margin >= (int)kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE)
+							&& (hit->qb > margin || hit->qe + margin < (int)kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE)){
 							one_bitvec(rdflags, hit->tidx);
 						}
 					}
