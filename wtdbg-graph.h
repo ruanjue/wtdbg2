@@ -1316,6 +1316,9 @@ static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step, u4i cov_cu
 				d = !e->dir2;
 			}
 			f = first_living_edge_graph(g, w, d, NULL); // assert f != NULL
+			if(f == NULL){
+				continue;
+			}
 			fidx[2] = offset_edgerefv(g->erefs, f);
 			{
 				e = ref_edgev(g->edges, ref_edgerefv(g->erefs, fidx[0])->idx);
