@@ -33,8 +33,7 @@
 //#define __DEBUG__	1
 #define TEST_MODE
 
-#define KBM_BSIZE	256
-#define KBM_BIN_SIZE	KBM_BSIZE
+#define KBM_BIN_SIZE	256
 #define KBM_MAX_BINCNT	0xFFFFFFFFFFLLU // 40 bits, 1024 G
 #define KBM_MAX_RDCNT	0x3FFFFFFF // 30 bits, 1 G
 #define KBM_MAX_RDBINCNT	0xFFFFFF // 24 bits
@@ -172,7 +171,7 @@ typedef struct {
 	int min_bin_degree; // 2
 	u4i ksize, psize; // 0, 21
 	u4i kbsize; // 256, MUST <= 256
-	u4i kmax, kmin, kmer_mod, ksampling; // 1000, 1, 4.0 * KBM_N_HASH, KBM_BSIZE
+	u4i kmax, kmin, kmer_mod, ksampling; // 1000, 1, 4.0 * KBM_N_HASH, KBM_BIN_SIZE
 	float ktop; // 0.05
 	// runtime
 	u4i strand_mask; // 3. 1: forward; 2: reverse; 3: both
@@ -291,7 +290,7 @@ static inline KBMPar* init_kbmpar(){
 	par->kmax  = 1000;
 	par->kmin  = 1;
 	par->kmer_mod = 4 * KBM_N_HASH;
-	par->ksampling = KBM_BSIZE;
+	par->ksampling = par->kbsize;
 	par->ktop  = 0.05;
 	par->strand_mask = 3;
 	par->self_aln = 0;
@@ -303,7 +302,7 @@ static inline KBMPar* init_kbmpar(){
 	par->pgap = -7;
 	par->pvar = -21;
 	par->max_hit = 1000;
-	par->min_aln = 2048 / KBM_BIN_SIZE;
+	par->min_aln = 2048 / par->kbsize;
 	par->min_mat = 200;
 	par->min_sim = 0.05;
 	par->aln_var = 0.25;
@@ -503,7 +502,7 @@ static inline void ready_kbm(KBM *kbm){
 		if(kbm->par->rd_len_order){
 			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.rdlen, a.rdlen));
 		}
-		encap_basebank(kbm->rdseqs, KBM_BSIZE);
+		encap_basebank(kbm->rdseqs, kbm->par->kbsize);
 	}
 	clear_kbmbinv(kbm->bins);
 	for(i=0;i<kbm->reads->size;i++){
@@ -655,7 +654,7 @@ static inline u8i seed2solid_idx_kbm(KBM *kbm, kbm_dpe_t *p){
 	u8i seqoff;
 	b = kbm->bins->buffer + p->bidx;
 	rd = kbm->reads->buffer + b->ridx;
-	seqoff = ((rd->rdoff + b->off * KBM_BSIZE) >> 1) + p->koff;
+	seqoff = ((rd->rdoff + b->off * kbm->par->kbsize) >> 1) + p->koff;
 	return seqoff;
 }
 
@@ -684,7 +683,7 @@ define_list(tmpbmerv, kbm_tmp_bmer_t);
 
 thread_beg_def(midx);
 KBM *kbm;
-u4i beg, end; // (end - beg) * KBM_BSIZE MUST <= KBM_KMEROFF_MAX
+u4i beg, end; // (end - beg) * KBM_BIN_SIZE MUST <= KBM_KMEROFF_MAX
 u8i ktot, nrem, Nrem, none, nflt, offset;
 u8i srem, Srem;
 u8i *cnts, n_cnt;
@@ -827,7 +826,7 @@ if(midx->task == 1){
 	// fill seeds
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmmidxv(kidxs[i]);
 	u4v *chgs;
-	chgs = init_u4v(KBM_BSIZE);
+	chgs = init_u4v(kbm->par->kbsize);
 	for(bidx=midx->beg+tidx;bidx<midx->end;bidx+=ncpu){
 		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%u", bidx - midx->beg); fflush(KBM_LOGF); }
 		bin = ref_kbmbinv(kbm->bins, bidx);
@@ -1864,7 +1863,7 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 		push_bitsvec(aux->cigars, lst);
 	}
 	cglen = aux->cigars->size - cgoff;
-	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * KBM_BSIZE * aux->par->min_sim)
+	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * aux->kbm->par->kbsize * aux->par->min_sim)
 		|| gap > (u4i)(hit->aln * aux->par->max_gap)
 		|| hit->aln < (int)aux->par->min_aln
 		|| num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(aux->par->aln_var * hit->aln, 1.0)){
