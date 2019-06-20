@@ -90,25 +90,33 @@ struct tname##_struct {		\
 
 #define thread_begin_func_core(tname) inline void* thread_##tname##_func(void *obj){\
 	struct tname##_struct * tname = (struct tname##_struct *)obj;\
-	int tname##_var_i, tname##_var_j;\
-	struct tname##_struct * tname##_params
-#define thread_begin_func(tname) static thread_begin_func_core(tname)
-#define thread_beg_func(tname) thread_begin_func(tname)
-#define thread_beg_func_inline(tname) inline void* thread_##tname##_func(void *obj){\
-	struct tname##_struct * tname = (struct tname##_struct *)obj;\
-	int tname##_var_i, tname##_var_j;\
-	struct tname##_struct * tname##_params
-#define thread_begin_loop(tname) tname##_params = tname->tname##_params;	\
+	int tname##_var_i;\
+	struct tname##_struct * tname##_params;	\
+	tname##_params = tname->tname##_params;	\
 	if(tname##_params + tname->t_idx != tname){	\
 		fprintf(stderr, " --  Unexcepted error in thread [%s] in %s -- %s:%d --\n", #tname, __FUNCTION__, __FILE__, __LINE__);	\
 	}	\
 	pthread_mutex_lock(&tname->_COND_LOCK);	\
 	tname->state = 0;	\
 	pthread_cond_signal(&tname->_COND);	\
-	pthread_mutex_unlock(&tname->_COND_LOCK);	\
-	(void)(tname##_var_j);\
+	pthread_mutex_unlock(&tname->_COND_LOCK)
+#define thread_begin_func(tname) static thread_begin_func_core(tname)
+#define thread_beg_func(tname) thread_begin_func(tname)
+#define thread_beg_func_inline(tname) inline void* thread_##tname##_func(void *obj){\
+	struct tname##_struct * tname = (struct tname##_struct *)obj;\
+	int tname##_var_i;\
+	struct tname##_struct * tname##_params;	\
+	tname##_params = tname->tname##_params;	\
+	if(tname##_params + tname->t_idx != tname){	\
+		fprintf(stderr, " --  Unexcepted error in thread [%s] in %s -- %s:%d --\n", #tname, __FUNCTION__, __FILE__, __LINE__);	\
+	}	\
+	pthread_mutex_lock(&tname->_COND_LOCK);	\
+	tname->state = 0;	\
+	pthread_cond_signal(&tname->_COND);	\
+	pthread_mutex_unlock(&tname->_COND_LOCK)
+#define thread_begin_loop(tname)	\
 	while(tname->running){	\
-		if(tname->state == 0){	\
+		if(tname->state != 1){	\
 			struct timespec _timeout;	\
 			pthread_mutex_lock(&tname->_COND_LOCK);	\
 			clock_gettime(CLOCK_REALTIME, &_timeout);	\
@@ -130,13 +138,13 @@ struct tname##_struct {		\
 		}	\
 		if(tname->once){	\
 			pthread_mutex_lock(&tname->_COND_LOCK);	\
-			tname->state = 0;	\
+			tname->state = 2;	\
 			pthread_cond_signal(&tname->_COND);	\
 			pthread_mutex_unlock(&tname->_COND_LOCK);	\
 		}	\
 	}	\
 	pthread_mutex_lock(&tname->_COND_LOCK);	\
-	tname->state = 0;	\
+	tname->state = 2;	\
 	pthread_cond_signal(&tname->_COND);	\
 	pthread_mutex_unlock(&tname->_COND_LOCK)
 #define thread_end_func(tname) return NULL; }
@@ -148,9 +156,9 @@ struct tname##_struct {		\
 	(void)(tname##_mlock);	\
 	(void)(tname##_rwlock);	\
 	(void)(tname);	\
-	(void)(tname##_i);	\
-	(void)(tname##_j);	\
-	(void)(tname##_var_next)
+	tname##_i = 0;	\
+	tname##_j = 0;	\
+	tname##_var_next = 0
 
 #define thread_prepare(tname) thread_preprocess(tname)
 #define thread_begin_init(tname, n_thread) assert(n_thread > 0);\
@@ -169,7 +177,7 @@ struct tname##_struct {		\
 		tname->n_cpu      = n_thread;\
 		tname->t_idx      = tname##_i;\
 		tname->running    = 1;\
-		tname->state      = 2;\
+		tname->state      = 3;\
 		tname->once       = 1;\
 		tname->tname##_params = (struct tname##_struct*)tname##_params;\
 		tname->tname##_array  = (struct tname##_struct*)tname##_params
@@ -238,23 +246,24 @@ do {	\
 		int _stop;	\
 		_stop = 0;	\
 		pthread_mutex_lock(&tname->_COND_LOCK);	\
-		if(tname->state == 0) _stop = 1;	\
+		if(tname->state != 1) _stop = 1;	\
 		else {	\
 			struct timespec _timeout;	\
 			clock_gettime(CLOCK_REALTIME, &_timeout);	\
 			_timeout.tv_nsec += 1000;	\
 			pthread_cond_timedwait(&tname->_COND, &tname->_COND_LOCK, &_timeout);	\
-			if(tname->state == 0) _stop = 1;	\
+			if(tname->state != 1) _stop = 1;	\
 		}	\
 		pthread_mutex_unlock(&tname->_COND_LOCK);	\
 		if(_stop) break;	\
-	}
+	}	\
+	tname->state = 0
 #define thread_wait(tname) thread_waitfor_idle(tname)
 #define thread_wait_next(tname) do { thread_beg_operate(tname, tname##_var_next); thread_wait(tname); tname##_var_next = (tname##_var_next + 1) % tname##_params[0].n_cpu; } while(0)
 #define thread_end_operate(tname, idx)   tname = NULL
 #define thread_begin_iter(tname) { struct tname##_struct * tname = NULL; int tname##_i; for(tname##_i=0;tname##_i<tname##_params[0].n_cpu;tname##_i++){ tname = tname##_params + tname##_i
 #define thread_beg_iter(tname) thread_begin_iter(tname)
-#define thread_is_idle(tname) (tname->state == 0)
+#define thread_is_idle(tname) (tname->state != 1)
 #define thread_n_cpus(tname) (tname->n_cpu)
 #define thread_index(tname) (tname->t_idx)
 #define thread_end_iter(tname) } }
@@ -266,7 +275,7 @@ while(1){	\
 
 #define thread_end_monitor(tname)	\
 	for(tname##_j=0;tname##_j<tname##_params[0].n_cpu;tname##_j++){	\
-		if(tname##_params[tname##_j].state > 0) break;	\
+		if(tname##_params[tname##_j].state == 1) break;	\
 	}	\
 	if(tname##_j==tname##_params[0].n_cpu) break;	\
 }
@@ -274,7 +283,7 @@ while(1){	\
 #define thread_waitfor_one_idle(tname)	\
 while(1){	\
 	for(;tname##_j<tname##_params[0].n_cpu;tname##_j++){	\
-		if(tname##_params[tname##_j].state == 0){	\
+		if(tname##_params[tname##_j].state != 1){	\
 			tname = tname##_params + tname##_j;	\
 			break;	\
 		}	\
@@ -286,14 +295,43 @@ while(1){	\
 		tname##_j = (tname##_j + 1) % tname##_params[0].n_cpu;	\
 		break;	\
 	}	\
-}
+}	\
+tname->state = 0
 #define thread_wait_one(tname) thread_waitfor_one_idle(tname)
+
+#define thread_wait_done(tname)	\
+while(1){	\
+	int _nrun_;	\
+	_nrun_ = 0;	\
+	for(tname##_j=0;tname##_j<tname##_params[0].n_cpu;tname##_j++){	\
+		if(tname##_params[tname##_j].state == 2){	\
+			tname = tname##_params + tname##_j;	\
+			break;	\
+		} else if(tname##_params[tname##_j].state == 1){	\
+			_nrun_ ++;	\
+		}	\
+	}	\
+	if(tname##_j >= tname##_params[0].n_cpu){	\
+		tname##_j = 0;	\
+		if(_nrun_ == 0){	\
+			tname = tname##_params + tname##_j;	\
+			tname##_j = (tname##_j + 1) % tname##_params[0].n_cpu;	\
+			break;	\
+		} else {	\
+			nano_sleep(10);	\
+		}	\
+	} else {	\
+		tname##_j = (tname##_j + 1) % tname##_params[0].n_cpu;	\
+		break;	\
+	}	\
+}	\
+tname->state = 0
 
 #define thread_test_all(tname, expr) ({int ret = 1; thread_beg_iter(tname); if(!(expr)){ ret = 0; break;} thread_end_iter(tname); ret;})
 
 #define thread_count_all(tname, expr) ({int ret = 0; thread_beg_iter(tname); if((expr)){ ret ++; } thread_end_iter(tname); ret;})
 
-#define thread_all_idle(tname) thread_test_all(tname, (tname)->state == 0)
+#define thread_all_idle(tname) thread_test_all(tname, (tname)->state != 1)
 
 #define thread_waitfor_all_idle(tname) { thread_begin_iter(tname); thread_waitfor_idle(tname); thread_end_iter(tname); }
 #define thread_wait_all(tname) thread_waitfor_all_idle(tname)
