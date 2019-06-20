@@ -1227,7 +1227,7 @@ static inline  u8i rescue_low_cov_edges_graph(Graph *g){
 	return ret;
 }
 
-static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step){
+static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step, u4i cov_cutoff){
 	tracev *path;
 	trace_t *t;
 	node_t *v, *w;
@@ -1262,7 +1262,11 @@ static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step){
 				} else {
 					cov[0] = e->cov;
 					fidx[0] = offset_edgerefv(g->erefs, f);
+					if(cov[0] >= cov_cutoff) break;
 				}
+			}
+			if(cov[0] >= cov_cutoff){
+				continue;
 			}
 			if(cov[0] >= cov[1]){
 				continue;
@@ -1312,6 +1316,9 @@ static inline u8i rescue_high_cov_edges_graph(Graph *g, u4i max_step){
 				d = !e->dir2;
 			}
 			f = first_living_edge_graph(g, w, d, NULL); // assert f != NULL
+			if(f == NULL){
+				continue;
+			}
 			fidx[2] = offset_edgerefv(g->erefs, f);
 			{
 				e = ref_edgev(g->edges, ref_edgerefv(g->erefs, fidx[0])->idx);
@@ -2480,7 +2487,8 @@ static inline u8i trim_frgtips_graph(Graph *g, int max_len){
 typedef struct {
 	node_t *n;
 	edge_t *e; // incoming edge
-	u8i dir:1, ind:1, step:8, bt:16, ending:16, score:20, keep:2;
+	u8i dir:1, ind:1, step:8, bt:16, ending:16, keep:2;
+	int score:20;
 } bt_t;
 define_list(btv, bt_t);
 #define WT_MAX_BTIDX	0xFFFF
@@ -2685,7 +2693,7 @@ static inline u4i pop_bubble_core_graph(Graph *g, uint16_t max_step, btv *bts, u
 			tb->step = bt->step + 1;
 			tb->bt   = bidx;
 			tb->ind = 0;
-			tb->score = bt->score + e->cov;
+			tb->score = bt->score + num_min(0, e->cov - 20); // set normal e->cov = 20
 			tb->ending = 0;
 		}
 		if(bt->ind && (bt->bt == 0 || lst + 1 == bts->size)){
@@ -2721,7 +2729,8 @@ static inline u4i pop_bubble_core_graph(Graph *g, uint16_t max_step, btv *bts, u
 			}
 			tb->n->unvisit --;
 			if(tb->n->unvisit == 0){
-				if(tb->step > bts->buffer[tb->n->bt_idx].step){
+				if(num_cmpgt(tb->score, bts->buffer[tb->n->bt_idx].score)){
+				//if(tb->step > bts->buffer[tb->n->bt_idx].step){
 					bts->buffer[tb->n->bt_idx].ending = i;
 					tb->n->bt_idx = i;
 					tb->ending = 0;
@@ -3958,14 +3967,16 @@ static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs)
 			r1 ++;
 		} else {
 			rid = r1->rid;
-			if(r1->beg < r2->beg){
-				if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
-				beg = r1->beg; end = r2->end;
-				push_layregv(regs, (lay_reg_t){rid, 0, beg, end, 0});
-			} else {
-				if(!(q->dir1 ^ r1->dir)){ r1 ++; r2 ++; continue; }
-				beg = r2->beg; end = r1->end;
-				push_layregv(regs, (lay_reg_t){rid, 1, beg, end, 0});
+			if(r1->closed == 0 && r2->closed == 0){
+				if(r1->beg < r2->beg){
+					if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
+					beg = r1->beg; end = r2->end;
+					push_layregv(regs, (lay_reg_t){rid, 0, beg, end, 0});
+				} else {
+					if(!(q->dir1 ^ r1->dir)){ r1 ++; r2 ++; continue; }
+					beg = r2->beg; end = r1->end;
+					push_layregv(regs, (lay_reg_t){rid, 1, beg, end, 0});
+				}
 			}
 			r1 ++; r2 ++;
 		}

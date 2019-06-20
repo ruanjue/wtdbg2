@@ -2,18 +2,22 @@
 ```sh
 git clone https://github.com/ruanjue/wtdbg2
 cd wtdbg2 && make
+#quick start with wtdbg2.pl
+./wtdbg2.pl -t 16 -x rs -g 4.6m -o dbg reads.fa.gz
+
+# Step by step commandlines
 # assemble long reads
 ./wtdbg2 -x rs -g 4.6m -i reads.fa.gz -t 16 -fo dbg
 
 # derive consensus
-./wtpoa-cns -t 16 -i dbg.ctg.lay.gz -fo dbg.ctg.lay.fa
+./wtpoa-cns -t 16 -i dbg.ctg.lay.gz -fo dbg.raw.fa
 
 # polish consensus, not necessary if you want to polish the assemblies using other tools
-minimap2 -t16 -ax map-pb -r2k dbg.ctg.lay.fa reads.fa.gz | samtools sort -@16 >dbg.ctg.map.srt.bam
-samtools view dbg.ctg.map.srt.bam | ./wtpoa-cns -t 16 -d dbg.ctg.lay.fa -i - -fo dbg.ctg.lrp.fa
+minimap2 -t16 -ax map-pb -r2k dbg.raw.fa reads.fa.gz | samtools sort -@4 >dbg.bam
+samtools view -F0x900 dbg.bam | ./wtpoa-cns -t 16 -d dbg.raw.fa -i - -fo dbg.cns.fa
 
-# polish contigs using short reads
-bwa mem -t 16 dbg.ctg.lrp.fa sr.1.fa sr.2.fa | samtools sort -O SAM | ./wtpoa-cns -t 16 -x sam-sr -d dbg.ctg.lrp.fa -i - -fo dbg.ctg.srp.fa
+# Addtional polishment using short reads
+bwa mem -t 16 dbg.cns.fa sr.1.fa sr.2.fa | samtools sort -O SAM | ./wtpoa-cns -t 16 -x sam-sr -d dbg.cns.fa -i - -fo dbg.srp.fa
 ```
 
 ## <a name="intro"></a>Introduction

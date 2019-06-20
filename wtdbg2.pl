@@ -4,18 +4,18 @@ use strict;
 use warnings;
 use Getopt::Std;
 
-my %opts = (t=>4, m=>"2g", X=>50, M=>"map-ont");
+my %opts = (t=>4, m=>"2g", X=>50);
 getopts('t:x:o:a:g:X:M:OP', \%opts);
 $opts{e} = lc $opts{e};
 die (qq/Usage: wtdbg2.pl [options] <reads.fa>
 Options:
   -o STR     output prefix [input]
   -t INT     number of threads [$opts{t}]
-  -x STR     preset: rs, ont, sq []
+  -x STR     preset: rs, ont, sq, ccs []
   -g NUM     estimated genome size []
   -X FLOAT   coverage cutoff [$opts{X}]
   -a STR     additional wtdbg2 options []
-  -M STR     minimap2 preset [$opts{M}]
+  -M STR     minimap2 preset, according to -x when set []
   -m NUM     samtools sort block size [$opts{m}]
   -P         skip minimap2-based polishing
   -O         output without execution
@@ -33,6 +33,21 @@ my $asm_opt = "-t $opts{t} -fo $prefix -X $opts{X}";
 $asm_opt .= " -g $opts{g}" if defined($opts{g}) && $opts{g} =~ /^\d/;
 $asm_opt .= " -x $opts{x}" if defined($opts{x});
 $asm_opt .= " -i $ARGV[$_]" for (0 .. @ARGV-1);
+
+my %map_opts = (
+	rs=>'map-pb', rsII=>'map-pb', sq=>'map-pb', sequel=>'map-pb',
+	ont=>'map-ont', nanopore=>'map-ont',
+	ccs=>'map-pb', corrected=>'map-pb'
+);
+
+if(not defined $opts{M}){
+	if(defined $opts{x}){
+		$opts{M} = $map_opts{lc $opts{x}};
+		$opts{M} = 'map-ont' unless(defined $opts{M});
+	} else {
+		$opts{M} = 'map-ont';
+	}
+}
 
 my $mm2_input = join(' ', @ARGV);
 
