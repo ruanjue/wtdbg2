@@ -1221,7 +1221,7 @@ static inline int align_rd_pog_core(POG *g, u2i rid, int W, int *xe){
 			if(g->rowr->size){
 				coff = roff = g->rowr->buffer[-- g->rowr->size];
 			} else {
-#if DEBUG
+#if 0
 				if(g->rows->size + seqinc + g->rows->n_head > g->rows->cap){
 					fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 					abort();
