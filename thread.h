@@ -95,11 +95,7 @@ struct tname##_struct {		\
 	tname##_params = tname->tname##_params;	\
 	if(tname##_params + tname->t_idx != tname){	\
 		fprintf(stderr, " --  Unexcepted error in thread [%s] in %s -- %s:%d --\n", #tname, __FUNCTION__, __FILE__, __LINE__);	\
-	}	\
-	pthread_mutex_lock(&tname->_COND_LOCK);	\
-	tname->state = 0;	\
-	pthread_cond_signal(&tname->_COND);	\
-	pthread_mutex_unlock(&tname->_COND_LOCK)
+	}
 #define thread_begin_func(tname) static thread_begin_func_core(tname)
 #define thread_beg_func(tname) thread_begin_func(tname)
 #define thread_beg_func_inline(tname) inline void* thread_##tname##_func(void *obj){\
@@ -109,12 +105,12 @@ struct tname##_struct {		\
 	tname##_params = tname->tname##_params;	\
 	if(tname##_params + tname->t_idx != tname){	\
 		fprintf(stderr, " --  Unexcepted error in thread [%s] in %s -- %s:%d --\n", #tname, __FUNCTION__, __FILE__, __LINE__);	\
-	}	\
+	}
+#define thread_begin_loop(tname)	\
 	pthread_mutex_lock(&tname->_COND_LOCK);	\
 	tname->state = 0;	\
 	pthread_cond_signal(&tname->_COND);	\
-	pthread_mutex_unlock(&tname->_COND_LOCK)
-#define thread_begin_loop(tname)	\
+	pthread_mutex_unlock(&tname->_COND_LOCK);	\
 	while(tname->running){	\
 		if(tname->state != 1){	\
 			struct timespec _timeout;	\
