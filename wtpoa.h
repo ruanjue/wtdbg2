@@ -125,7 +125,7 @@ u1v *seq1, *seq2;
 kswx_t XX, *xs[2];
 u8list *mem_cache;
 u32list *cigars[2];
-int qb, qe, tb, te, b, e;
+int qb, qe, tb, te, b, e, ol;
 cc = mcns->cc;
 g = mcns->g;
 seq1 = mcns->seq1;
@@ -145,8 +145,9 @@ if(mcns->edges[1].idx == MAX_U8){
 	tb = 0; te = seq2->size;
 	if(qe > cc->reglen) qb = qe - cc->reglen;
 	if(te > cc->reglen) te = cc->reglen;
+	ol = num_min(qe -qb, te - tb);
 	kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, (cc->I + cc->D) / 2, (cc->I + cc->D) / 2, cc->E, mem_cache);
-	if(XX.mat < 100 || XX.mat < Int(XX.aln * 0.9)){
+	if(XX.aln < Int(0.5 * cc->reglen) || XX.mat < Int(XX.aln * 0.9)){
 		// full length alignment
 		qb = 0; qe = seq1->size;
 		tb = 0; te = seq2->size;
@@ -334,6 +335,15 @@ static inline int iter_ctgcns(CTGCNS *cc){
 					fprintf(stderr, "\r%u contigs %llu edges %llu bases", cc->cidx, cc->ridx, cc->bases); fflush(stderr);
 				}
 			} else {
+				if(0){
+					if(cc->sq->rdtag){
+						fprintf(stdout, "S\t%s\t%c\t%u\t%u\t", cc->sq->rdtag, "+-"[cc->sq->rddir], cc->sq->rdoff, (u4i)cc->sq->seq->size);
+					} else {
+						fprintf(stdout, "S\tR%llu\t%c\t%u\t%u\t", (u8i)cc->sq->rdidx, "+-"[cc->sq->rddir], cc->sq->rdoff, (u4i)cc->sq->seq->size);
+					}
+					print_seq_basebank(cc->sq->seq, 0, cc->sq->seq->size, stdout);
+					fprintf(stdout, "\t%u\t%u\n", cc->sq->rbeg, cc->sq->rend);
+				}
 				fwdbitpush_tripog(mcns->g, cc->sq->seq->bits, 0, cc->sq->seq->size, cc->sq->rbeg, cc->sq->rend);
 				cc->sq = NULL;
 			}
@@ -416,15 +426,10 @@ static inline int iter_ctgcns(CTGCNS *cc){
 			mcns->edges[0].idx = offset_edgecnsv(cc->rs, edge);
 			beg_tripog(mcns->g);
 			cc->state = 1;
-		} else if(cc->state == 4){
-			if(cc->sq == NULL){
-				if(!cns_debug && cc->print_progress){
-					fprintf(stderr, "\r%u contigs %llu edges %llu bases\n", cc->cidx, cc->ridx, cc->bases); fflush(stderr);
-				}
-				cc->state = 0;
-			} else {
-				cc->state = 5;
+			if(0){
+				fprintf(stdout, "E\t%u\tN%u\t+\tN%u\t+\n", bk->refoff, bk->node1, bk->node2);
 			}
+		} else if(cc->state == 4){
 			clear_basebank(cc->cns);
 			for(i=0;i<cc->rs->size;i++){
 				edge = ref_edgecnsv(cc->rs, i);
@@ -438,6 +443,14 @@ static inline int iter_ctgcns(CTGCNS *cc){
 				}
 			}
 			cc->bases += cc->cns->size;
+			if(cc->sq == NULL){
+				if(!cns_debug && cc->print_progress){
+					fprintf(stderr, "\r%u contigs %llu edges %llu bases\n", cc->cidx, cc->ridx, cc->bases); fflush(stderr);
+				}
+				cc->state = 0;
+			} else {
+				cc->state = 5;
+			}
 			thread_export(mcns, cc);
 			return 1;
 		} else if(cc->state == 5){
@@ -455,6 +468,10 @@ static inline int iter_ctgcns(CTGCNS *cc){
 			clear_u8v(cc->tasks);
 			clear_edgecnsv(cc->rs);
 			cc->state = 1;
+			if(0){
+				fflush(stdout);
+				fprintf(stdout, ">%s len=%u\n", bk->reftag, bk->reflen);
+			}
 		}
 	}
 	thread_export(mcns, cc);
@@ -475,9 +492,11 @@ typedef struct {
 	u4i     bidx2;
 } SAMBlock;
 
-static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bstep, int flags){
+static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bovlp, int flags){
 	SAMBlock *sb;
 	lay_seq_t *stop;
+	u2i bstep;
+	bstep = bsize - bovlp;
 	assert(bstep <= bsize && 2 * bstep >= bsize);
 	sb = malloc(sizeof(SAMBlock));
 	sb->chridx = 0;
