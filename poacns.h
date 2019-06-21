@@ -1018,13 +1018,16 @@ static inline u2i get_rdbase_pog(POG *g, u4i rid, u4i pos){
 	}
 }
 
-static inline int _cal_matches_alignment_pog(POG *g, u4i rid, int *xb, int xe){
+static inline int _cal_matches_alignment_pog(POG *g, u4i rid, int *xb, int xe, int *badtail){
 	pog_node_t *u, *v;
 	u4i nidx, seqoff, btx, bt, vst;
-	int x, seqlen, mat;
+	int x, seqlen, mat, score, x0, x1, flag;
 	seqlen = g->seqs->rdlens->buffer[rid];
 	seqoff = g->seqs->rdoffs->buffer[rid];
 	x = xe;
+	score = 0;
+	x0 = x1 = x;
+	flag = 0;
 	nidx = POG_TAIL_NODE;
 	v = ref_pognodev(g->nodes, nidx);
 	btx = 1;
@@ -1035,11 +1038,19 @@ static inline int _cal_matches_alignment_pog(POG *g, u4i rid, int *xb, int xe){
 		vst = bt >> 2;
 		bt  = bt & 0x03;
 		if(bt == POG_DP_BT_M){
+			if(flag) score += ((u->base & 0x03) == get_basebank(g->seqs->rdseqs, seqoff + x))? g->par->M : g->par->X;
+			else { flag = 1; x1 = x; }
 			mat ++;
 			x --;
 		} else if(bt & POG_DP_BT_I){
+			if(flag) score += g->par->I;
 			x --;
 		} else {
+			if(flag) score += g->par->D;
+			else { flag = 1; x1 = x; }
+		}
+		if(score == 10 * g->par->M){
+			x0 = x + 1;
 		}
 		if(bt & POG_DP_BT_I){
 		} else {
@@ -1054,6 +1065,7 @@ static inline int _cal_matches_alignment_pog(POG *g, u4i rid, int *xb, int xe){
 		}
 	}
 	*xb = x;
+	*badtail = x1 > x0? x1 - x0 : 0;
 	return mat;
 }
 
@@ -1309,7 +1321,7 @@ static inline int align_rd_pog_core(POG *g, u2i rid, int W, int *xe){
 }
 
 static inline int align_rd_pog(POG *g, u2i rid){
-	int xb, xe, rlen, xlen, score, W, mat;
+	int xb, xe, rlen, bad, xlen, score, W, mat;
 	rlen = g->seqs->rdlens->buffer[rid];
 	xlen = rlen / 8 * 8;
 	W = g->par->W? g->par->W : xlen;
@@ -1318,14 +1330,14 @@ static inline int align_rd_pog(POG *g, u2i rid){
 	// try increase W when align score is low
 	while(1){
 		score = align_rd_pog_core(g, rid, W, &xe);
-		mat = _cal_matches_alignment_pog(g, rid, &xb, xe);
+		mat = _cal_matches_alignment_pog(g, rid, &xb, xe, &bad);
 		if(cns_debug > 1){
-			fprintf(stderr, "ALIGN[%03d] len=%u ref=%d,%d band=%d aligned=%d,%d mat=%d,%0.3f score=%d\n", rid, g->seqs->rdlens->buffer[rid], g->sbegs->buffer[rid], g->sends->buffer[rid], W, xb + 1, xe + 1, mat, 1.0 * mat / rlen, score);
+			fprintf(stderr, "ALIGN[%03d] len=%u ref=%d,%d band=%d aligned=%d,%d tail=%d mat=%d,%0.3f score=%d\n", rid, g->seqs->rdlens->buffer[rid], g->sbegs->buffer[rid], g->sends->buffer[rid], W, xb + 1, xe + 1, bad, mat, 1.0 * mat / rlen, score);
 		}
 		if(rid == 0){
 			break;
 		}
-		if(mat >= rlen * g->par->W_mat_rate){
+		if(mat >= rlen * g->par->W_mat_rate && bad < 50){
 			break;
 		}
 		if(W >= xlen) break;
