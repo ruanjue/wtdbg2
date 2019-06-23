@@ -4,15 +4,17 @@ use strict;
 use warnings;
 use Getopt::Std;
 
-my %opts = (t=>4, m=>"2g", X=>50);
-getopts('t:x:o:a:g:X:M:OP', \%opts);
+my %opts = (t=>4, m=>"2g");
+getopts('t:x:o:a:g:X:M:OPp:k:', \%opts);
 die (qq/Usage: wtdbg2.pl [options] <reads.fa>
 Options:
-  -o STR     output prefix [input]
+  -o STR     output prefix [first input]
   -t INT     number of threads [$opts{t}]
   -x STR     preset: rs, ont, sq, ccs []
   -g NUM     estimated genome size []
-  -X FLOAT   coverage cutoff [$opts{X}]
+  -X FLOAT   coverage cutoff [wtdbg2 default]
+  -k INT     k-mer length [wtdbg2 default]
+  -p INT     length of HPC k-mers [wtdbg2 default]
   -a STR     additional wtdbg2 options []
   -M STR     minimap2 preset, according to -x when set []
   -m NUM     samtools sort block size [$opts{m}]
@@ -22,25 +24,32 @@ Options:
 
 $opts{asm} = gwhich("wtdbg2") || die;
 $opts{cns} = gwhich("wtpoa-cns") || die;
-$opts{smt} = gwhich("samtools") || die;
-$opts{mm2} = gwhich("minimap2") || die;
+unless (defined $opts{P}) {
+	$opts{smt} = gwhich("samtools") || die;
+	$opts{mm2} = gwhich("minimap2") || die;
+}
 
 my $prefix = defined($opts{o})? $opts{o} : $ARGV[0];
 my $smt_threads = $opts{t} < 4? $opts{t} : 4;
 
-my $asm_opt = "-t $opts{t} -fo $prefix -X $opts{X}";
-$asm_opt .= " -g $opts{g}" if defined($opts{g}) && $opts{g} =~ /^\d/;
+my $asm_opt = "";
 $asm_opt .= " -x $opts{x}" if defined($opts{x});
+$asm_opt .= " -g $opts{g}" if defined($opts{g}) && $opts{g} =~ /^\d/;
+$asm_opt .= " -X $opts{X}" if defined($opts{X});
+$asm_opt .= " -k $opts{k}" if defined($opts{k}) && $opts{k} =~ /^\d+$/;
+$asm_opt .= " -p $opts{p}" if defined($opts{p}) && $opts{p} =~ /^\d+$/;
+$asm_opt .= " $opts{a}" if defined($opts{a});
+$asm_opt .= " -t $opts{t} -fo $prefix";
 $asm_opt .= " -i $ARGV[$_]" for (0 .. @ARGV-1);
 
 my %map_opts = (
 	rs=>'map-pb', rsII=>'map-pb', sq=>'map-pb', sequel=>'map-pb',
 	ont=>'map-ont', nanopore=>'map-ont',
-	ccs=>'map-pb', corrected=>'map-pb'
+	ccs=>'asm20', corrected=>'asm20'
 );
 
-if(not defined $opts{M}){
-	if(defined $opts{x}){
+if (not defined $opts{M}) {
+	if (defined $opts{x}) {
 		$opts{M} = $map_opts{lc $opts{x}};
 		$opts{M} = 'map-ont' unless(defined $opts{M});
 	} else {
