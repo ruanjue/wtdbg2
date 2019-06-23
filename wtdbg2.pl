@@ -6,7 +6,6 @@ use Getopt::Std;
 
 my %opts = (t=>4, m=>"2g", X=>50);
 getopts('t:x:o:a:g:X:M:OP', \%opts);
-$opts{e} = lc $opts{e};
 die (qq/Usage: wtdbg2.pl [options] <reads.fa>
 Options:
   -o STR     output prefix [input]

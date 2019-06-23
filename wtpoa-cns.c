@@ -41,10 +41,11 @@ int usage(){
 	" -r          Force to use reference mode\n"
 	" -p <string> Similar with -d, but translate SAM into wtdbg layout file\n"
 	" -i <string> Input file(s) *.ctg.lay from wtdbg, +, [STDIN]\n"
-	"             Or sorted SAM files when having -d\n"
+	"             Or sorted SAM files when having -d/-p\n"
 	" -o <string> Output files, [STDOUT]\n"
 	" -f          Force overwrite\n"
 	" -j <int>    Expected max length of node, or say the overlap length of two adjacent units in layout file, [1500] bp\n"
+	"             overlap will be default to 1500(or 150 for sam-sr) when having -d/-p, block size will be 2.5 * overlap\n"
 	" -b <int>    Bonus for tri-bases match, [0]\n"
 	" -M <int>    Match score, [2]\n"
 	" -X <int>    Mismatch score, [-5]\n"
@@ -56,7 +57,6 @@ int usage(){
 	" -W <int>    Window size in the middle of the first read for fast align remaining reads, [200]\n"
 	"             If $W is negative, will disable fast align, but use the abs($W) as Band align score cutoff\n"
 	" -w <int>    Min size of aligned size in window, [$W * 0.5]\n"
-	"             In sorted-SAM input mode, -w is the sliding window size [2000]\n"
 	" -A          Abort TriPOA when any read cannot be fast aligned, then try POA\n"
 	" -S <int>    Shuffle mode, 0: don't shuffle reads, 1: by shared kmers, 2: subsampling. [1]\n"
 	" -R <int>    Realignment bandwidth, 0: disable, [16]\n"
@@ -67,7 +67,8 @@ int usage(){
 	"             Keep in mind that I am not going to generate high accurate consensus sequences here\n"
 	" -x <string> Presets, []\n"
 	"             sam-sr: polishs contigs from short reads mapping, accepts sorted SAM files\n"
-	"                     shorted for '-w 200 -j 150 -R 0 -b 1 -c 1 -N 50 -rS 2'\n"
+	"                     shorted for '-j 50 -W 0 -R 0 -b 1 -c 1 -N 50 -rS 2'\n"
+	" -q          Quiet\n"
 	" -v          Verbose\n"
 	" -V          Print version information and then exit\n"
 	"\n", TOSTR(VERSION), TOSTR(RELEASE));
@@ -85,23 +86,23 @@ int main(int argc, char **argv){
 	u4i i;
 	int reglen, shuffle, winlen, winmin, fail_skip;
 	int seqmax, wsize, print_lay, flags;
-	int c, ncpu, overwrite;
+	int c, ncpu, overwrite, quiet;
 	par = DEFAULT_POG_PAR;
 	ncpu = 4;
+	quiet = 0;
 	shuffle = 1;
 	seqmax = 20;
 	winlen = 200;
 	winmin = 0;
 	fail_skip = 1;
-	reglen = 1500;
-	wsize = 2000; // used for SAM input
+	reglen = 0;
 	infs = init_cplist(4);
 	dbfs = init_cplist(4);
 	outf = NULL;
 	overwrite = 0;
 	print_lay = 0;
 	flags = 0;
-	while((c = getopt(argc, argv, "hvVt:d:rp:u:i:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
+	while((c = getopt(argc, argv, "hqvVt:d:rp:u:i:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
@@ -127,7 +128,7 @@ int main(int argc, char **argv){
 				}
 				break;
 			case 'W': winlen = atoi(optarg); break;
-			case 'w': wsize = winmin = atoi(optarg); break;
+			case 'w': winmin = atoi(optarg); break;
 			case 'A': fail_skip = 0; break;
 			case 'b': par.tribase = atoi(optarg); break;
 			case 'M': par.M = atoi(optarg); break;
@@ -143,7 +144,7 @@ int main(int argc, char **argv){
 			case 'N': seqmax = atoi(optarg); break;
 			case 'x':
 				if(strcasecmp(optarg, "sam-sr") == 0){
-					wsize = winmin = 200;
+					winlen = 0;
 					reglen = 150;
 					par.rW = 0;
 					par.tribase = 1;
@@ -156,13 +157,23 @@ int main(int argc, char **argv){
 					return 1;
 				}
 				break;
+			case 'q': quiet = 1; break;
 			case 'v': cns_debug ++; break;
 			case 'V': fprintf(stdout, "wtpoa-cns %s\n", TOSTR(VERSION)); return 0;
 			default: return usage();
 		}
 	}
+	if(quiet){
+		int devnull;
+		devnull = open("/dev/null", O_WRONLY);
+		dup2(devnull, STDERR_FILENO);
+	}
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	//SET_PROC_LIMIT(10 * 1024 * 1024 * 1024ULL, 0); // TODO: remove it after debug
+	if(reglen == 0){
+		reglen = 1500;
+	}
+	wsize = 2.5 * reglen;
 	if(winlen < 0){
 		par.W_score = - winlen;
 		winlen = 0;
@@ -215,8 +226,8 @@ int main(int argc, char **argv){
 	} else {
 		SAMBlock *sb;
 		BioSequence *seq;
-		if(reglen > wsize || 2 * reglen < wsize){
-			fprintf(stderr, " -- SAM Input mode: -w wsize(%d), -j reglen(%d), MUST has reglen <= wsize and 2 * reglen >= wsize in %s -- %s:%d --\n", wsize, reglen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+		if(2 * reglen >= wsize){
+			fprintf(stderr, " -- SAM Input mode: -w wsize(%d), -j reglen(%d), MUST has 2 * reglen >= wsize in %s -- %s:%d --\n", wsize, reglen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			return 1;
 		}
 		refs = init_seqbank();
@@ -227,8 +238,8 @@ int main(int argc, char **argv){
 		}
 		free_biosequence(seq);
 		close_filereader(db);
-		sb = init_samblock(refs, fr, wsize, reglen, flags);
-		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, shuffle, seqmax, 0, 0, fail_skip, UInt((wsize - reglen) * 1.2 + 100), &par);
+		sb = init_samblock(refs, fr, wsize, reglen * 2 / 3, flags);
+		cc = init_ctgcns(sb, iter_samblock, info_samblock, ncpu, shuffle, seqmax, winlen, winmin, fail_skip, reglen, &par);
 		cc->print_progress = 100;
 		if(print_lay){
 			print_lays_ctgcns(cc, out);

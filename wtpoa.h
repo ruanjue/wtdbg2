@@ -91,7 +91,8 @@ struct CTGCNS;
 thread_beg_def(mcns);
 struct CTGCNS *cc;
 TriPOG *g;
-edge_cns_t edge;
+edge_cns_t edges[2];
+u1v *seq1, *seq2;
 thread_end_def(mcns);
 
 typedef struct CTGCNS {
@@ -101,12 +102,13 @@ typedef struct CTGCNS {
 	lay_seq_t *sq;
 	lay_blk_t BK;
 	u4i ncpu;
-	edgecnsv *heap;
+	u8v *tasks;
+	//edgecnsv *heap;
 	edgecnsv *rs;
 	String *tag;
 	BaseBank *seq, *cns;
-	u8i widx, ridx, bases;
-	u4i cidx, eidx, chridx, bidx;
+	u8i ridx, bases;
+	u4i cidx, chridx, bidx, erun;
 	int state;
 	u4i seqmax;
 	int winlen, winmin, fail_skip;
@@ -119,46 +121,33 @@ typedef struct CTGCNS {
 thread_beg_func(mcns);
 struct CTGCNS *cc;
 TriPOG *g;
-edge_cns_t *edge;
 u1v *seq1, *seq2;
 kswx_t XX, *xs[2];
 u8list *mem_cache;
 u32list *cigars[2];
-u4i eidx;
-int qb, qe, tb, te, b, e;
+int qb, qe, tb, te, b, e, ol;
 cc = mcns->cc;
 g = mcns->g;
-seq1 = init_u1v(1024);
-seq2 = init_u1v(1024);
+seq1 = mcns->seq1;
+seq2 = mcns->seq2;
 mem_cache = init_u8list(1024);
 cigars[0] = init_u32list(64);
 cigars[1] = NULL;
 xs[0] = &XX;
 xs[1] = NULL;
 thread_beg_loop(mcns);
-if(g->seqs->nseq){
-	end_tripog(g);
-}
-eidx = MAX_U4;
-thread_beg_syn(mcns);
-if(cc->eidx + 1 < cc->rs->size){
-	eidx = cc->eidx;
-	edge = ref_edgecnsv(cc->rs, eidx);
-	clear_and_inc_u1v(seq1, edge->slen);
-	bitseq_basebank(cc->seq, edge->soff, edge->slen, seq1->buffer);
-	edge = ref_edgecnsv(cc->rs, eidx + 1);
-	clear_and_inc_u1v(seq2, edge->slen);
-	bitseq_basebank(cc->seq, edge->soff, edge->slen, seq2->buffer);
-	cc->eidx ++;
-}
-thread_end_syn(mcns);
-if(eidx != MAX_U4){
+if(mcns->edges[1].idx == MAX_U8){
+	if(g->seqs->nseq){
+		end_tripog(g);
+	}
+} else {
 	qb = 0; qe = seq1->size;
 	tb = 0; te = seq2->size;
 	if(qe > cc->reglen) qb = qe - cc->reglen;
 	if(te > cc->reglen) te = cc->reglen;
+	ol = num_min(qe -qb, te - tb);
 	kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, (cc->I + cc->D) / 2, (cc->I + cc->D) / 2, cc->E, mem_cache);
-	if(XX.mat < 100 || XX.mat < Int(XX.aln * 0.9)){
+	if(XX.aln < Int(0.5 * cc->reglen) || XX.mat < Int(XX.aln * 0.9)){
 		// full length alignment
 		qb = 0; qe = seq1->size;
 		tb = 0; te = seq2->size;
@@ -168,31 +157,23 @@ if(eidx != MAX_U4){
 	XX.qe += qb;
 	XX.tb += tb;
 	XX.te += tb;
-	//if(cns_debug){
-		//fprintf(stderr, "#%llu_%s\t%d\t%d\t%d", edge->idx - 1, ctg->string, (int)cseqs->size, XX.qb, XX.qe);
-		//fprintf(stderr, "\t%llu_%s\t%d\t%d\t%d", edge->idx ,   ctg->string, (int)edge->len,   XX.tb, XX.te);
-		//fprintf(stderr, "\t%d\t%d\t%d\t%d\t%d\n", XX.aln, XX.mat, XX.mis, XX.ins, XX.del);
-	//}
 	b = XX.qe;
 	e = XX.te;
 	revise_joint_point(cigars[0], &b, &e);
-	thread_beg_syn(mcns);
+	mcns->edges[0].end = b;
+	mcns->edges[1].beg = e;
 	if(cns_debug){
-		fprintf(stderr, "JOINT\t%llu\tqe = %d -> %d\tte = %d -> %d\t[%5d,%5d]\t[%5d,%5d,%d,%d,%d]\n", ref_edgecnsv(cc->rs, eidx)->idx, XX.qe, b, XX.te, e, (int)seq1->size, (int)seq2->size, XX.aln, XX.mat, XX.mis, XX.ins, XX.del);
+		thread_beg_syn(mcns);
+		fprintf(stderr, "JOINT\tC%u\tE%llu\tqe = %d -> %d\tte = %d -> %d\t[%5d,%5d]\t[%5d,%5d,%d,%d,%d]\n", mcns->cc->cidx, mcns->edges[0].idx, XX.qe, b, XX.te, e, (int)seq1->size, (int)seq2->size, XX.aln, XX.mat, XX.mis, XX.ins, XX.del);
 		fflush(stderr);
+		thread_end_syn(mcns);
 	}
-	ref_edgecnsv(cc->rs, eidx    )->end = b;
-	ref_edgecnsv(cc->rs, eidx + 1)->beg = e;
-	thread_end_syn(mcns);
 }
 thread_end_loop(mcns);
-free_u1v(seq1);
-free_u1v(seq2);
 free_u8list(mem_cache);
 free_u32list(cigars[0]);
 thread_end_func(mcns);
 
-//static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_block infocns, u4i ncpu, int refmode, int shuffle_rds, u4i seqmax, int winlen, int winmin, int fail_skip, int W, int M, int X, int I, int D, int E, int rW, int mincnt, float minfreq, int reglen){
 static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_block infocns, u4i ncpu, int shuffle_rds, u4i seqmax, int winlen, int winmin, int fail_skip, int reglen, POGPar *par){
 	CTGCNS *cc;
 	thread_prepare(mcns);
@@ -203,17 +184,16 @@ static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_bl
 	cc->sq = NULL;
 	ZEROS(&cc->BK);
 	cc->ncpu = ncpu;
-	cc->heap = init_edgecnsv(64);
+	cc->tasks = init_u8v(8);
 	cc->rs   = init_edgecnsv(64);
 	cc->tag = init_string(64);
 	cc->seq = init_basebank();
 	cc->cns = init_basebank();
-	cc->widx = 1;
-	cc->ridx = 1;
+	cc->ridx = 0;
 	cc->bases = 0;
 	cc->cidx = 0;
-	cc->eidx = 0;
 	cc->state = 1;
+	cc->erun = 0;
 	cc->seqmax = seqmax;
 	cc->winlen = winlen;
 	cc->winmin = winmin;
@@ -227,7 +207,12 @@ static inline CTGCNS* init_ctgcns(void *obj, iter_cns_block itercns, info_cns_bl
 	thread_beg_init(mcns, ncpu);
 	mcns->cc = cc;
 	mcns->g = init_tripog(seqmax, shuffle_rds, winlen, winmin, fail_skip, par);
-	ZEROS(&(mcns->edge));
+	mcns->seq1 = init_u1v(1024);
+	mcns->seq2 = init_u1v(1024);
+	ZEROS(&(mcns->edges[0]));
+	ZEROS(&(mcns->edges[1]));
+	mcns->edges[0].idx = MAX_U8;
+	mcns->edges[1].idx = MAX_U8;
 	thread_end_init(mcns);
 	cc->tri_rets[0] = 0;
 	cc->tri_rets[1] = 0;
@@ -243,8 +228,10 @@ static inline void free_ctgcns(CTGCNS *cc){
 	thread_import(mcns, cc);
 	thread_beg_close(mcns);
 	free_tripog(mcns->g);
+	free_u1v(mcns->seq1);
+	free_u1v(mcns->seq2);
 	thread_end_close(mcns);
-	free_edgecnsv(cc->heap);
+	free_u8v(cc->tasks);
 	free_edgecnsv(cc->rs);
 	free_string(cc->tag);
 	free_basebank(cc->seq);
@@ -253,23 +240,28 @@ static inline void free_ctgcns(CTGCNS *cc){
 }
 
 static inline void reset_ctgcns(CTGCNS *cc, void *obj, iter_cns_block itercns, info_cns_block infocns){
+	thread_prepare(mcns);
+	thread_import(mcns, cc);
 	cc->obj = obj;
 	cc->itercns = itercns;
 	cc->infocns = infocns;
 	cc->sq = NULL;
 	ZEROS(&cc->BK);
-	cc->widx = 1;
-	cc->ridx = 1;
+	cc->ridx = 0;
 	cc->cidx = 0;
-	cc->eidx = 0;
+	cc->erun = 0;
 	cc->state = 1;
 	cc->chridx = MAX_U4;
 	cc->bidx = MAX_U4;
 	clear_string(cc->tag);
 	clear_basebank(cc->seq);
 	clear_basebank(cc->cns);
-	clear_edgecnsv(cc->heap);
+	clear_u8v(cc->tasks);
 	clear_edgecnsv(cc->rs);
+	thread_beg_iter(mcns);
+	mcns->edges[0].idx = MAX_U8;
+	mcns->edges[1].idx = MAX_U8;
+	thread_end_iter(mcns);
 }
 
 static inline void print_lays_ctgcns(CTGCNS *cc, FILE *out){
@@ -303,152 +295,183 @@ static inline void print_lays_ctgcns(CTGCNS *cc, FILE *out){
 static inline int iter_ctgcns(CTGCNS *cc){
 	edge_cns_t *edge;
 	lay_blk_t *bk;
-	u4i i, nrun, eidx;
-	int next, flag;
+	u8i i, eidx;
+	int next, waitall;
 	thread_prepare(mcns);
 	thread_import(mcns, cc);
 	next = 0;
-	nrun = flag = 0;
+	waitall = 0;
 	bk = &cc->BK;
-	if(cc->sq){
-		cc->chridx = cc->sq->chridx;
-		cc->cidx ++;
-		cc->bidx = MAX_U4;
-		cc->infocns(cc->obj, cc->sq, bk);
-		clear_string(cc->tag);
-		if(bk->reftag){
-			append_string(cc->tag, bk->reftag, strlen(bk->reftag));
-		} else {
-			append_string(cc->tag, "anonymous", 10);
-		}
-		clear_basebank(cc->seq);
-		clear_edgecnsv(cc->heap);
-		clear_edgecnsv(cc->rs);
-		cc->eidx = 0;
-	}
 	while(cc->state){
 		if(cc->state == 1){
 			if(cc->sq == NULL){
 				cc->sq = cc->itercns(cc->obj);
 			}
 			if(cc->sq == NULL || cc->sq->chridx != cc->chridx){
-				if(cc->sq && cc->chridx == MAX_U4){
-					cc->chridx = cc->sq->chridx;
-					cc->cidx ++;
-					cc->bidx = MAX_U4;
-					cc->infocns(cc->obj, cc->sq, bk);
-					clear_string(cc->tag);
-					if(bk->reftag){
-						append_string(cc->tag, bk->reftag, strlen(bk->reftag));
-					} else {
-						append_string(cc->tag, "anonymous", 10);
+				if(cc->chridx != MAX_U4){
+					if(mcns->edges[0].idx != MAX_U8){
+						thread_wake(mcns);
+						cc->erun ++;
 					}
+					cc->state = 2;
+					next = 4;
+					waitall = 1;
+				} else if(cc->sq){
+					cc->state = 5;
+				} else {
+					thread_export(mcns, cc);
+					return 0;
 				}
-				if(mcns->edge.idx) thread_wake(mcns);
-				nrun = cc->ncpu + 1;
-				cc->state = 2;
 			} else if(cc->sq->bidx != cc->bidx){
-				if(mcns->edge.idx) thread_wake(mcns);
-				cc->bidx = cc->sq->bidx;
-				cc->infocns(cc->obj, cc->sq, bk);
-				nrun = 1;
-				cc->state = 3;
+				cc->ridx ++;
+				if(mcns->edges[0].idx != MAX_U8){
+					thread_wake(mcns);
+					cc->erun ++;
+				}
+				cc->state = 2;
+				next = 3;
+				waitall = 0;
+				if(!cns_debug && cc->print_progress && (cc->ridx % cc->print_progress) == 0){
+					fprintf(stderr, "\r%u contigs %llu edges %llu bases", cc->cidx, cc->ridx, cc->bases); fflush(stderr);
+				}
 			} else {
+				if(0){
+					if(cc->sq->rdtag){
+						fprintf(stdout, "S\t%s\t%c\t%u\t%u\t", cc->sq->rdtag, "+-"[cc->sq->rddir], cc->sq->rdoff, (u4i)cc->sq->seq->size);
+					} else {
+						fprintf(stdout, "S\tR%llu\t%c\t%u\t%u\t", (u8i)cc->sq->rdidx, "+-"[cc->sq->rddir], cc->sq->rdoff, (u4i)cc->sq->seq->size);
+					}
+					print_seq_basebank(cc->sq->seq, 0, cc->sq->seq->size, stdout);
+					fprintf(stdout, "\t%u\t%u\n", cc->sq->rbeg, cc->sq->rend);
+				}
 				fwdbitpush_tripog(mcns->g, cc->sq->seq->bits, 0, cc->sq->seq->size, cc->sq->rbeg, cc->sq->rend);
 				cc->sq = NULL;
 			}
 		} else if(cc->state == 2){
-			if(nrun){ // wait for all edge consensus
-				thread_wait_next(mcns);
-				nrun --;
-				cc->state = 4;
-				next = 2;
-			} else { // end of one contig consensus
-				if(cc->sq == NULL){
-					if(!cns_debug && cc->print_progress){
-						fprintf(stderr, "\r%u contigs %llu edges\n", cc->cidx, cc->widx); fflush(stderr);
-					}
-					cc->state = 0;
-				} else {
-					cc->state = 1;
-				}
-				if(cc->rs->size){
-					while(1){
-						thread_beg_syn(mcns);
-						eidx = cc->eidx;
-						thread_end_syn(mcns);
-						if(eidx + 1 >= cc->rs->size) break;
+			while(1){
+				if(waitall){
+					if(cc->tasks->size == 0){
+						thread_wait_done(mcns);
+					} else {
 						thread_wait_one(mcns);
-						thread_wake(mcns);
 					}
-					thread_wait_all(mcns);
-					clear_basebank(cc->cns);
-					for(i=0;i<cc->rs->size;i++){
-						edge = ref_edgecnsv(cc->rs, i);
-						if(edge->end > edge->beg){
-							fast_fwdbits2basebank(cc->cns, cc->seq->bits, edge->soff + edge->beg, edge->end - edge->beg);
-						} else if(Int(cc->cns->size) + edge->end > edge->beg){
-							cc->cns->size = cc->cns->size + edge->end - edge->beg;
-							normalize_basebank(cc->cns);
-						} else {
-							clear_basebank(cc->cns);
-						}
-					}
-					cc->bases += cc->cns->size;
-					thread_export(mcns, cc);
-					return 1;
-				}
-			}
-		} else if(cc->state == 3){
-			if(nrun){
-				thread_wait_one(mcns);
-				next = 3;
-				cc->state = 4;
-				nrun --;
-			} else {
-				beg_tripog(mcns->g);
-				mcns->edge.idx = cc->ridx ++;
-				mcns->edge.node1 = bk->node1;
-				mcns->edge.node2 = bk->node2;
-				mcns->edge.soff = 0;
-				mcns->edge.slen = 0;
-				mcns->edge.beg = 0;
-				mcns->edge.end = 0;
-				cc->state = 1;
-			}
-		} else if(cc->state == 4){ // collect edge consensus
-			if(mcns->edge.idx){
-				cc->tri_rets[mcns->g->is_tripog] ++;
-				if(cns_debug){
-					thread_beg_syn(mcns);
-					fprintf(stderr, "%llu_%s_N%u_N%u\t%d\t%d\t", mcns->edge.idx, cc->tag->string, mcns->edge.node1, mcns->edge.node2, mcns->g->seqs->nseq, (u4i)mcns->g->cns->size);
-					println_seq_basebank(mcns->g->cns, 0, mcns->g->cns->size, stderr);
-					thread_end_syn(mcns);
-				}
-				mcns->edge.soff = cc->seq->size;
-				mcns->edge.slen = mcns->g->cns->size;
-				mcns->edge.beg = 0;
-				mcns->edge.end = mcns->g->cns->size;
-				fast_fwdbits2basebank(cc->seq, mcns->g->cns->bits, 0, mcns->g->cns->size);
-				array_heap_push(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, mcns->edge, num_cmp(a.idx, b.idx));
-				ZEROS(&mcns->edge);
-			}
-			thread_beg_syn(mcns);
-			while(cc->heap->size){
-				edge = head_edgecnsv(cc->heap);
-				if(edge->idx == cc->widx){
-					if(!cns_debug && cc->print_progress && (cc->widx % cc->print_progress) == 0){
-						fprintf(stderr, "\r%u contigs %llu edges %llu bases", cc->cidx, cc->widx, cc->bases); fflush(stderr);
-					}
-					push_edgecnsv(cc->rs, *edge);
-					array_heap_remove(cc->heap->buffer, cc->heap->size, cc->heap->cap, edge_cns_t, 0, num_cmp(a.idx, b.idx));
-					cc->widx ++;
 				} else {
-					break;
+					thread_wait_one(mcns);
+				}
+				if(mcns->edges[1].idx != MAX_U8){
+					cc->erun --;
+					cc->rs->buffer[mcns->edges[0].idx].end = mcns->edges[0].end;
+					cc->rs->buffer[mcns->edges[1].idx].beg = mcns->edges[1].beg;
+					mcns->edges[0].idx = MAX_U8;
+					mcns->edges[1].idx = MAX_U8;
+				} else if(mcns->edges[0].idx != MAX_U8){
+					cc->erun --;
+					cc->tri_rets[mcns->g->is_tripog] ++;
+					if(cns_debug){
+						thread_beg_syn(mcns);
+						fprintf(stderr, "%llu_%s_N%u_N%u\t%d\t%d\t", mcns->edges[0].idx, cc->tag->string, mcns->edges[0].node1, mcns->edges[0].node2, mcns->g->seqs->nseq, (u4i)mcns->g->cns->size);
+						println_seq_basebank(mcns->g->cns, 0, mcns->g->cns->size, stderr);
+						thread_end_syn(mcns);
+					}
+					mcns->edges[0].soff = cc->seq->size;
+					mcns->edges[0].slen = mcns->g->cns->size;
+					mcns->edges[0].beg = 0;
+					mcns->edges[0].end = mcns->g->cns->size;
+					fast_fwdbits2basebank(cc->seq, mcns->g->cns->bits, 0, mcns->g->cns->size);
+					eidx = mcns->edges[0].idx;
+					cc->rs->buffer[eidx] = mcns->edges[0];
+					mcns->edges[0].idx = MAX_U8;
+					if(eidx && cc->rs->buffer[eidx - 1].idx != MAX_U8){
+						push_u8v(cc->tasks, eidx - 1);
+					}
+					if(eidx + 1 < cc->rs->size && cc->rs->buffer[eidx + 1].idx != MAX_U8){
+						push_u8v(cc->tasks, eidx);
+					}
+				}
+				if(pop_u8v(cc->tasks, &eidx)){
+					mcns->edges[0] = cc->rs->buffer[eidx];
+					mcns->edges[0].idx = eidx;
+					clear_and_inc_u1v(mcns->seq1, mcns->edges[0].slen);
+					bitseq_basebank(cc->seq, mcns->edges[0].soff, mcns->edges[0].slen, mcns->seq1->buffer);
+					mcns->edges[1] = cc->rs->buffer[eidx + 1];
+					mcns->edges[1].idx = eidx + 1;
+					clear_and_inc_u1v(mcns->seq2, mcns->edges[1].slen);
+					bitseq_basebank(cc->seq, mcns->edges[1].soff, mcns->edges[1].slen, mcns->seq2->buffer);
+					thread_wake(mcns);
+					cc->erun ++;
+				} else {
+					if(waitall){
+						if(cc->erun == 0){
+							break;
+						}
+					} else {
+						break;
+					}
 				}
 			}
-			thread_end_syn(mcns);
 			cc->state = next;
+		} else if(cc->state == 3){
+			cc->bidx = cc->sq->bidx;
+			cc->infocns(cc->obj, cc->sq, bk);
+			mcns->edges[1].idx = MAX_U8;
+			edge = next_ref_edgecnsv(cc->rs);
+			edge->idx = MAX_U8;
+			edge->node1 = bk->node1;
+			edge->node2 = bk->node2;
+			edge->soff = 0;
+			edge->slen = 0;
+			edge->beg = 0;
+			edge->end = 0;
+			mcns->edges[0] = *edge;
+			mcns->edges[0].idx = offset_edgecnsv(cc->rs, edge);
+			beg_tripog(mcns->g);
+			cc->state = 1;
+			if(0){
+				fprintf(stdout, "E\t%u\tN%u\t+\tN%u\t+\n", bk->refoff, bk->node1, bk->node2);
+			}
+		} else if(cc->state == 4){
+			clear_basebank(cc->cns);
+			for(i=0;i<cc->rs->size;i++){
+				edge = ref_edgecnsv(cc->rs, i);
+				if(edge->end > edge->beg){
+					fast_fwdbits2basebank(cc->cns, cc->seq->bits, edge->soff + edge->beg, edge->end - edge->beg);
+				} else if(Int(cc->cns->size) + edge->end > edge->beg){
+					cc->cns->size = cc->cns->size + edge->end - edge->beg;
+					normalize_basebank(cc->cns);
+				} else {
+					clear_basebank(cc->cns);
+				}
+			}
+			cc->bases += cc->cns->size;
+			if(cc->sq == NULL){
+				if(!cns_debug && cc->print_progress){
+					fprintf(stderr, "\r%u contigs %llu edges %llu bases\n", cc->cidx, cc->ridx, cc->bases); fflush(stderr);
+				}
+				cc->state = 0;
+			} else {
+				cc->state = 5;
+			}
+			thread_export(mcns, cc);
+			return 1;
+		} else if(cc->state == 5){
+			cc->chridx = cc->sq->chridx;
+			cc->cidx ++;
+			cc->bidx = MAX_U4;
+			cc->infocns(cc->obj, cc->sq, bk);
+			clear_string(cc->tag);
+			if(bk->reftag){
+				append_string(cc->tag, bk->reftag, strlen(bk->reftag));
+			} else {
+				append_string(cc->tag, "anonymous", 10);
+			}
+			clear_basebank(cc->seq);
+			clear_u8v(cc->tasks);
+			clear_edgecnsv(cc->rs);
+			cc->state = 1;
+			if(0){
+				fflush(stdout);
+				fprintf(stdout, ">%s len=%u\n", bk->reftag, bk->reflen);
+			}
 		}
 	}
 	thread_export(mcns, cc);
@@ -469,9 +492,11 @@ typedef struct {
 	u4i     bidx2;
 } SAMBlock;
 
-static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bstep, int flags){
+static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, u2i bovlp, int flags){
 	SAMBlock *sb;
 	lay_seq_t *stop;
+	u2i bstep;
+	bstep = bsize - bovlp;
 	assert(bstep <= bsize && 2 * bstep >= bsize);
 	sb = malloc(sizeof(SAMBlock));
 	sb->chridx = 0;

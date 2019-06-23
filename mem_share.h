@@ -673,6 +673,7 @@ thread_end_func(_proc_deamon);
 thread_preprocess(_proc_deamon);	\
 thread_beg_init(_proc_deamon, 1);	\
 thread_end_init(_proc_deamon);	\
+thread_wake_all(_proc_deamon);	\
 if(log){	\
 	fprintf(log, "--\n");	\
 	fprintf(log, "-- total memory %16.1f kB\n", _proc_deamon->memtotal / 1024.0);	\
@@ -688,8 +689,7 @@ if(log){	\
 	fprintf(log, "-- date         %s\n", date());	\
 	fprintf(log, "--\n");	\
 	fflush(log);	\
-}	\
-thread_wake_all(_proc_deamon)
+}
 #else
 #define BEG_STAT_PROC_INFO(log, argc, argv)	\
 if(log){	\
