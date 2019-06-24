@@ -360,6 +360,7 @@ static inline void print_lays_ctgcns(CTGCNS *cc, FILE *out){
 }
 
 static inline void repay_ctgcns(CTGCNS *cc, ctg_cns_t *ctg){
+	clear_ctg(ctg);
 	push_ctgcnsv(cc->cycs, ctg);
 }
 
