@@ -78,6 +78,7 @@ int usage(){
 int main(int argc, char **argv){
 	POGPar par;
 	CTGCNS *cc;
+	ctg_cns_t *ctg;
 	SeqBank *refs;
 	FileReader *fr, *db;
 	cplist *infs, *dbfs;
@@ -209,16 +210,21 @@ int main(int argc, char **argv){
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
 		} else {
-			while(iter_ctgcns(cc)){
-				fprintf(out, ">%s len=%d\n", cc->tag->string, (u4i)cc->cns->size);
-				for(i=0;i<cc->cns->size;i+=100){
-					if(i + 100 <= cc->cns->size){
-						println_seq_basebank(cc->cns, i, 100, out);
+			while((ctg = iter_ctgcns(cc))){
+				fprintf(out, ">%s len=%d\n", ctg->tag->string, (u4i)ctg->cns->size);
+				for(i=0;i<ctg->cns->size;i+=100){
+					if(i + 100 <= ctg->cns->size){
+						println_seq_basebank(ctg->cns, i, 100, out);
 					} else {
-						println_seq_basebank(cc->cns, i, cc->cns->size - i, out);
+						println_seq_basebank(ctg->cns, i, ctg->cns->size - i, out);
 					}
 				}
 				fflush(out);
+				if(cc->cycs->size){ // keep only one for reuse
+					free_ctg(ctg);
+				} else {
+					repay_ctgcns(cc, ctg);
+				}
 			}
 		}
 		free_ctgcns(cc);
@@ -244,16 +250,21 @@ int main(int argc, char **argv){
 		if(print_lay){
 			print_lays_ctgcns(cc, out);
 		} else {
-			while(iter_ctgcns(cc)){
-				fprintf(out, ">%s len=%d\n", cc->tag->string, (u4i)cc->cns->size);
-				for(i=0;i<cc->cns->size;i+=100){
-					if(i + 100 <= cc->cns->size){
-						println_seq_basebank(cc->cns, i, 100, out);
+			while((ctg = iter_ctgcns(cc))){
+				fprintf(out, ">%s len=%d\n", ctg->tag->string, (u4i)ctg->cns->size);
+				for(i=0;i<ctg->cns->size;i+=100){
+					if(i + 100 <= ctg->cns->size){
+						println_seq_basebank(ctg->cns, i, 100, out);
 					} else {
-						println_seq_basebank(cc->cns, i, cc->cns->size - i, out);
+						println_seq_basebank(ctg->cns, i, ctg->cns->size - i, out);
 					}
 				}
 				fflush(out);
+				if(cc->cycs->size){ // keep only one for reuse
+					free_ctg(ctg);
+				} else {
+					repay_ctgcns(cc, ctg);
+				}
 			}
 		}
 		free_ctgcns(cc);

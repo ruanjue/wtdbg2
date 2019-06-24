@@ -332,6 +332,7 @@ static inline void info_kbmblock(void *obj, lay_seq_t *sq, lay_blk_t *bk){
 }
 
 static inline int map_kbmpoa(CTGCNS *cc, KBMAux *aux, char *rdtag, u4i qidx, BaseBank *rdseq, u8i seqoff, u4i seqlen, u4i corr_min, u4i corr_max, float corr_cov, FILE *layf){
+	ctg_cns_t *ctg;
 	KBMBlock *kb;
 	u4i i;
 	int self_aln, max_hit, min_aln, min_mat;
@@ -381,28 +382,30 @@ static inline int map_kbmpoa(CTGCNS *cc, KBMAux *aux, char *rdtag, u4i qidx, Bas
 		reset_kbmblock(kb, rdtag, qidx, rdseq, seqoff, seqlen, aux);
 		reset_ctgcns(cc, kb, iter_kbmblock, info_kbmblock);
 	}
-	if(iter_ctgcns(cc)){
+	if((ctg = iter_ctgcns(cc))){
 		if(KBM_LOG){
-			fprintf(KBM_LOGF, ">%s corrected\n", cc->tag->string);
-			print_lines_basebank(cc->cns, 0, cc->cns->size, KBM_LOGF, 100);
+			fprintf(KBM_LOGF, ">%s corrected\n", ctg->tag->string);
+			print_lines_basebank(ctg->cns, 0, ctg->cns->size, KBM_LOGF, 100);
 			fflush(KBM_LOGF);
 		}
 	} else {
 		return 0;
 	}
 	clear_kbmmapv(aux->hits);
-	if(cc->cns->size > seqlen){
-		cc->cns->size = seqlen;
-		normalize_basebank(cc->cns);
-	} else if(cc->cns->size < seqlen){
-		cc->cns->size = cvt_kbm_read_length(cc->cns->size, KBM_BIN_SIZE);
-		normalize_basebank(cc->cns);
+	if(ctg->cns->size > seqlen){
+		ctg->cns->size = seqlen;
+		normalize_basebank(ctg->cns);
+	} else if(ctg->cns->size < seqlen){
+		ctg->cns->size = cvt_kbm_read_length(ctg->cns->size, KBM_BIN_SIZE);
+		normalize_basebank(ctg->cns);
 	}
-	if(cc->cns->size == 0){
+	if(ctg->cns->size == 0){
+		repay_ctgcns(cc, ctg);
 		return 0;
 	}
-	query_index_kbm(aux, rdtag, qidx, cc->cns, 0, cc->cns->size);
+	query_index_kbm(aux, rdtag, qidx, ctg->cns, 0, ctg->cns->size);
 	map_kbm(aux);
+	repay_ctgcns(cc, ctg); // Please make sure ctg is not used unless this function return
 	return 1;
 }
 
