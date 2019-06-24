@@ -143,7 +143,7 @@ typedef struct {
 	hit_lnk_t hits; // point to the g->rdhits
 	int clps[2];
 	ptr_ref_t regs;
-	u2i corr_bincnt;
+	//u2i corr_bincnt;
 } read_t;
 define_list(readv, read_t);
 
@@ -229,9 +229,9 @@ typedef struct {
 
 	u8i      genome_size;
 	u4i      num_index;
-	u4i      corr_mode, corr_min, corr_max;
-	u4i      corr_bsize, corr_bstep;
-	float    corr_cov, corr_gcov;
+	//u4i      corr_mode, corr_min, corr_max;
+	//u4i      corr_bsize, corr_bstep;
+	//float    corr_cov, corr_gcov;
 	int      node_order, mem_stingy;
 	u4i      n_fix, only_fix; // first n sequences are accurate contigs; only_fix means whether to include other pacbio sequenes
 	u4i      reglen, regovl, bestn;
@@ -281,13 +281,13 @@ static inline Graph* init_graph(KBM *kbm){
 	g->traces = init_tracev(32);
 	g->genome_size = 1024 * 1024 * 1024LLU;
 	g->num_index = 1;
-	g->corr_mode = 0;
-	g->corr_min  = 5;
-	g->corr_max  = 10;
-	g->corr_cov  = 0.75;
-	g->corr_gcov = 5.0;
-	g->corr_bsize = 2048;
-	g->corr_bstep = 2048 - 512;
+	//g->corr_mode = 0;
+	//g->corr_min  = 5;
+	//g->corr_max  = 10;
+	//g->corr_cov  = 0.75;
+	//g->corr_gcov = 5.0;
+	//g->corr_bsize = 2048;
+	//g->corr_bstep = 2048 - 512;
 	g->node_order = 0;
 	g->n_fix = 0;
 	g->only_fix = 0;
@@ -590,7 +590,8 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 #endif
 		}
 	}
-	if(!g->corr_mode){
+	//if(!g->corr_mode){
+	{
 		ndoff = kbm->reads->buffer[hit->tidx].binoff;
 		ndbeg = (bpos[1][0] % qn)? qn - (bpos[1][0] % qn): 0;
 		ndoff = ndoff + ((ndbeg + bpos[1][0]) / qn);
@@ -689,10 +690,11 @@ tidxs = init_u4v(16);
 thread_beg_loop(mdbg);
 if(mdbg->task == 1){
 	if(reg->closed) continue;
-	if(g->corr_mode){
-		if(map_kbmpoa(mdbg->cc, aux, kbm->reads->buffer[reg->rid].tag, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE, g->corr_min, g->corr_max, g->corr_cov, NULL) == 0){
-			clear_kbmmapv(aux->hits);
-		}
+	//if(g->corr_mode){
+	if(0){
+		//if(map_kbmpoa(mdbg->cc, aux, kbm->reads->buffer[reg->rid].tag, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE, g->corr_min, g->corr_max, g->corr_cov, NULL) == 0){
+			//clear_kbmmapv(aux->hits);
+		//}
 	} else {
 		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
 		map_kbm(aux);
@@ -1239,9 +1241,9 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 			fprintf(KBM_LOGF, "\r%llu", pws->n_line); fflush(KBM_LOGF);
 		}
 		if(pws->line->buffer[0] == '#'){
-			if(strncasecmp(pws->line->buffer, "#corr_mode=1", 12) == 0){
-				g->corr_mode = 1;
-			}
+			//if(strncasecmp(pws->line->buffer, "#corr_mode=1", 12) == 0){
+				//g->corr_mode = 1;
+			//}
 			continue;
 		}
 		if(ncol < 15) continue;
@@ -1256,8 +1258,9 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 		qtag = get_col_str(pws, 0);
 		hit->qdir = (get_col_str(pws, 1)[0] == '-');
 		qlen = atoi(get_col_str(pws, 2));
-		if(g->corr_mode){
-			g->reads->buffer[hit->qidx].corr_bincnt = qlen / KBM_BIN_SIZE;
+		//if(g->corr_mode){
+		if(0){
+			//g->reads->buffer[hit->qidx].corr_bincnt = qlen / KBM_BIN_SIZE;
 		} else if(qlen != (int)g->kbm->reads->buffer[hit->qidx].rdlen){
 			if(nwarn < mwarn){
 				fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
@@ -1384,6 +1387,8 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	else n_cpu = ncpu;
 	ic = (g->kbm->bins->size + g->num_index - 1) / g->num_index;
 	ie = 0;
+	UNUSED(mbp);
+#if 0
 	if(g->corr_mode){
 		mbp = g->genome_size * g->corr_gcov;
 		qb = qe = g->kbm->reads->size / 2;
@@ -1397,11 +1402,15 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 		if(qe < g->kbm->reads->size) qe ++;
 		fprintf(KBM_LOGF, "[%s] turn correct-mode on, reads[%u ~ %u = %u] (%llu bp), genome-size=%llu, corr-gcov=%0.2f, corr-dep=[%d,%d,%0.2f]\n", date(), qb, qe, qe - qb, nbp, g->genome_size, g->corr_gcov, g->corr_min, g->corr_max, g->corr_cov); fflush(KBM_LOGF);
 	} else {
+#else
+	{
+#endif
 		qb = 0;
 		qe = g->reads->size;
 	}
 	alno = open_file_for_write(prefix, ".alignments.gz", 1);
 	bw = zopen_bufferedwriter(alno, 1024 * 1024, ncpu, 0);
+#if 0
 	if(g->corr_mode){
 		beg_bufferedwriter(bw);
 		fprintf(bw->out, "#corr_mode=1\n");
@@ -1409,6 +1418,10 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	}
 	rdflags = (!g->corr_mode && g->par->skip_contained)? init_bitvec(g->kbm->reads->size) : NULL;
 	in = g->corr_mode? 1 : g->num_index;
+#else
+	rdflags = (g->par->skip_contained)? init_bitvec(g->kbm->reads->size) : NULL;
+	in = g->num_index;
+#endif
 	if(g->kbm->seeds->size){
 		reset_kbm = 0;
 		if(in > 1){
@@ -1424,7 +1437,11 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 		ib = ie;
 		ie = num_min(ib + ic, g->kbm->bins->size);
 		while(ie > 0 && ie < g->kbm->bins->size && g->kbm->bins->buffer[ie - 1].ridx == g->kbm->bins->buffer[ie].ridx) ie ++;
+#if 0
 		if(g->corr_mode == 0){
+#else
+		{
+#endif
 			qb = 0;
 			qe = ie? g->kbm->bins->buffer[ie - 1].ridx : 0;
 		}
@@ -1485,6 +1502,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 				} else {
 					mdbg->raux = NULL;
 				}
+#if 0
 				if(g->corr_mode){
 					KBMBlock *kb;
 					POGPar par;
@@ -1494,6 +1512,9 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 					par.refmode = 1;
 					mdbg->cc = init_ctgcns(kb, iter_kbmblock, info_kbmblock, 1, 1, g->corr_max, 200, 100, 1, g->corr_bsize - g->corr_bstep + KBM_BIN_SIZE, &par);
 				} else {
+#else
+				{
+#endif
 					mdbg->cc = NULL;
 				}
 				mdbg->aux->par = (KBMPar*)malloc(sizeof(KBMPar));
@@ -1519,15 +1540,15 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 				}
 				if(mdbg->reg.closed == 0){
 					KBMAux *aux = mdbg->aux;
-					if(g->corr_mode && mdbg->cc->cns->size){
-						g->reads->buffer[mdbg->reg.rid].corr_bincnt = mdbg->cc->cns->size / KBM_BIN_SIZE;
-					}
+					//if(g->corr_mode && mdbg->cc->cns->size){
+						//g->reads->buffer[mdbg->reg.rid].corr_bincnt = mdbg->cc->cns->size / KBM_BIN_SIZE;
+					//}
 					if(alno){
 						beg_bufferedwriter(bw);
-						if(g->corr_mode && mdbg->cc->cns->size){
-							fprintf(bw->out, "#corrected\t%s\t%u\t", mdbg->cc->tag->string, (u4i)mdbg->cc->cns->size);
-							println_fwdseq_basebank(mdbg->cc->cns, 0, mdbg->cc->cns->size, bw->out);
-						}
+						//if(g->corr_mode && mdbg->aux->cns->size){
+							//fprintf(bw->out, "#corrected\t%s\t%u\t", mdbg->cc->tag->string, (u4i)mdbg->cc->cns->size);
+							//println_fwdseq_basebank(mdbg->cc->cns, 0, mdbg->cc->cns->size, bw->out);
+						//}
 						for(i=0;i<mdbg->aux->hits->size;i++){
 							hit = ref_kbmmapv(mdbg->aux->hits, i);
 							fprint_hit_kbm(mdbg->aux, i, bw->out);
@@ -1560,7 +1581,8 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 						append_bitsvec(g->cigars, aux->cigars, hit->cgoff, hit->cglen);
 						hit->cgoff = g->cigars->size - hit->cglen;
 						if(raw){
-							hit2rdregs_graph(g, regs, g->corr_mode? mdbg->cc->cns->size / KBM_BIN_SIZE : 0, hit, mdbg->aux->cigars, maps);
+							//hit2rdregs_graph(g, regs, g->corr_mode? mdbg->cc->cns->size / KBM_BIN_SIZE : 0, hit, mdbg->aux->cigars, maps);
+							hit2rdregs_graph(g, regs, 0, hit, mdbg->aux->cigars, maps);
 						} else {
 							map2rdhits_graph(g, hit);
 						}
@@ -1584,10 +1606,10 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 				thread_beg_close(mdbg);
 				free(mdbg->aux->par);
 				free_kbmaux(mdbg->aux);
-				if(g->corr_mode){
-					free_kbmblock((KBMBlock*)mdbg->cc->obj);
-					free_ctgcns(mdbg->cc);
-				}
+				//if(g->corr_mode){
+					//free_kbmblock((KBMBlock*)mdbg->cc->obj);
+					//free_ctgcns(mdbg->cc);
+				//}
 				if(mdbg->raux){
 					free_kbm(mdbg->raux->kbm);
 					free_kbmaux(mdbg->raux);
@@ -1631,9 +1653,9 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 	//clear_kbmmapv(g->pwalns);
 	clear_bitsvec(g->cigars);
 	raw = !((g->bestn > 0) || rdclip);
-	if(g->corr_mode){
-		raw = 1;
-	}
+	//if(g->corr_mode){
+		//raw = 1;
+	//}
 	fix_node = 0; // TODO: new code hasn't coped with contigs+longreads mode
 	if(pws){
 		nhit = load_alignments_core(g, pws, raw, regs, maps);
@@ -1705,7 +1727,8 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			hit->te = rh->frgs[1].end;
 			hit->mat = rh->lnks[0].cnt;
 			hit->aln = num_min(hit->qe - hit->qb, hit->te - hit->tb);
-			hit2rdregs_graph(g, regs, g->reads->buffer[hit->qidx].corr_bincnt, hit, g->cigars, maps);
+			//hit2rdregs_graph(g, regs, g->reads->buffer[hit->qidx].corr_bincnt, hit, g->cigars, maps);
+			hit2rdregs_graph(g, regs, g->kbm->reads->buffer[hit->qidx].bincnt, hit, g->cigars, maps);
 		}
 		free_bitsvec(g->cigars); g->cigars = init_bitsvec(1024, 3);
 		fprintf(KBM_LOGF, "%llu\n", (u8i)regs->size); fflush(KBM_LOGF);
@@ -1714,7 +1737,8 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 	free_u4v(maps[1]);
 	free_u4v(maps[2]);
 	// add node itself
-	if(!g->corr_mode){
+	//if(!g->corr_mode){
+	{
 		rks = init_bitvec(g->kbm->bins->size);
 		for(idx=0;idx<regs->size;idx++){
 			one_bitvec(rks, regs->buffer[idx].node);
