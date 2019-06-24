@@ -560,10 +560,6 @@ int kbm_main(int argc, char **argv){
 				}
 				thread_wait_one(maln);
 				if(maln->rdlen && !maln->interactive){
-					if(run_mode == 3 && maln->cc->cns->size){
-						//fprintf(out, ">%s\n", maln->cc->tag->string);
-						//print_lines_basebank(maln->cc->cns, 0, maln->cc->cns->size, out, 100);
-					}
 					{
 						aux = maln->aux;
 						for(i=0;i<aux->hits->size;i++){
@@ -648,10 +644,6 @@ int kbm_main(int argc, char **argv){
 		thread_beg_iter(maln);
 		thread_wait(maln);
 		if(maln->rdlen && !maln->interactive){
-			if(run_mode == 3 && maln->cc->cns->size){
-				//fprintf(out, ">%s\n", maln->cc->tag->string);
-				//print_lines_basebank(maln->cc->cns, 0, maln->cc->cns->size, out, 100);
-			}
 			aux = maln->aux;
 			for(i=0;i<aux->hits->size;i++){
 				fprint_hit_kbm(aux, i, out);

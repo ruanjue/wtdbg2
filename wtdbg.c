@@ -61,12 +61,12 @@ static struct option prog_opts[] = {
 	{"realn-min-match",                  1, 0, 3004},
 	{"realn-min-similarity",             1, 0, 3005},
 	{"realn-max-var",                    1, 0, 3006},
-	{"corr-mode",                        1, 0, 2010},
-	{"corr-min",                         1, 0, 2012},
-	{"corr-max",                         1, 0, 2013},
-	{"corr-cov",                         1, 0, 2014},
-	{"corr-block-size",                  1, 0, 2015},
-	{"corr-block-step",                  1, 0, 2016},
+	//{"corr-mode",                        1, 0, 2010},
+	//{"corr-min",                         1, 0, 2012},
+	//{"corr-max",                         1, 0, 2013},
+	//{"corr-cov",                         1, 0, 2014},
+	//{"corr-block-size",                  1, 0, 2015},
+	//{"corr-block-step",                  1, 0, 2016},
 	{"keep-multiple-alignment-parts",    1, 0, 2011},
 	{"verbose",                          0, 0, 'v'},
 	{"quiet",                            0, 0, 'q'},
@@ -233,21 +233,21 @@ int usage(int level){
 	"   Set aln-max-var in realignment, default: 0.25\n"
 	" -A, --aln-noskip\n"
 	"   Even a read was contained in previous alignment, still align it against other reads\n"
-	" --corr-mode <float>\n"
-	"   Default: 0.0. If set > 0 and set --g <genome_size>, will turn on correct-align mode.\n"
-	"   Wtdbg will select <genome_size> * <corr-mode> bases from reads of middle length, and align them aginst all reads.\n"
-	"   Then, wtdbg will correct them using POACNS, and query corrected sequences against all reads again\n"
-	"   In correct-align mode, --aln-bestn = unlimited, --no-read-clip, --no-chaining-clip. Will support those features in future\n"
-	" --corr-min <int>\n"
-	" --corr-max <int>\n"
-	"   For each read to be corrected, uses at least <corr-min> alignments, and at most <corr-max> alignments\n"
-	"   Default: --corr_min = 5, --corr-max = 10\n"
-	" --corr-cov <float>\n"
-	"   Default: 0.75. When aligning reads to be corrected, the alignments should cover at least <corr-cov> of read length\n"
-	" --corr-block-size <int>\n"
-	"   Default: 2048. MUST be times of 256bp. Used in POACNS\n"
-	" --corr-block-step <int>\n"
-	"   Default: 1536. MUST be times of 256bp. Used in POACNS\n"
+	//" --corr-mode <float>\n"
+	//"   Default: 0.0. If set > 0 and set --g <genome_size>, will turn on correct-align mode.\n"
+	//"   Wtdbg will select <genome_size> * <corr-mode> bases from reads of middle length, and align them aginst all reads.\n"
+	//"   Then, wtdbg will correct them using POACNS, and query corrected sequences against all reads again\n"
+	//"   In correct-align mode, --aln-bestn = unlimited, --no-read-clip, --no-chaining-clip. Will support those features in future\n"
+	//" --corr-min <int>\n"
+	//" --corr-max <int>\n"
+	//"   For each read to be corrected, uses at least <corr-min> alignments, and at most <corr-max> alignments\n"
+	//"   Default: --corr_min = 5, --corr-max = 10\n"
+	//" --corr-cov <float>\n"
+	//"   Default: 0.75. When aligning reads to be corrected, the alignments should cover at least <corr-cov> of read length\n"
+	//" --corr-block-size <int>\n"
+	//"   Default: 2048. MUST be times of 256bp. Used in POACNS\n"
+	//" --corr-block-step <int>\n"
+	//"   Default: 1536. MUST be times of 256bp. Used in POACNS\n"
 	" --keep-multiple-alignment-parts\n"
 	"   By default, wtdbg will keep only the best alignment between two reads after chainning. This option will disable it, and keep multiple\n"
 	" --verbose +\n"
@@ -390,12 +390,14 @@ int main(int argc, char **argv){
 	num_index = 1;
 	filter_rd_strategy = 0;
 	fast_mode = 0;
+	// no longer supports  corr-mode 
 	corr_mode = 0;
 	corr_min = 5;
 	corr_max = 10;
 	corr_cov = 0.75;
 	corr_bsize = 2048;
 	corr_bstep = 2048 - 512;
+	// -------
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
 	reglen = 1024;
@@ -533,12 +535,12 @@ int main(int argc, char **argv){
 			case 'm': par->min_mat = atoi(optarg); break;
 			case 2004: par->aln_var = atof(optarg); break;
 			case 's': par->min_sim = atof(optarg); opt_flags |= (1 << 3); break;
-			case 2010: corr_mode = atof(optarg); break;
-			case 2012: corr_min = atoi(optarg); break;
-			case 2013: corr_max = atoi(optarg); break;
-			case 2014: corr_cov = atof(optarg); break;
-			case 2015: corr_bsize = atoi(optarg); break;
-			case 2016: corr_bstep = atoi(optarg); break;
+			//case 2010: corr_mode = atof(optarg); break;
+			//case 2012: corr_min = atoi(optarg); break;
+			//case 2013: corr_max = atoi(optarg); break;
+			//case 2014: corr_cov = atof(optarg); break;
+			//case 2015: corr_bsize = atoi(optarg); break;
+			//case 2016: corr_bstep = atoi(optarg); break;
 			case 2011: uniq_hit = 0; break;
 			case 'v': KBM_LOG ++; break;
 			case 'q': quiet = 1; break;
@@ -880,10 +882,10 @@ int main(int argc, char **argv){
 		}
 		fprintf(KBM_LOGF, "[%s] Set --edge-cov to %d\n", date(), edge_cov); fflush(KBM_LOGF);
 	}
-	if(genome_size <= 0 && corr_mode > 0){
-		fprintf(KBM_LOGF, "[%s] MUST set -g <?> with --corr-mode %f\n", date(), corr_mode); fflush(KBM_LOGF);
-		return 1;
-	}
+	//if(genome_size <= 0 && corr_mode > 0){
+		//fprintf(KBM_LOGF, "[%s] MUST set -g <?> with --corr-mode %f\n", date(), corr_mode); fflush(KBM_LOGF);
+		//return 1;
+	//}
 	if(node_cov == 0) node_cov = edge_cov;
 	fprintf(KBM_LOGF, "KEY PARAMETERS: -k %d -p %d -K %f %s-S %f -s %f -g %llu -X %f -e %d -L %d\n",
 		par->ksize, par->psize, par->kmax + par->ktop, par->skip_contained? "" : "-A ", ((double)par->kmer_mod) / KBM_N_HASH, par->min_sim, (u8i)genome_size, genome_depx, edge_cov, tidy_reads);
@@ -892,13 +894,13 @@ int main(int argc, char **argv){
 		g->rpar = realign? rpar : NULL;
 		g->genome_size = genome_size;
 		g->num_index = num_index;
-		g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
-		g->corr_gcov = corr_mode;
-		g->corr_min = corr_min;
-		g->corr_max = corr_max;
-		g->corr_cov = corr_cov;
-		g->corr_bsize = corr_bsize;
-		g->corr_bstep = corr_bstep;
+		//g->corr_mode = (corr_mode > 0 && genome_size > 0)? 1 : 0;
+		//g->corr_gcov = corr_mode;
+		//g->corr_min = corr_min;
+		//g->corr_max = corr_max;
+		//g->corr_cov = corr_cov;
+		//g->corr_bsize = corr_bsize;
+		//g->corr_bstep = corr_bstep;
 		g->node_order = node_order;
 		g->mem_stingy = mem_stingy;
 		g->reglen = reglen / KBM_BIN_SIZE;
