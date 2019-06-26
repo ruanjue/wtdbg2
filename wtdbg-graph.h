@@ -3952,7 +3952,7 @@ typedef struct {
 } lay_t;
 define_list(layv, lay_t);
 
-static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs){
+static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs, int all){
 	node_t *n1, *n2;
 	reg_t *r1, *r2;
 	u4i rid, beg, end;
@@ -3967,7 +3967,7 @@ static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs)
 			r1 ++;
 		} else {
 			rid = r1->rid;
-			if(r1->closed == 0 && r2->closed == 0){
+			if(all || (r1->closed == 0 && r2->closed == 0)){
 				if(r1->beg < r2->beg){
 					if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
 					beg = r1->beg; end = r2->end;
@@ -3991,6 +3991,7 @@ Graph *g;
 seqletv *path;
 layv    *lays;
 layregv *regs;
+int all_regs;
 FILE *log;
 thread_end_def(mlay);
 
@@ -4005,7 +4006,7 @@ for(i=mlay->t_idx;i<mlay->path->size;i+=mlay->n_cpu){
 	lay = ref_layv(mlay->lays, i);
 	lay->tidx = mlay->t_idx;
 	lay->roff = mlay->regs->size;
-	gen_lay_regs_core_graph(mlay->g, let, mlay->regs);
+	gen_lay_regs_core_graph(mlay->g, let, mlay->regs, mlay->all_regs);
 	lay->rcnt = mlay->regs->size - lay->roff;
 	sort_array(mlay->regs->buffer + lay->roff, lay->rcnt, lay_reg_t, num_cmpgt(b.end - b.beg, a.end - a.beg));
 	if(lay->rcnt == 0 && mlay->log){
@@ -4037,6 +4038,7 @@ static inline u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *pr
 	mlay->path = NULL;
 	mlay->lays = lays;
 	mlay->regs = init_layregv(32);
+	mlay->all_regs = 1;
 	mlay->log  = log;
 	thread_end_init(mlay);
 	ret = 0;
