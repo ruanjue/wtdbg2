@@ -403,7 +403,6 @@ static inline ctg_cns_t* iter_ctgcns(CTGCNS *cc){
 				if(mcns->g->seqs->nseq < cc->inpmax){
 					fwdbitpush_tripog(mcns->g, cc->sq->seq->bits, 0, cc->sq->seq->size, cc->sq->rbeg, cc->sq->rend);
 				}
-				cc->sq = NULL;
 				continue;
 			}
 		}
@@ -420,7 +419,7 @@ static inline ctg_cns_t* iter_ctgcns(CTGCNS *cc){
 				mcns->edges[1].eidx = MAX_U4;
 				mcns->task.type = 0;
 				ctg->cnt ++;
-				if(ctg->cnt + 1 ==  ctg->rs->size && (ctg->cidx != cc->chridx || cc->sq == NULL)){
+				if(ctg->cnt + 1 ==  ctg->rs->size && (ctg->cidx + 1 < cc->ctgs->size || cc->sq == NULL)){
 					EVT.cidx = ctg->cidx;
 					EVT.eidx = MAX_U4;
 					EVT.type = 3;
@@ -456,7 +455,7 @@ static inline ctg_cns_t* iter_ctgcns(CTGCNS *cc){
 					EVT.type = 2;
 					array_heap_push(cc->evts->buffer, cc->evts->size, cc->evts->cap, cns_evt_t, EVT, num_cmpxx(b.type, a.type, a.cidx, b.cidx, a.eidx, b.eidx));
 				}
-				if(ctg->rs->size == 1 && (ctg->cidx != cc->chridx || cc->sq == NULL)){
+				if(ctg->rs->size == 1 && (ctg->cidx + 1 < cc->ctgs->size || cc->sq == NULL)){
 					EVT.cidx = ctg->cidx;
 					EVT.eidx = MAX_U4;
 					EVT.type = 3;
@@ -511,6 +510,7 @@ static inline ctg_cns_t* iter_ctgcns(CTGCNS *cc){
 			mcns->edges[0] = *edge;
 			mcns->edges[0].eidx = offset_edgecnsv(ctg->rs, edge);
 			beg_tripog(mcns->g);
+			fwdbitpush_tripog(mcns->g, cc->sq->seq->bits, 0, cc->sq->seq->size, cc->sq->rbeg, cc->sq->rend);
 		}
 		if(ret){
 			break;
