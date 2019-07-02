@@ -167,6 +167,7 @@ typedef struct {
 	u8i bt_dir:1, bt_open:10, bt_nidx:24, bt_score:20, bt_step:8, bt_hit:1;
 	ptr_ref_t edges[2];
 } subnode_t;
+define_list(subnodev, subnode_t);
 #define subnode_hashcode(E) u64hashcode((E).node)
 #define subnode_hashequals(E1, E2) (E1).node == (E2).node
 define_hashset(subnodehash, subnode_t, subnode_hashcode, subnode_hashequals);
@@ -174,6 +175,7 @@ define_hashset(subnodehash, subnode_t, subnode_hashcode, subnode_hashequals);
 typedef struct {
 	subnode_t *node;
 	u4i cov:28, visit:1, fwd:1, dir:1, closed:1;
+	int off;
 	u4i next;
 } subedge_t;
 define_list(subedgev, subedge_t);
@@ -348,22 +350,30 @@ static inline void print_subgraph_dot(Graph *g, u8i id, subnodehash *nodes, sube
 	subedge_t *e;
 	u8i idx;
 	int k;
+	UNUSED(g);
 	fprintf(out, "digraph N%llu {\n", id);
 	fprintf(out, " N%llu [style=filled fillcolor=yellow]\n", id);
 	reset_iter_subnodehash(nodes);
 	while((n = ref_iter_subnodehash(nodes))){
 		if(n->closed) continue;
-		fprintf(out, "N%llu [label=\"N%llu(%llu)\"]\n", (u8i)n->node, (u8i)n->node, (u8i)g->nodes->buffer[n->node].rep_idx);
+		fprintf(out, "N%llu [label=\"N%llu%s(%u)\"]\n", (u8i)n->node, (u8i)n->node, n->closed? "*" : "", n->cov);
 		for(k=0;k<2;k++){
 			idx = n->edges[k].idx;
 			while(idx){
 				e = ref_subedgev(edges, idx);
 				idx = e->next;
-				fprintf(out, " N%llu -> N%llu [label=\"%c%c:%d\"]\n", (u8i)n->node, (u8i)e->node->node, "+-"[k], "+-"[e->dir], e->cov);
+				fprintf(out, " N%llu -> N%llu [label=\"%c%c:%d:%d\"]\n", (u8i)n->node, (u8i)e->node->node, "+-"[k], "+-"[e->dir], e->cov, e->off);
 			}
 		}
 	}
 	fprintf(out, "}\n");
+}
+
+static inline void fprint_subgraph_dot(Graph *g, u8i id, subnodehash *nodes, subedgev *edges, char *filename){
+	FILE *out;
+	out = open_file_for_write(filename, NULL, 1);
+	print_subgraph_dot(g, id, nodes, edges, out);
+	fclose(out);
 }
 
 thread_beg_def(mrep);
@@ -3253,7 +3263,7 @@ static inline u8i gen_contigs_graph(Graph *g, FILE *out){
 	seqlet_t *q;
 	path_t *t;
 	frg_t *n;
-	u8i nid, nctg, i;
+	u8i nid, nctg, i, off;
 	for(i=0;i<g->ctgs->size;i++) free_tracev(g->ctgs->buffer[i]);
 	clear_vplist(g->ctgs);
 	nctg = 0;
@@ -3283,6 +3293,12 @@ static inline u8i gen_contigs_graph(Graph *g, FILE *out){
 		if(((int)q->off + (int)q->len) * KBM_BIN_SIZE < (int)g->min_ctg_len){
 			free_seqletv(qs);
 			continue;
+		}
+		off = 0;
+		for(i=0;i<qs->size;i++){
+			q = ref_seqletv(qs, i);
+			q->off = off;
+			off += q->len - g->reglen;
 		}
 		if(out){
 			for(i=0;i<path->size;i++){
@@ -3947,12 +3963,12 @@ typedef struct {
 define_list(layregv, lay_reg_t);
 
 typedef struct {
-	u4i tidx;
+	seqlet_t edge;
 	u8i roff:48, rcnt:16;
 } lay_t;
 define_list(layv, lay_t);
 
-static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs, int all){
+static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs, BitVec *rdbits, int closed){
 	node_t *n1, *n2;
 	reg_t *r1, *r2;
 	u4i rid, beg, end;
@@ -3967,7 +3983,7 @@ static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs,
 			r1 ++;
 		} else {
 			rid = r1->rid;
-			if(all || (r1->closed == 0 && r2->closed == 0)){
+			if((closed || (r1->closed == 0 && r2->closed == 0)) && (rdbits == NULL || get_bitvec(rdbits, rid))){
 				if(r1->beg < r2->beg){
 					if(q->dir1 ^ r1->dir){ r1 ++; r2 ++; continue; }
 					beg = r1->beg; end = r2->end;
@@ -3981,14 +3997,277 @@ static inline void gen_lay_regs_core_graph(Graph *g, seqlet_t *q, layregv *regs,
 			r1 ++; r2 ++;
 		}
 	}
-	//if(regs->size == 0){
-		//fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-	//}
+}
+
+typedef struct {
+	u4i rid, closed;
+	u8i nodes[2];
+} readreg_t;
+define_list(readregv, readreg_t);
+
+static inline u4i densify_seqlet_graph(Graph *g, seqlet_t *q, seqletv *qs, int minoff, readregv *rds, subnodehash *nodes, subedgev *edges, subnodev *heap, FILE *log){
+	seqlet_t *q2;
+	node_t *nd;
+	read_t *rd;
+	reg_t  *rg;
+	readreg_t *rr;
+	subnode_t N, *n, *n1, *n2;
+	subedge_t *e;
+	u8i idx, edx;
+	u4i i, k, k1, k2, d, cov, flg, ret;
+	int exists, off;
+	if(q->len < minoff){
+		push_seqletv(qs, *q);
+		return 1;
+	}
+	clear_readregv(rds);
+	for(k=0;k<2;k++){
+		nd = ref_nodev(g->nodes, k? q->node2 : q->node1);
+		d  = k? !q->dir2 : q->dir1;
+		for(i=0;i<nd->regs.cnt;i++){
+			rg = ref_regv(g->regs, nd->regs.idx + i);
+			rr = next_ref_readregv(rds);
+			rr->rid = rg->rid;
+			rr->closed = 0;
+			rr->nodes[d ^ rg->dir] = rg->node;
+			rr->nodes[!d ^ rg->dir] = MAX_U8;
+		}
+	}
+	sort_array(rds->buffer, rds->size, readreg_t, num_cmpgt(a.rid, b.rid));
+	for(i=1;i<rds->size;i++){
+		rr = ref_readregv(rds, i - 1);
+		if(rr->rid == rds->buffer[i].rid){
+			if(rds->buffer[i].nodes[0] != MAX_U8) rr->nodes[0] = rds->buffer[i].nodes[0];
+			if(rds->buffer[i].nodes[1] != MAX_U8) rr->nodes[1] = rds->buffer[i].nodes[1];
+			rds->buffer[i].closed = 1; // max occ of rid is 2
+		}
+	}
+	// prepare nodes in subgraph
+	clear_subnodehash(nodes);
+	clear_subedgev(edges);
+	next_ref_subedgev(edges);
+	memset(&N, 0, sizeof(subnode_t));
+	N.cov = 1;
+	cov = 0;
+	for(i=0;i<rds->size;i++){
+		rr = ref_readregv(rds, i);
+		if(rr->closed) continue;
+		if(rr->nodes[0] != MAX_U8 && rr->nodes[1] != MAX_U8){
+			cov ++;
+		}
+		rd = ref_readv(g->reads, rr->rid);
+		flg = (rr->nodes[0] == MAX_U8);
+		idx = rd->regs.idx;
+		while(idx){
+			rg = ref_regv(g->regs, idx);
+			idx = rg->read_link;
+			if(flg == 0){
+				if(rg->node == rr->nodes[0]){
+					flg = 1;
+				}
+			}
+			if(!flg) continue;
+			N.node = rg->node;
+			n = prepare_subnodehash(nodes, N, &exists);
+			if(exists){
+				n->cov ++;
+			} else {
+				*n = N;
+			}
+			if(rg->node == rr->nodes[1]){
+				flg = 0;
+				break;
+			}
+		}
+	}
+	// mask low cov nodes
+	reset_iter_subnodehash(nodes);
+	while((n = ref_iter_subnodehash(nodes))){
+		if(n->cov < cov) n->closed = 1;
+	}
+	// build edges
+	for(i=0;i<rds->size;i++){
+		rr = ref_readregv(rds, i);
+		if(rr->closed) continue;
+		rd = ref_readv(g->reads, rr->rid);
+		flg = (rr->nodes[0] == MAX_U8);
+		n1 = NULL;
+		k1 = 0;
+		off = 0;
+		idx = rd->regs.idx;
+		while(idx){
+			rg = ref_regv(g->regs, idx);
+			idx = rg->read_link;
+			if(flg == 0){
+				if(rg->node == rr->nodes[0]){
+					flg = 1;
+				}
+			}
+			if(!flg) continue;
+			do {
+				N.node = rg->node;
+				n2 = get_subnodehash(nodes, N);
+				k2 = rg->dir;
+				if(n2->closed) break;
+				if(n1){
+					// link n1 to n2
+					edx = n1->edges[k1].idx;
+					while(edx){
+						e = ref_subedgev(edges, edx);
+						if(e->node == n2 && e->dir == k2){
+							e->cov ++;
+							break;
+						}
+						edx = e->next;
+					}
+					if(edx == 0){
+						edx = edges->size;
+						e = next_ref_subedgev(edges);
+						e->node = n2;
+						e->dir = k2;
+						e->cov = 1;
+						e->off = rg->beg - off;
+						e->next = n1->edges[k1].idx;
+						n1->edges[k1].idx = edx;
+						n1->edges[k1].cnt ++;
+					}
+					// link rev n2 to rev n1
+					edx = n2->edges[!k2].idx;
+					while(edx){
+						e = ref_subedgev(edges, edx);
+						if(e->node == n1 && e->dir == !k1){
+							e->cov ++;
+							break;
+						}
+						edx = e->next;
+					}
+					if(edx == 0){
+						edx = edges->size;
+						e = next_ref_subedgev(edges);
+						e->node = n1;
+						e->dir = !k1;
+						e->cov = 1;
+						e->off = rg->beg - off;
+						e->next = n2->edges[!k2].idx;
+						n2->edges[!k2].idx = edx;
+						n2->edges[!k2].cnt ++;
+					}
+				}
+			} while(0);
+			n1 = n2;
+			k1 = k2;
+			off = rg->end;
+			if(rg->node == rr->nodes[1]){
+				flg = 0;
+				break;
+			}
+		}
+	}
+	// searching a most dense path from q->node1 to q->node2
+	N.node = q->node1;
+	n = get_subnodehash(nodes, N);
+	n->visit = 0;
+	n->bt_step = 0;
+	n->bt_score = 0;
+	n->bt_dir = !q->dir1;
+	n->bt_nidx = 0;
+	// NB: below codes cannot grant to find the most dense path, but just useful in many cases
+	clear_subnodev(heap);
+	array_heap_push(heap->buffer, heap->size, heap->cap, subnode_t, *n, num_cmp(a.bt_score, b.bt_score));
+	while(heap->size){
+		N = heap->buffer[0];
+		array_heap_remove(heap->buffer, heap->size, heap->cap, subnode_t, 0, num_cmp(a.bt_score, b.bt_score));
+		n1 = get_subnodehash(nodes, N);
+		if(n1->visit){
+			if(n1->node == q->node2){
+				if(n1->bt_step < N.bt_step){
+					*n1 = N;
+					n1->visit = 1;
+				}
+			}
+			continue;
+		} else {
+			*n1 = N;
+			n1->visit = 1;
+		}
+		k1 = !n1->bt_dir;
+		idx = n1->edges[k1].idx;
+		while(idx){
+			e = ref_subedgev(edges, idx);
+			idx = e->next;
+			n2 = e->node;
+			if(n2->bt_step >= n1->bt_step + 1){ // init n2->bt_step = 0
+				continue;
+			}
+			if(n2->visit && n2->node != q->node2){
+				continue;
+			}
+			N = *n2;
+			N.bt_dir = !e->dir;
+			N.bt_nidx = offset_subnodehash(nodes, n1);
+			N.bt_step = n1->bt_step + 1;
+			N.bt_score = n1->bt_score + g->reglen + num_max(0, e->off);
+			array_heap_push(heap->buffer, heap->size, heap->cap, subnode_t, N, num_cmp(a.bt_score, b.bt_score));
+		}
+	}
+	N.node = q->node2;
+	n = get_subnodehash(nodes, N);
+	if(n->visit == 0){
+		push_seqletv(qs, *q);
+		return 1;
+	}
+	if(n->bt_dir == q->dir2){
+		push_seqletv(qs, *q);
+		return 1;
+	}
+	n1 = NULL;
+	while(1){
+		n2 = ref_subnodehash(nodes, n->bt_nidx);
+		n->bt_dir = !n->bt_dir;
+		n->bt_nidx = n1? offset_subnodehash(nodes, n1) : 0;
+		if(n->node == q->node1){
+			break;
+		}
+		n1 = n;
+		n = n2;
+	}
+	ret = 0;
+	while(1){
+		n2 = ref_subnodehash(nodes, n->bt_nidx);
+		ret ++;
+		q2 = next_ref_seqletv(qs);
+		q2->node1 = n->node;
+		q2->dir1 = n->bt_dir;
+		q2->node2 = n2->node;
+		q2->dir2 = n2->bt_dir;
+		q2->off = 0;
+		off = 0;
+		edx = n->edges[n->bt_dir].idx;
+		while(edx){
+			e = ref_subedgev(edges, edx);
+			edx = e->next;
+			if(e->node->node == q2->node2){
+				off = e->off;
+				break;
+			}
+		}
+		q2->len = 2 * g->reglen + off;
+		if(n2->node == q->node2){
+			break;
+		}
+		n = n2;
+	}
+	if(ret > 1 && log){
+		fprintf(log, "N%llu -> N%llu edge_len=%d densified into %u\n", (u8i)q->node1, (u8i)q->node2, q->len, ret);
+	}
+	return ret;
 }
 
 thread_beg_def(mlay);
 Graph *g;
 seqletv *path;
+u8i div_idx;
+u8i pb, pe;
 layv    *lays;
 layregv *regs;
 int all_regs;
@@ -3996,26 +4275,63 @@ FILE *log;
 thread_end_def(mlay);
 
 thread_beg_func(mlay);
-seqlet_t *let;
+subnodehash *nodes;
+subnodev *heap;
+subedgev *edges;
+readregv *rds;
+seqletv *lets;
+BitVec *rdbits;
+seqlet_t *_let, *let;
 lay_t *lay;
 u8i i;
+u4i j;
+lets = init_seqletv(4);
+nodes = init_subnodehash(13);
+edges = init_subedgev(32);
+rds = init_readregv(32);
+heap = init_subnodev(32);
+rdbits = init_bitvec(mlay->g->reads->size);
 thread_beg_loop(mlay);
+clear_layv(mlay->lays);
 clear_layregv(mlay->regs);
-for(i=mlay->t_idx;i<mlay->path->size;i+=mlay->n_cpu){
-	let = ref_seqletv(mlay->path, i);
-	lay = ref_layv(mlay->lays, i);
-	lay->tidx = mlay->t_idx;
-	lay->roff = mlay->regs->size;
-	gen_lay_regs_core_graph(mlay->g, let, mlay->regs, mlay->all_regs);
-	lay->rcnt = mlay->regs->size - lay->roff;
-	sort_array(mlay->regs->buffer + lay->roff, lay->rcnt, lay_reg_t, num_cmpgt(b.end - b.beg, a.end - a.beg));
-	if(lay->rcnt == 0 && mlay->log){
-		thread_beg_syn(mlay);
-		fprintf(mlay->log, " -- N%llu(%c) -> N%llu(%c) has no read path --\n", (u8i)let->node1, "+-"[let->dir1], (u8i)let->node2, "+-"[let->dir2]); fflush(mlay->log);
-		thread_end_syn(mlay);
+for(i=mlay->pb;i<mlay->pe;i++){
+	_let = ref_seqletv(mlay->path, i);
+	clear_seqletv(lets);
+	densify_seqlet_graph(mlay->g, _let, lets, 12, rds, nodes, edges, heap, mlay->log);
+	if(lets->size > 1){
+		for(j=0;j<rds->size;j++){
+			if(rds->buffer[j].closed == 0){
+				one_bitvec(rdbits, rds->buffer[j].rid);
+			}
+		}
+	}
+	for(j=0;j<lets->size;j++){
+		let = ref_seqletv(lets, j);
+		lay = next_ref_layv(mlay->lays);
+		lay->edge = *let;
+		lay->roff = mlay->regs->size;
+		gen_lay_regs_core_graph(mlay->g, let, mlay->regs, lets->size > 1? rdbits : NULL, mlay->all_regs);
+		lay->rcnt = mlay->regs->size - lay->roff;
+		sort_array(mlay->regs->buffer + lay->roff, lay->rcnt, lay_reg_t, num_cmpgt(b.end - b.beg, a.end - a.beg));
+		if(lay->rcnt == 0 && mlay->log){
+			thread_beg_syn(mlay);
+			fprintf(mlay->log, " -- N%llu(%c) -> N%llu(%c) has no read path --\n", (u8i)let->node1, "+-"[let->dir1], (u8i)let->node2, "+-"[let->dir2]); fflush(mlay->log);
+			thread_end_syn(mlay);
+		}
+	}
+	if(lets->size > 1){
+		for(j=0;j<rds->size;j++){
+			if(rds->buffer[j].closed == 0){
+				zero_bitvec(rdbits, rds->buffer[j].rid);
+			}
+		}
 	}
 }
 thread_end_loop(mlay);
+free_subnodev(heap);
+free_readregv(rds);
+free_subedgev(edges);
+free_subnodehash(nodes);
 thread_end_func(mlay);
 
 static inline u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *lay_suffix, u4i ncpu, FILE *log){
@@ -4024,55 +4340,100 @@ static inline u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *pr
 	layv *lays;
 	layregv *regs;
 	seqletv *path;
+	u8v *divs;
 	seqlet_t *t;
 	lay_t *lay;
 	lay_reg_t *reg;
-	u8i i, ret;
-	u4i j, c, len;
+	u8i i, pb, pe, d, div_idx, ret;
+	u4i j, c, len, bsize, nrun;
 	thread_preprocess(mlay);
 	o_lay = open_file_for_write(prefix, lay_suffix, 1);
 	bw = zopen_bufferedwriter(o_lay, 1024 * 1024, ncpu, 0);
 	lays = init_layv(32);
+	regs = init_layregv(32);
 	thread_beg_init(mlay, ncpu);
 	mlay->g = g;
 	mlay->path = NULL;
-	mlay->lays = lays;
+	mlay->lays = init_layv(32);
 	mlay->regs = init_layregv(32);
+	mlay->pb = 0;
+	mlay->pe = 0;
+	mlay->div_idx = MAX_U8;
 	mlay->all_regs = 1;
 	mlay->log  = log;
 	thread_end_init(mlay);
 	ret = 0;
+	bsize = 100;
+	divs = init_u8v(1024);
 	for(i=beg;i<end;i++){
 		path = (seqletv*)get_vplist(g->ctgs, i);
 		if(path->size == 0) continue;
-		clear_and_inc_layv(lays, path->size);
-		thread_apply_all(mlay, EXPR(mlay->path = path));
-		uid ++;
-		ret ++;
 		len = path->buffer[path->size - 1].off + path->buffer[path->size - 1].len;
 		len = len * KBM_BIN_SIZE;
+		//clear_and_inc_layv(lays, path->size);
+		clear_layv(lays);
+		clear_u8v(divs);
+		clear_layregv(regs);
+		div_idx = 0;
+		pe = 0;
+		nrun = 0;
+		while(1){
+			pb = pe;
+			pe = num_min(pb + bsize, path->size);
+			thread_wait_one(mlay);
+			if(mlay->div_idx != MAX_U8){
+				nrun --;
+				divs->buffer[mlay->div_idx * 2 + 0] = lays->size;
+				divs->buffer[mlay->div_idx * 2 + 1] = lays->size + mlay->lays->size;
+				for(j=0;j<mlay->lays->size;j++){
+					mlay->lays->buffer[j].roff += regs->size;
+				}
+				append_layv(lays, mlay->lays);
+				clear_layv(mlay->lays);
+				append_layregv(regs, mlay->regs);
+				clear_layregv(mlay->regs);
+				mlay->pb = 0;
+				mlay->pe = 0;
+				mlay->div_idx = MAX_U8;
+			}
+			if(pb < pe){
+				inc_u8v(divs, 2);
+				mlay->div_idx = div_idx ++;
+				mlay->path = path;
+				mlay->pb = pb;
+				mlay->pe = pe;
+				thread_wake(mlay);
+				nrun ++;
+			} else if(nrun == 0){
+				break;
+			}
+		}
+		//thread_apply_all(mlay, EXPR(mlay->path = path));
+		uid ++;
+		ret ++;
 		{
 			beg_bufferedwriter(bw);
 			fprintf(bw->out, ">ctg%llu nodes=%llu len=%u\n", uid, (u8i)path->size + 1, len);
 			if(log) fprintf(log, "OUTPUT_CTG\tctg%d -> ctg%d nodes=%llu len=%u\n", (int)i, (int)uid, (u8i)path->size + 1, len);
-			for(j=0;j<lays->size;j++){
-				if((j % 100) == 0){
-					flush_bufferedwriter(bw);
-				}
-				lay = ref_layv(lays, j);
-				if(lay->rcnt == 0) continue;
-				t = ref_seqletv(path, j);
-				fprintf(bw->out, "E\t%d\tN%llu\t%c\tN%llu\t%c\n", (int)t->off * KBM_BIN_SIZE, (u8i)t->node1, "+-"[t->dir1], (u8i)t->node2, "+-"[t->dir2]);
-				regs = thread_access(mlay, (j % ncpu))->regs;
-				for(c=0;c<lay->rcnt;c++){
-					reg = ref_layregv(regs, lay->roff + c);
-					fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE);
-					if(reg->dir){
-						print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
-					} else {
-						print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
+			for(d=0;d<div_idx;d++){
+				pb = divs->buffer[d * 2 + 0];
+				pe = divs->buffer[d * 2 + 1];
+				flush_bufferedwriter(bw);
+				for(j=pb;j<pe;j++){
+					lay = ref_layv(lays, j);
+					if(lay->rcnt == 0) continue;
+					t = &lay->edge;
+					fprintf(bw->out, "E\t%d\tN%llu\t%c\tN%llu\t%c\n", (int)t->off * KBM_BIN_SIZE, (u8i)t->node1, "+-"[t->dir1], (u8i)t->node2, "+-"[t->dir2]);
+					for(c=0;c<lay->rcnt;c++){
+						reg = ref_layregv(regs, lay->roff + c);
+						fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE);
+						if(reg->dir){
+							print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
+						} else {
+							print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
+						}
+						fprintf(bw->out, "\n");
 					}
-					fprintf(bw->out, "\n");
 				}
 			}
 			end_bufferedwriter(bw);
@@ -4082,9 +4443,12 @@ static inline u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *pr
 	fclose(o_lay);
 	thread_beg_close(mlay);
 	free_layregv(mlay->regs);
+	free_layv(mlay->lays);
 	thread_end_close(mlay);
 	fprintf(KBM_LOGF, "[%s] output %u contigs\n", date(), (u4i)ret);
 	free_layv(lays);
+	free_layregv(regs);
+	free_u8v(divs);
 	return uid;
 }
 
