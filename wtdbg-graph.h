@@ -4048,6 +4048,7 @@ static inline u4i densify_seqlet_graph(Graph *g, seqlet_t *q, seqletv *qs, int m
 	next_ref_subedgev(edges);
 	memset(&N, 0, sizeof(subnode_t));
 	N.cov = 1;
+	N.bt_nidx = MAX_BT_NIDX;
 	cov = 0;
 	for(i=0;i<rds->size;i++){
 		rr = ref_readregv(rds, i);
@@ -4170,7 +4171,7 @@ static inline u4i densify_seqlet_graph(Graph *g, seqlet_t *q, seqletv *qs, int m
 	n->bt_step = 0;
 	n->bt_score = 0;
 	n->bt_dir = !q->dir1;
-	n->bt_nidx = 0;
+	n->bt_nidx = MAX_BT_NIDX;
 	// NB: below codes cannot grant to find the most dense path, but just useful in many cases
 	clear_subnodev(heap);
 	array_heap_push(heap->buffer, heap->size, heap->cap, subnode_t, *n, num_cmp(a.bt_score, b.bt_score));
@@ -4213,6 +4214,11 @@ static inline u4i densify_seqlet_graph(Graph *g, seqlet_t *q, seqletv *qs, int m
 	N.node = q->node2;
 	n = get_subnodehash(nodes, N);
 	if(n->visit == 0){
+#if DEBUG
+		if(nodes->count == 1000000){
+			fprint_subgraph_dot(g, 0, nodes, edges, "1.dot");
+		}
+#endif
 		push_seqletv(qs, *q);
 		return 1;
 	}
@@ -4222,9 +4228,13 @@ static inline u4i densify_seqlet_graph(Graph *g, seqlet_t *q, seqletv *qs, int m
 	}
 	n1 = NULL;
 	while(1){
+		if(n->bt_nidx == MAX_BT_NIDX){
+			push_seqletv(qs, *q);
+			return 1;
+		}
 		n2 = ref_subnodehash(nodes, n->bt_nidx);
 		n->bt_dir = !n->bt_dir;
-		n->bt_nidx = n1? offset_subnodehash(nodes, n1) : 0;
+		n->bt_nidx = n1? offset_subnodehash(nodes, n1) : MAX_BT_NIDX;
 		if(n->node == q->node1){
 			break;
 		}
