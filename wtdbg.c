@@ -43,8 +43,9 @@ static struct option prog_opts[] = {
 	{"genome-size",                      1, 0, 'g'},
 	{"rdcov-cutoff",                     1, 0, 'X'},
 	{"rdname-filter",                    1, 0, 3007},
+	{"rdname-includeonly",               1, 0, 3008},
 	{"rdcov-filter",                     1, 0, 2009},
-	//{"kmer-depth-min-filter",            0, 0, 'F'},
+	//{"kmer-depth-min-filter",          0, 0, 'F'},
 	{"kmer-subsampling",                 1, 0, 'S'},
 	{"kbm-parts",                        1, 0, 1035},
 	{"dp-max-gap",                       1, 0, 2005},
@@ -264,6 +265,8 @@ int usage(int level){
 	"   Rename reads into 'S%%010d' format. The first read is named as S0000000001\n"
 	" --rdname-filter <string>\n"
 	"   A file contains lines of reads name to be discarded in loading. If you want to filter reads by yourself, please also set -X 0\n"
+	" --rdname-includeonly <string>\n"
+	"   Reverse manner with --rdname-filter\n"
 	//" --keep-name\n"
 	//"   Keep orignal read names even with --tidy-reads, '-L 5000 --keep-name' equals '-L -5000'\n"
 	" -g <number>, --genome-size <number>\n"
@@ -366,10 +369,10 @@ int main(int argc, char **argv){
 	KBM *kbm;
 	FileReader *fr;
 	BioSequence *seqs[2], *seq;
-	chash *rdtaghash;
+	chash *rdtaghash[2];
 	cplist *pbs, *ngs, *pws;
 	FILE *evtlog;
-	char *prefix, *rdtag_filter, *dump_seqs, *load_seqs, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
+	char *prefix, *rdtag_filter[2], *dump_seqs, *load_seqs, *dump_kbm, *load_kbm, *load_nodes, *load_clips;
 	char regtag[14];
 	int len, tag_size, asyn_read, preset;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
@@ -404,8 +407,10 @@ int main(int argc, char **argv){
 	// -------
 	max_bp = 0;
 	max_idx_bp = 0LLU * 1000 * 1000 * 1000; // unlimited
-	rdtag_filter = NULL;
-	rdtaghash = NULL;
+	rdtag_filter[0] = NULL;
+	rdtag_filter[1] = NULL;
+	rdtaghash[0] = NULL;
+	rdtaghash[1] = NULL;
 	reglen = 1024;
 	regovl = 256;
 	node_drop = 0.25;
@@ -532,7 +537,8 @@ int main(int argc, char **argv){
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2);break;
 			case 'g': genome_size = mm_parse_num(optarg); break;
 			case 'X': genome_depx = atof(optarg); break;
-			case 3007: rdtag_filter = optarg; break;
+			case 3007: rdtag_filter[0] = optarg; break;
+			case 3008: rdtag_filter[1] = optarg; break;
 			case 2009: filter_rd_strategy = atoi(optarg); break;
 			case 2005: par->max_bgap = atoi(optarg); break;
 			case 2006: par->max_bvar = atoi(optarg); break;
@@ -753,17 +759,19 @@ int main(int argc, char **argv){
 		tot_bp = kbm->rdseqs->size;
 	} else {
 		kbm = init_kbm(par);
-		if(rdtag_filter){
-			rdtaghash = init_chash(1023);
-			fr = open_filereader(rdtag_filter, 0);
-			while(readline_filereader(fr)){
-				char *str = strdup(fr->line->string);
-				put_chash(rdtaghash, str);
+		for(i=0;i<2;i++){
+			if(rdtag_filter[i]){
+				rdtaghash[i] = init_chash(1023);
+				fr = open_filereader(rdtag_filter[i], 0);
+				while(readline_filereader(fr)){
+					char *str = strdup(fr->line->string);
+					put_chash(rdtaghash[i], str);
+				}
+				close_filereader(fr);
+				tidy_reads = 0;
+			} else {
+				rdtaghash[i] = NULL;
 			}
-			close_filereader(fr);
-			tidy_reads = 0;
-		} else {
-			rdtaghash = NULL;
 		}
 		fprintf(KBM_LOGF, "[%s] loading reads\n", date());
 		tot_bp = 0;
@@ -832,8 +840,13 @@ int main(int argc, char **argv){
 				} else {
 					if(has == 0) break;
 					seq = seqs[k];
-					if(rdtaghash){
-						if(exists_chash(rdtaghash, seq->tag->string)){
+					if(rdtaghash[0]){
+						if(exists_chash(rdtaghash[0], seq->tag->string)){
+							continue;
+						}
+					}
+					if(rdtaghash[1]){
+						if(!exists_chash(rdtaghash[1], seq->tag->string)){
 							continue;
 						}
 					}
@@ -864,13 +877,15 @@ int main(int argc, char **argv){
 				}
 			}
 			close_filereader(fr);
-			if(rdtaghash){
-				char **str;
-				reset_iter_chash(rdtaghash);
-				while((str = ref_iter_chash(rdtaghash))){
-					free(*str);
+			for(i=0;i<2;i++){
+				if(rdtaghash[i]){
+					char **str;
+					reset_iter_chash(rdtaghash[i]);
+					while((str = ref_iter_chash(rdtaghash[i]))){
+						free(*str);
+					}
+					free_chash(rdtaghash[i]);
 				}
-				free_chash(rdtaghash);
 			}
 		}
 		regfree(&reg);
