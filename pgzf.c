@@ -120,7 +120,7 @@ int main(int argc, char **argv){
 					char *rtag;
 					rtag = relative_filename(argv[c]);
 					rtag[strlen(rtag) - 3] = 0;
-					ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+					ftag = malloc(strlen(outf) + 1 + strlen(rtag) + 1);
 					sprintf(ftag, "%s/%s", outf, rtag);
 					free(rtag);
 					if(overwrite == 0 && file_exists(ftag)){
@@ -150,7 +150,7 @@ int main(int argc, char **argv){
 				char *rtag;
 				rtag = relative_filename(argv[optind]);
 				rtag[strlen(rtag) - 3] = 0;
-				ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+				ftag = malloc(strlen(outf) + 1 + strlen(rtag) + 1);
 				sprintf(ftag, "%s/%s", outf, rtag);
 				free(rtag);
 				out = open_file_for_write(ftag, NULL, overwrite);
@@ -191,7 +191,7 @@ int main(int argc, char **argv){
 				} else if(is_dir){
 					char *rtag;
 					rtag = relative_filename(argv[c]);
-					ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+					ftag = malloc(strlen(outf) + 1 + strlen(rtag) + 3 + 1);
 					sprintf(ftag, "%s/%s.gz", outf, rtag);
 					free(rtag);
 					if(overwrite == 0 && file_exists(ftag)){
@@ -220,7 +220,7 @@ int main(int argc, char **argv){
 			} else if(is_dir){
 				char *rtag;
 				rtag = relative_filename(argv[optind]);
-				ftag = malloc(sizeof(outf) + 1 + strlen(rtag) + 1);
+				ftag = malloc(strlen(outf) + 1 + strlen(rtag) + 3 + 1);
 				sprintf(ftag, "%s/%s.gz", outf, rtag);
 				free(rtag);
 				out = open_file_for_write(ftag, NULL, overwrite);
