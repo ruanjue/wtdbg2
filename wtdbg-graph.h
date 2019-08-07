@@ -4877,13 +4877,14 @@ static inline u8i print_frgs_dot_graph(Graph *g, FILE *_out){
 	u4i j, k, max;
 	bw = zopen_bufferedwriter(_out, 1024 * 1024, 8, 0);
 	beg_bufferedwriter(bw);
-	out = bw->out;
-	fprintf(out, "digraph {\n");
-	fprintf(out, "node [shape=record]\n");
+	fprintf(bw->out, "digraph {\n");
+	fprintf(bw->out, "node [shape=record]\n");
 	for(i=0;i<g->frgs->size;i++){
 		if((i % 1000) == 0) flush_bufferedwriter(bw);
 		frg = ref_frgv(g->frgs, i);
-		if(frg->closed) continue;
+		if(frg->closed){
+			continue;
+		}
 		//if(frg->ty - frg->tx < (u4i)g->min_ctg_nds) continue;
 		t1 = ref_tracev(g->traces, frg->toff + frg->tx);
 		t2 = ref_tracev(g->traces, frg->toff + frg->ty - 1);
@@ -4897,7 +4898,9 @@ static inline u8i print_frgs_dot_graph(Graph *g, FILE *_out){
 				max = g->reads->buffer[rr->rid].regs.cnt;
 			}
 		}
-		if(r1 == NULL) continue;
+		if(r1 == NULL){
+			continue;
+		}
 		r2 = NULL; max = 0;
 		for(j=0;j<n2->regs.cnt;j++){
 			rr = ref_regv(g->regs, n2->regs.idx + j);
@@ -4906,8 +4909,10 @@ static inline u8i print_frgs_dot_graph(Graph *g, FILE *_out){
 				max = g->reads->buffer[rr->rid].regs.cnt;
 			}
 		}
-		if(r2 == NULL) continue;
-		fprintf(out, "F%llu [label=\"{F%llu %u %u/%u | { {N%llu:%c | %s | %c_%d_%d} | {N%llu:%c | %s | %c_%d_%d}}}\"]\n", i, i, frg->ty - frg->tx, frg->len, frg->length,
+		if(r2 == NULL){
+			continue;
+		}
+		fprintf(bw->out, "F%llu [label=\"{F%llu %u %u/%u | { {N%llu:%c | %s | %c_%d_%d} | {N%llu:%c | %s | %c_%d_%d}}}\"]\n", i, i, frg->ty - frg->tx, frg->len, frg->length,
 			t1->node, "+-"[t1->dir], g->kbm->reads->buffer[r1->rid].tag, "FR"[r1->dir], r1->beg, r1->end - r1->beg,
 			t2->node, "+-"[t2->dir], g->kbm->reads->buffer[r2->rid].tag, "FR"[r2->dir], r2->beg, r2->end - r2->beg);
 	}
@@ -4925,15 +4930,15 @@ static inline u8i print_frgs_dot_graph(Graph *g, FILE *_out){
 				if(e->closed) continue;
 				if(f->flg){
 					//if(g->frgs->buffer[e->frg1].ty - g->frgs->buffer[e->frg1].tx < (u4i)g->min_ctg_nds) continue;
-					fprintf(out, "F%llu -> F%llu [label=\"%c%c:%d:%d\" color=%s style=%s]\n", i, (u8i)e->frg1, "+-"[k], "+-"[!e->dir1], e->cov, e->off, colors[k][!e->dir1], e->weak? "dashed" : "solid");
+					fprintf(bw->out, "F%llu -> F%llu [label=\"%c%c:%d:%d\" color=%s style=%s]\n", i, (u8i)e->frg1, "+-"[k], "+-"[!e->dir1], e->cov, e->off, colors[k][!e->dir1], e->weak? "dashed" : "solid");
 				} else {
 					//if(g->frgs->buffer[e->frg2].ty - g->frgs->buffer[e->frg2].tx < (u4i)g->min_ctg_nds) continue;
-					fprintf(out, "F%llu -> F%llu [label=\"%c%c:%d:%d\" color=%s style=%s]\n", i, (u8i)e->frg2, "+-"[k], "+-"[e->dir2], e->cov, e->off, colors[k][e->dir2], e->weak? "dashed" : "solid");
+					fprintf(bw->out, "F%llu -> F%llu [label=\"%c%c:%d:%d\" color=%s style=%s]\n", i, (u8i)e->frg2, "+-"[k], "+-"[e->dir2], e->cov, e->off, colors[k][e->dir2], e->weak? "dashed" : "solid");
 				}
 			}
 		}
 	}
-	fprintf(out, "}\n");
+	fprintf(bw->out, "}\n");
 	end_bufferedwriter(bw);
 	close_bufferedwriter(bw);
 	return 0;
