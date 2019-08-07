@@ -2450,6 +2450,7 @@ static inline u8i trim_frgtip_core_graph(Graph *g, int max_len, pathv *path, u8i
 	//if(msg1 != -1 - WT_TRACE_MSG_MORE && msg1 != WT_TRACE_MSG_MORE) return 0;
 	if(msg1 == WT_TRACE_MSG_MORE){
 		path->size --;
+		return 0;
 	} else if(msg1 == -1 - WT_TRACE_MSG_MORE){
 		t = ref_pathv(path, path->size); // please see linear_path_graph
 		n = ref_frgv(g->frgs, t->frg);
@@ -4866,7 +4867,6 @@ static inline u8i print_frgs_nodes_graph(Graph *g, FILE *out){
 
 static inline u8i print_frgs_dot_graph(Graph *g, FILE *_out){
 	BufferedWriter *bw;
-	FILE *out;
 	frg_t *frg;
 	trace_t *t1, *t2;
 	node_t *n1, *n2;
