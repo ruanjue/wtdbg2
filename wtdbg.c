@@ -1105,6 +1105,9 @@ int main(int argc, char **argv){
 				yarn += cnt;
 				if(cnt) c = 1;
 			} while(cnt);
+		} while(c);
+		do {
+			c = 0;
 			cnt = rescue_high_cov_edges_graph(g, 2, 20);
 			if(cnt){
 				high += cnt;
@@ -1112,6 +1115,7 @@ int main(int argc, char **argv){
 			}
 		} while(c);
 		if(bub + tip + high){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns; rescued %llu high edges\n", date(), bub, tip, yarn, high); fflush(KBM_LOGF); }
+		//if(bub + tip + yarn){ fprintf(KBM_LOGF, "[%s] %llu bubbles; %llu tips; %llu yarns\n", date(), bub, tip, yarn); fflush(KBM_LOGF); }
 	}
 	if(del_iso){
 		cnt = del_isolated_nodes_graph(g, evtlog);
@@ -1146,14 +1150,18 @@ int main(int argc, char **argv){
 	fprintf(KBM_LOGF, "[%s] remove %llu boomerangs\n", date(), (unsigned long long)cnt);
 	cnt = cut_weak_branches_frg_graph(g);
 	fprintf(KBM_LOGF, "[%s] remove %llu weak branches\n", date(), (unsigned long long)cnt);
-	//cnt = cut_low_cov_lnks_graph(g, 1);
-	//fprintf(KBM_LOGF, "[%s] deleted %llu low cov links\n", date(), (unsigned long long)cnt);
+	cnt = cut_low_cov_lnks_graph(g, 1);
+	fprintf(KBM_LOGF, "[%s] deleted %llu low cov links\n", date(), (unsigned long long)cnt);
 	//if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.2.dot");
 	cnt = trim_frgtips_graph(g, frgtip_len);
 	fprintf(KBM_LOGF, "[%s] cut %llu tips\n", date(), (unsigned long long)cnt);
 	//if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.3.dot");
-	cnt = pop_frg_bubbles_graph(g, bub_step);
-	fprintf(KBM_LOGF, "[%s] pop %llu bubbles\n", date(), (unsigned long long)cnt);
+	bub = 0;
+	do {
+		cnt = pop_frg_bubbles_graph(g, bub_step);
+		bub += cnt;
+	} while(cnt);
+	fprintf(KBM_LOGF, "[%s] pop %llu bubbles\n", date(), bub);
 	{
 		cnt = 0;
 		while(1){
