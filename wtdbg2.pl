@@ -30,7 +30,7 @@ unless (defined $opts{P}) {
 }
 
 my $prefix = defined($opts{o})? $opts{o} : $ARGV[0];
-my $smt_threads = $opts{t} < 4? $opts{t} : 4;
+my $smt_threads = $opts{t} < 4? 4 : $opts{t};
 
 my $asm_opt = "";
 $asm_opt .= " -x $opts{x}" if defined($opts{x});
