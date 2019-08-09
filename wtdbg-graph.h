@@ -3848,7 +3848,8 @@ static inline u4i gen_lnks_graph(Graph *g, int ncpu, FILE *log){
 			l->cov  = cov;
 			if(l->cov < g->max_node_cov_sg){
 				l->weak = 1;
-				l->closed = WT_EDGE_CLOSED_LESS;
+				//l->closed = WT_EDGE_CLOSED_LESS;
+				l->closed = 0;
 			} else {
 				l->weak = 0;
 				l->closed = 0;
