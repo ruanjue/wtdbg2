@@ -81,7 +81,7 @@ define_hashset(ptrrefhash, ptr_ref_t, ptrref_hashcode, ptrref_hashequals);
 #define WT_EDGE_CLOSED_HARD	3
 typedef struct {
 	uint64_t node1:45, dir1:1, dir2:1, status:1, closed:2, flag:2, cov:12;
-	uint64_t node2:45, adjcov:4; int64_t off:15;
+	uint64_t node2:45; int64_t off:19;
 } edge_t;
 define_list(edgev, edge_t);
 
@@ -2052,17 +2052,17 @@ static inline void build_edges_graph(Graph *g, int ncpu, FILE *log){
 				E->off = ((int)r2->beg) - r1->end;
 				u = prepare_edgehash(g->ehash, 0, &exists);
 				if(exists){
-					if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
+					//if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
 				} else {
 					*u = g->edges->size;
 					push_edgev(g->edges, *E);
 				}
 				if(i == regs->size){
 					e = ref_edgev(g->edges, *u);
-					if(e->adjcov < 0xF) e->adjcov ++;
-					if(e->adjcov >= 2){
+					//if(e->cov < WT_MAX_EDGE_COV) e->cov ++;
+					//if(e->cov >= 1){
 						e->closed = 0;
-					}
+					//}
 				}
 				push_edgeoffv(offs, (edge_off_t){*u, ((int)r2->beg) - r1->end});
 			}
