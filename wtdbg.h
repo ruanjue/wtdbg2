@@ -81,7 +81,7 @@ define_hashset(ptrrefhash, ptr_ref_t, ptrref_hashcode, ptrref_hashequals);
 #define WT_EDGE_CLOSED_HARD	3
 typedef struct {
 	uint64_t node1:45, dir1:1, dir2:1, status:1, closed:2, flag:2, cov:12;
-	uint64_t node2:45; int64_t off:19;
+	uint64_t node2:45, adjcov:4; int64_t off:15;
 } edge_t;
 define_list(edgev, edge_t);
 
@@ -239,7 +239,7 @@ typedef struct {
 	int      max_overhang, chainning_hits, uniq_hit;
 	float    node_max_conflict; // 0.25
 	float    node_merge_cutoff;
-	uint32_t max_node_cov, min_node_cov, exp_node_cov, min_edge_cov;
+	uint32_t max_node_cov, min_node_cov, exp_node_cov, min_edge_cov, max_edge_span;
 	u4i      max_node_cov_sg, max_sg_end;
 	int      cut_tip;
 	int      store_low_cov_edge;
@@ -304,6 +304,7 @@ static inline Graph* init_graph(KBM *kbm){
 	g->max_node_cov = 60;
 	g->exp_node_cov = 40; // expected node cov
 	g->min_edge_cov = 4;
+	g->max_edge_span = 1024; // 1024 * 256 = 256 kb
 	g->max_node_cov_sg = 2;
 	g->max_sg_end = 5;
 	g->store_low_cov_edge = 1;
@@ -2004,7 +2005,7 @@ static inline int calculate_edge_cov_off_graph(Graph *g, edge_t *e, edgeoffv *of
 static inline void build_edges_graph(Graph *g, int ncpu, FILE *log){
 	read_t *rd;
 	node_t *n;
-	edge_t *E;
+	edge_t *E, *e;
 	vplist *regs;
 	reg_t *r1, *r2;
 	edge_ref_t f1, f2;
@@ -2017,7 +2018,7 @@ static inline void build_edges_graph(Graph *g, int ncpu, FILE *log){
 	E = next_ref_edgev(g->edges);
 	memset(E, 0, sizeof(edge_t));
 	E->closed = WT_EDGE_CLOSED_MASK;
-	//E->cov = 1;
+	E->cov = 1;
 	//E->status = 0;
 	clear_edgehash(g->ehash);
 	offs = init_edgeoffv(32);
@@ -2033,8 +2034,9 @@ static inline void build_edges_graph(Graph *g, int ncpu, FILE *log){
 			if(g->nodes->buffer[r2->node].closed) continue;
 			if(r2->closed) continue;
 			if(!(r2->beg >= rd->clps[0] && r2->end <= rd->clps[1])) continue;
-			for(i=0;i<regs->size;i++){
-				r1 = (reg_t*)get_vplist(regs, i);
+			for(i=regs->size;i>0;i--){
+				r1 = (reg_t*)get_vplist(regs, i - 1);
+				if(r1->end + g->max_edge_span < r2->beg) break;
 				E = ref_edgev(g->edges, 0);
 				if(r1->node < r2->node){
 					E->node1 = r1->node;
@@ -2050,15 +2052,16 @@ static inline void build_edges_graph(Graph *g, int ncpu, FILE *log){
 				E->off = ((int)r2->beg) - r1->end;
 				u = prepare_edgehash(g->ehash, 0, &exists);
 				if(exists){
-					//if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
+					if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
 				} else {
 					*u = g->edges->size;
 					push_edgev(g->edges, *E);
 				}
-				if(i + 1 == regs->size){
-					if(g->edges->buffer[*u].cov < WT_MAX_EDGE_COV) g->edges->buffer[*u].cov ++;
-					if(g->edges->buffer[*u].cov >= g->min_edge_cov){
-						g->edges->buffer[*u].closed = 0;
+				if(i == regs->size){
+					e = ref_edgev(g->edges, *u);
+					if(e->adjcov < 0xF) e->adjcov ++;
+					if(e->adjcov >= 2){
+						e->closed = 0;
 					}
 				}
 				push_edgeoffv(offs, (edge_off_t){*u, ((int)r2->beg) - r1->end});

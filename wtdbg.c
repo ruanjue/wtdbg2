@@ -82,6 +82,7 @@ static struct option prog_opts[] = {
 	{"node-ovl",                         1, 0, 1005},
 	{"node-drop",                        1, 0, 1006},
 	{"edge-min",                         1, 0, 'e'},
+	{"edge-max-span",                    1, 0, 3009},
 	{"node-min",                         1, 0, 1007},
 	{"node-max",                         1, 0, 1008},
 	{"ttr-cutoff-depth",                 1, 0, 1009},
@@ -291,6 +292,8 @@ int usage(int level){
 	" -e <int>, --edge-min=<int>\n"
 	"   Default: 3. The minimal depth of a valid edge is set to 3. In another word, Valid edges must be supported by at least 3 reads\n"
 	"   When the sequence depth is low, have a try with --edge-min 2. Or very high, try --edge-min 4\n"
+	" --edge-max-span <int>\n"
+	"   Default: 1024 BINs. Program will build edges of length no large than 1024\n"
 	" --drop-low-cov-edges\n"
 	"   Don't attempt to rescue low coverage edges\n"
 	" --node-min <int>\n"
@@ -377,7 +380,7 @@ int main(int argc, char **argv){
 	int len, tag_size, asyn_read, preset;
 	u8i tot_bp, cnt, bub, tip, rep, yarn, max_bp, max_idx_bp, nfix, opt_flags;
 	uint32_t i, j, k;
-	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
+	int c, opt_idx, ncpu, only_fix, realign, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, edge_span, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, filter_rd_strategy, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, uniq_hit, bestn, rescue_low_edges;
 	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, corr_min, corr_max, corr_bsize, corr_bstep, mem_stingy, num_index;
@@ -421,6 +424,7 @@ int main(int argc, char **argv){
 	exp_node_cov = 40;
 	min_bins = 1;
 	edge_cov = 0; // will be set to 3, if no genome_size available and no -e
+	edge_span = 1024;
 	rdclip = 1;
 	chainning = 1;
 	uniq_hit = 1;
@@ -568,6 +572,7 @@ int main(int argc, char **argv){
 			case 1005: regovl = atoi(optarg); break;
 			case 1006: node_drop = atof(optarg); break;
 			case 'e':  edge_cov = atoi(optarg); break;
+			case 3009: edge_span = atoi(optarg); break;
 			case 1007: node_cov = atoi(optarg); break;
 			case 1008: max_node_cov = atoi(optarg); break;
 			case 1009: ttr_n_cov = atoi(optarg); break;
@@ -712,7 +717,10 @@ int main(int argc, char **argv){
 			fprintf(KBM_LOGF, " -- try read from file --\n");
 			kbm = mem_read_obj_file(&kbm_obj_desc, load_kbm, NULL, NULL, NULL, NULL);
 		}
-		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-S %d')\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, kbm->par->kmer_mod / KBM_N_HASH);
+		nfix = 0;
+		tot_bp = 0;
+		for(i=0;i<kbm->reads->size;i++) tot_bp += kbm->reads->buffer[i].rdlen;
+		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-S %d')\n", date(), (u4i)kbm->reads->size, tot_bp, kbm->par->kmer_mod / KBM_N_HASH);
 		{
 			// check KBMPar
 			if((opt_flags >> 0) & 0x01){
@@ -744,8 +752,6 @@ int main(int argc, char **argv){
 				par->rd_len_order = kbm->par->rd_len_order;
 			}
 		}
-		nfix = 0;
-		tot_bp = kbm->rdseqs->size;
 	} else if(load_seqs){
 		fprintf(KBM_LOGF, "[%s] loading kbm index from %s\n", date(), load_seqs);
 		if((kbm = mem_find_obj_file(&kbm_obj_desc, load_seqs, NULL, NULL, NULL, NULL, 0)) == NULL){
@@ -753,10 +759,11 @@ int main(int argc, char **argv){
 			fprintf(KBM_LOGF, " -- try read from file --\n");
 			kbm = mem_read_obj_file(&kbm_obj_desc, load_seqs, NULL, NULL, NULL, NULL);
 		}
-		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size);
 		kbm = clone_seqs_kbm(kbm, par);
 		nfix = 0;
-		tot_bp = kbm->rdseqs->size;
+		tot_bp = 0;
+		for(i=0;i<kbm->reads->size;i++) tot_bp += kbm->reads->buffer[i].rdlen;
+		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp\n", date(), (u4i)kbm->reads->size, tot_bp);
 	} else {
 		kbm = init_kbm(par);
 		for(i=0;i<2;i++){
@@ -961,6 +968,7 @@ int main(int argc, char **argv){
 		g->exp_node_cov = exp_node_cov;
 		g->min_node_mats = min_bins;
 		g->min_edge_cov = edge_cov;
+		g->max_edge_span = edge_span;
 		g->max_sg_end = max_trace_end;
 		g->store_low_cov_edge = store_low_cov_edge;
 		g->bub_step = bub_step;
@@ -1150,8 +1158,8 @@ int main(int argc, char **argv){
 	fprintf(KBM_LOGF, "[%s] remove %llu boomerangs\n", date(), (unsigned long long)cnt);
 	cnt = cut_weak_branches_frg_graph(g);
 	fprintf(KBM_LOGF, "[%s] remove %llu weak branches\n", date(), (unsigned long long)cnt);
-	cnt = cut_low_cov_lnks_graph(g, 1);
-	fprintf(KBM_LOGF, "[%s] deleted %llu low cov links\n", date(), (unsigned long long)cnt);
+	//cnt = cut_low_cov_lnks_graph(g, 1);
+	//fprintf(KBM_LOGF, "[%s] deleted %llu low cov links\n", date(), (unsigned long long)cnt);
 	//if(!less_out) generic_print_graph(g, print_frgs_dot_graph, prefix, ".frg.2.dot");
 	cnt = trim_frgtips_graph(g, frgtip_len);
 	fprintf(KBM_LOGF, "[%s] cut %llu tips\n", date(), (unsigned long long)cnt);
