@@ -195,8 +195,14 @@ if(mcns->task.type == 1){
 	kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, (cc->I + cc->D) / 2, (cc->I + cc->D) / 2, cc->E, mem_cache);
 	if(XX.aln < Int(0.5 * cc->reglen) || XX.mat < Int(XX.aln * 0.9)){
 		// full length alignment
+		int maxl;
+		maxl = num_min(seq1->size, seq2->size);
+		maxl = num_max(maxl, cc->reglen * 4);
 		qb = 0; qe = seq1->size;
 		tb = 0; te = seq2->size;
+		if(qe > maxl) qb = qe - maxl;
+		if(te > maxl) te = maxl;
+		ol = num_min(qe -qb, te - tb);
 		kswx_overlap_align_core(xs, cigars, qe - qb, seq1->buffer + qb, te - tb, seq2->buffer + tb, 1, cc->M, cc->X, (cc->I + cc->D) / 2, (cc->I + cc->D) / 2, cc->E, mem_cache);
 	}
 	XX.qb += qb;
