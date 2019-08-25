@@ -197,7 +197,7 @@ if(mcns->task.type == 1){
 		// full length alignment
 		int maxl;
 		maxl = num_min(seq1->size, seq2->size);
-		maxl = num_max(maxl, cc->reglen * 4);
+		maxl = num_min(maxl, cc->reglen * 4);
 		qb = 0; qe = seq1->size;
 		tb = 0; te = seq2->size;
 		if(qe > maxl) qb = qe - maxl;
