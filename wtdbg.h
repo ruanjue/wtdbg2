@@ -1478,7 +1478,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 				}
 				fclose(kmlog);
 				free(deps);
-				if(!g->minimal_output){
+				if(!g->minimal_output && 0){
 					kbm_bin_t *bn;
 					kmlog = open_file_for_write(prefix, ".closed_bins", 1);
 					for(hidx=0;hidx<g->kbm->bins->size;hidx++){
