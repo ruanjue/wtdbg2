@@ -727,6 +727,7 @@ typedef struct {
 	u4i     chridx;
 	u4v     *chrs;
 	SeqBank *refs;
+	BitVec  *vsts;
 	FileReader *fr;
 	layseqr *seqs;
 	u4v     *heap;
@@ -748,6 +749,7 @@ static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, 
 	sb->chrs = init_u4v(32);
 	push_u4v(sb->chrs, MAX_U4);
 	sb->refs = refs;
+	sb->vsts = init_bitvec(sb->refs->nseq);
 	sb->fr   = fr;
 	sb->seqs = init_layseqr(1024);
 	sb->heap = init_u4v(1024);
@@ -768,6 +770,7 @@ static inline SAMBlock* init_samblock(SeqBank *refs, FileReader *fr, u2i bsize, 
 
 static inline void free_samblock(SAMBlock *sb){
 	free_u4v(sb->chrs);
+	free_bitvec(sb->vsts);
 	free_layseqr(sb->seqs);
 	free_u4v(sb->heap);
 	free(sb);
@@ -776,7 +779,7 @@ static inline void free_samblock(SAMBlock *sb){
 static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq){
 	lay_seq_t *st;
 	u8i off;
-	u4i sqidx, len, i, j;
+	u4i sqidx, len, i;
 	if(sb->cidx > sb->refs->nseq) return sq;
 	sqidx = offset_layseqr(sb->seqs, sq);
 	if((sb->flags & 0x1) && sb->bidx2 == MAX_U4){
@@ -793,13 +796,11 @@ static inline lay_seq_t* _push_padding_ref_samblock(SAMBlock *sb, lay_seq_t *sq)
 		st->rbeg  = st->rdoff;
 		if(sb->chrs->size <= sb->cidx){
 			for(i=0;i<sb->refs->nseq;i++){
-				for(j=1;j<sb->chrs->size;j++){
-					if(sb->chrs->buffer[j] == i) break;
-				}
-				if(j == sb->chrs->size) break;
+				if(get_bitvec(sb->vsts, i) == 0) break;
 			}
 			if(i == sb->refs->nseq) break;
 			push_u4v(sb->chrs, i);
+			one_bitvec(sb->vsts, i);
 		}
 		off = sb->refs->rdoffs->buffer[sb->chrs->buffer[sb->cidx]];
 		len = sb->refs->rdlens->buffer[sb->chrs->buffer[sb->cidx]];
@@ -863,6 +864,7 @@ static inline lay_seq_t* iter_samblock(void *obj){
 			if(chr != sb->chrs->buffer[sb->chridx]){
 				chridx = ++ sb->chridx;
 				push_u4v(sb->chrs, chr);
+				one_bitvec(sb->vsts, chr);
 			} else {
 				chridx = sb->chridx;
 			}
