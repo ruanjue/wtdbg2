@@ -53,7 +53,6 @@ int kbm_usage(){
 	fprintf(stdout, "             if K >= 1, take the integer value as cutoff, MUST <= 65535\n");
 	fprintf(stdout, "             else, mask the top fraction part high frequency kmers\n");
 	fprintf(stdout, " -E <int>    Min kmer frequency, [1]\n");
-	fprintf(stdout, " -F          Filter low frequency kmers by a 4G-bytes array (max_occ=3 2-bits). Here, -E must greater than 1\n");
 	fprintf(stdout, " -O <int>    Filter low complexity bins (#indexed_kmer less than <-O>), [2]\n");
 	fprintf(stdout, " -S <float>  Subsampling kmers, 1/(<-S>) kmers are indexed, [4.00]\n");
 	fprintf(stdout, "             -S is very useful in saving memeory and speeding up\n");
@@ -161,7 +160,7 @@ if(maln->corr_mode){
 		for(i=0;i<tidxs->size;i++){
 			tidx = get_u4v(tidxs, i);
 			rd = ref_kbmreadv(maln->aux->kbm->reads, tidx);
-			query_index_kbm(raux, rd->tag, tidx, maln->aux->kbm->rdseqs, rd->rdoff, rd->rdlen);
+			query_index_kbm(raux, rd->tag, tidx, maln->aux->kbm->rdseqs, rd->seqoff * KBM_BIN_SIZE, rd->bincnt * KBM_BIN_SIZE);
 			map_kbm(raux);
 			for(j=0;j<raux->hits->size;j++){
 				flip_hit_kbmaux(maln->aux, raux, j);
@@ -249,7 +248,7 @@ int kbm_main(int argc, char **argv){
 	server = 0;
 	tree_maxcnt = 10;
 	opt_flags = 0;
-	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:z:l:m:n:s:cr:CT:W:R:qvV")) != -1){
+	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:O:S:B:G:D:X:Y:Z:x:y:z:l:m:n:s:cr:CT:W:R:qvV")) != -1){
 		switch(c){
 			case 'h': return kbm_usage();
 			case 'i': push_cplist(qrys, optarg); break;
@@ -263,7 +262,6 @@ int kbm_main(int argc, char **argv){
 			case 'p': par->psize = atoi(optarg); opt_flags |= (1 << 0); break;
 			case 'K': fval = atof(optarg); par->kmax = fval; par->ktop = fval - par->kmax; break;
 			case 'E': par->kmin = atoi(optarg); break;
-			case 'F': par->use_kf = 1; break;
 			case 'O': par->min_bin_degree = atoi(optarg); break;
 			case 'S': par->kmer_mod = UInt(atof(optarg) * KBM_N_HASH); opt_flags |= (1 << 2); break;
 			case 'B': par->ksampling = atoi(optarg); break;
@@ -569,7 +567,7 @@ int kbm_main(int argc, char **argv){
 						nhit += aux->hits->size;
 					}
 				}
-				trunc_string(seq->seq, cvt_kbm_read_length(seq->seq->size, KBM_BIN_SIZE));
+				trunc_string(seq->seq, kbm_cvt_length(seq->seq->size));
 				clear_basebank(maln->rdseqs);
 				seq2basebank(maln->rdseqs, seq->seq->string, seq->seq->size);
 				clear_string(maln->rdtag);
@@ -593,8 +591,8 @@ int kbm_main(int argc, char **argv){
 				if(qidx == MAX_U4 || tidx == MAX_U4) continue;
 				if(qidx > tidx){ swap_var(qidx, tidx); }
 				maln->qidx = qidx;
-				maln->rdoff = kbm->reads->buffer[qidx].rdoff;
-				maln->rdlen = kbm->reads->buffer[qidx].rdlen;
+				maln->rdoff = kbm->reads->buffer[qidx].seqoff * KBM_BIN_SIZE;
+				maln->rdlen = kbm->reads->buffer[qidx].bincnt * KBM_BIN_SIZE;
 				aux->bmin = kbm->reads->buffer[tidx].binoff;
 				aux->bmax = kbm->reads->buffer[tidx].binoff + kbm->reads->buffer[tidx].bincnt;
 				fprintf(out, "%s <-> %s\n", kbm->reads->buffer[qidx].tag, kbm->reads->buffer[tidx].tag);
@@ -619,8 +617,8 @@ int kbm_main(int argc, char **argv){
 				if(nc < 1) continue;
 				qidx = getval_cuhash(kbm->tag2idx, get_col_str(fr, 0));
 				if(qidx == MAX_U4) continue;
-				print_exists_index_kbm(kbm, kbm->reads->buffer[qidx].tag, kbm->rdseqs, kbm->reads->buffer[qidx].rdoff,
-					kbm->reads->buffer[qidx].rdlen, kmers, stdout);
+				print_exists_index_kbm(kbm, kbm->reads->buffer[qidx].tag, kbm->rdseqs, kbm->reads->buffer[qidx].seqoff * KBM_BIN_SIZE,
+					kbm->reads->buffer[qidx].bincnt * KBM_BIN_SIZE, kmers, stdout);
 			}
 			free_kmeroffv(kmers[0]);
 			free_kmeroffv(kmers[1]);
@@ -635,7 +633,7 @@ int kbm_main(int argc, char **argv){
 					continue;
 				}
 				fprintf(out, ">%s\n", kbm->reads->buffer[qidx].tag);
-				println_fwdseq_basebank(kbm->rdseqs, kbm->reads->buffer[qidx].rdoff, kbm->reads->buffer[qidx].rdlen, out);
+				println_fwdseq_basebank(kbm->rdseqs, kbm->reads->buffer[qidx].seqoff * KBM_BIN_SIZE, kbm->reads->buffer[qidx].bincnt * KBM_BIN_SIZE, out);
 				fflush(out);
 			}
 		}
@@ -687,8 +685,8 @@ int kbm_main(int argc, char **argv){
 				fprintf(KBM_LOGF, "\r%u\t%llu", qidx, nhit); fflush(KBM_LOGF);
 			}
 			maln->qidx = qidx;
-			maln->rdoff = kbm->reads->buffer[qidx].rdoff;
-			maln->rdlen = kbm->reads->buffer[qidx].rdlen;
+			maln->rdoff = kbm->reads->buffer[qidx].seqoff * KBM_BIN_SIZE;
+			maln->rdlen = kbm->reads->buffer[qidx].bincnt * KBM_BIN_SIZE;
 			thread_wake(maln);
 		}
 		fprintf(KBM_LOGF, "\r%u\t%llu\n", qidx, nhit); fflush(KBM_LOGF);

@@ -266,7 +266,7 @@ static inline Graph* init_graph(KBM *kbm){
 	g->reads->size = kbm->reads->size;
 	for(rid=0;rid<g->reads->size;rid++){
 		g->reads->buffer[rid].clps[0] = 0;
-		g->reads->buffer[rid].clps[1] = g->kbm->reads->buffer[rid].rdlen / KBM_BIN_SIZE;
+		g->reads->buffer[rid].clps[1] = g->kbm->reads->buffer[rid].bincnt;
 	}
 	g->nodes = init_nodev(32);
 	g->rdhits = init_rdhitv(1024);
@@ -512,7 +512,7 @@ static inline int hit2rdregs_graph(Graph *g, rdregv *regs, int qlen, kbm_map_t *
 #if DEBUG
 		if(x + 1 + hit->qb != hit->qe || y + 1 + hit->tb != hit->te){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
-			print_hit_kbm(g->kbm, g->kbm->reads->buffer[hit->qidx].tag, g->kbm->reads->buffer[hit->qidx].rdlen, hit, cigars, NULL, stderr);
+			print_hit_kbm(g->kbm, g->kbm->reads->buffer[hit->qidx].tag, g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE, hit, cigars, NULL, stderr);
 			abort();
 		}
 #endif
@@ -693,18 +693,15 @@ if(mdbg->task == 1){
 	if(reg->closed) continue;
 	//if(g->corr_mode){
 	if(0){
-		//if(map_kbmpoa(mdbg->cc, aux, kbm->reads->buffer[reg->rid].tag, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE, g->corr_min, g->corr_max, g->corr_cov, NULL) == 0){
-			//clear_kbmmapv(aux->hits);
-		//}
 	} else {
-		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
+		query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, (kbm->reads->buffer[reg->rid].seqoff + UInt(reg->beg)) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
 		map_kbm(aux);
 	}
 	if(raux && aux->hits->size){ // refine
 		kbm_read_t *rd;
 		u4i i, j, tidx;
 		clear_kbm(raux->kbm);
-		bitpush_kbm(raux->kbm, NULL, 0, kbm->rdseqs->bits, kbm->reads->buffer[reg->rid].rdoff + UInt(reg->beg) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
+		bitpush_kbm(raux->kbm, NULL, 0, kbm->rdseqs->bits, (kbm->reads->buffer[reg->rid].seqoff + UInt(reg->beg)) * KBM_BIN_SIZE, UInt(reg->end - reg->beg) * KBM_BIN_SIZE);
 		ready_kbm(raux->kbm);
 		simple_index_kbm(raux->kbm, 0, raux->kbm->bins->size);
 		clear_u4v(tidxs);
@@ -718,7 +715,7 @@ if(mdbg->task == 1){
 		for(i=0;i<tidxs->size;i++){
 			tidx = get_u4v(tidxs, i);
 			rd = ref_kbmreadv(aux->kbm->reads, tidx);
-			query_index_kbm(raux, rd->tag, tidx, aux->kbm->rdseqs, rd->rdoff, rd->rdlen);
+			query_index_kbm(raux, rd->tag, tidx, aux->kbm->rdseqs, rd->seqoff * KBM_BIN_SIZE, rd->bincnt * KBM_BIN_SIZE);
 			map_kbm(raux);
 			for(j=0;j<raux->hits->size;j++){
 				flip_hit_kbmaux(aux, raux, j);
@@ -1262,9 +1259,9 @@ static inline u8i load_alignments_core(Graph *g, FileReader *pws, int raw, rdreg
 		//if(g->corr_mode){
 		if(0){
 			//g->reads->buffer[hit->qidx].corr_bincnt = qlen / KBM_BIN_SIZE;
-		} else if(qlen != (int)g->kbm->reads->buffer[hit->qidx].rdlen){
+		} else if(qlen != (int)g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE){
 			if(nwarn < mwarn){
-				fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].rdlen, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+				fprintf(stderr, " -- inconsisitent read length \"%s\" %d != %d in %s -- %s:%d --\n", qtag, qlen, g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 				nwarn ++;
 			}
 		}
@@ -1393,12 +1390,12 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 	if(g->corr_mode){
 		mbp = g->genome_size * g->corr_gcov;
 		qb = qe = g->kbm->reads->size / 2;
-		nbp = g->kbm->reads->buffer[qb].rdlen;
+		nbp = g->kbm->reads->buffer[qb].bincnt * KBM_BIN_SIZE;
 		while(nbp < mbp && qb && qe + 1 < g->kbm->reads->size){
 			qb --;
 			qe ++;
-			nbp += g->kbm->reads->buffer[qb].rdlen;
-			nbp += g->kbm->reads->buffer[qe].rdlen;
+			nbp += g->kbm->reads->buffer[qb].bincnt * KBM_BIN_SIZE;
+			nbp += g->kbm->reads->buffer[qe].bincnt * KBM_BIN_SIZE;
 		}
 		if(qe < g->kbm->reads->size) qe ++;
 		fprintf(KBM_LOGF, "[%s] turn correct-mode on, reads[%u ~ %u = %u] (%llu bp), genome-size=%llu, corr-gcov=%0.2f, corr-dep=[%d,%d,%0.2f]\n", date(), qb, qe, qe - qb, nbp, g->genome_size, g->corr_gcov, g->corr_min, g->corr_max, g->corr_cov); fflush(KBM_LOGF);
@@ -1592,7 +1589,7 @@ static inline u8i proc_alignments_core(Graph *g, int ncpu, int raw, rdregv *regs
 						fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
 						for(i=0;i<mdbg->aux->hits->size;i++){
 							hit = ref_kbmmapv(mdbg->aux->hits, i);
-								fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE, hit->aln * KBM_BIN_SIZE, hit->mat);
+								fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE, hit->aln * KBM_BIN_SIZE, hit->mat);
 						}
 					}
 					mdbg->reg.closed = 1;
@@ -1696,9 +1693,9 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			u8i tot, clp;
 			tot = clp = 0;
 			for(rid=0;rid<g->reads->size;rid++){
-				tot += g->kbm->reads->buffer[rid].rdlen;
+				tot += g->kbm->reads->buffer[rid].bincnt * KBM_BIN_SIZE;
 				clp += (g->reads->buffer[rid].clps[1] - g->reads->buffer[rid].clps[0]) * KBM_BIN_SIZE;
-				fprintf(clplog, "%s\t%d\t%d\t%d\n", g->kbm->reads->buffer[rid].tag, g->kbm->reads->buffer[rid].rdlen, g->reads->buffer[rid].clps[0] * KBM_BIN_SIZE, g->reads->buffer[rid].clps[1] * KBM_BIN_SIZE);
+				fprintf(clplog, "%s\t%d\t%d\t%d\n", g->kbm->reads->buffer[rid].tag, g->kbm->reads->buffer[rid].bincnt * KBM_BIN_SIZE, g->reads->buffer[rid].clps[0] * KBM_BIN_SIZE, g->reads->buffer[rid].clps[1] * KBM_BIN_SIZE);
 			}
 			fclose(clplog);
 			fprintf(KBM_LOGF, "%.2f%% bases\n", ((tot - clp) * 100.0) / tot); fflush(KBM_LOGF);

@@ -33,22 +33,17 @@
 //#define __DEBUG__	1
 #define TEST_MODE
 
-#define KBM_BIN_SIZE	256
+#define KBM_BIN_BITS	8
+#define KBM_BSIZE	256
+#define KBM_BIN_SIZE	KBM_BSIZE
 #define KBM_MAX_BINCNT	0xFFFFFFFFFFLLU // 40 bits, 1024 G
 #define KBM_MAX_RDCNT	0x3FFFFFFF // 30 bits, 1 G
-#define KBM_MAX_RDBINCNT	0xFFFFFF // 24 bits
+#define KBM_MAX_RDBINCNT	0x7FFFFF // 23 bits
 // able to index reference sequences
-#define KBM_MAX_RDLEN	0xFFFFFFFFU // 32 bits, 4 G bp
-
+#define KBM_MAX_RDLEN	0x7FFFFFFFU // 31 bits, 2 G bp
 #define KBM_MAX_KSIZE	23
 #define KBM_MAX_KCNT	0xFFFF // 16 bits, 65535
-
 #define KBM_N_HASH	4096
-
-#define KBM_KF_BITS	32
-#define KBM_KF_SIZE	(1LLU << KBM_KF_BITS)
-#define KBM_KF_MASK	(KBM_KF_SIZE - 1LLU)
-
 #define KBM_LOGF	stderr
 #define KBM_LOGFNO	STDERR_FILENO
 static int KBM_LOG = 0;
@@ -56,29 +51,24 @@ static int KBM_LOG = 0;
 #define KBM_LOG_MID	2
 #define KBM_LOG_HIG	3
 #define KBM_LOG_ALL	4
-
 #define KBM_MAX_RDGRP1	0x7FFFFF
 #define KBM_MAX_RDGRP2	0xFF
 
 typedef struct {
-	u8i rdoff:40, bincnt:24;
-	u4i rdlen, binoff;
+	u8i seqoff:40, flag:24; // seqoff is counted in BIN(256bp)
+	u8i binoff:40, bincnt:23, closed:1;
 	char *tag;
 } kbm_read_t;
 define_list(kbmreadv, kbm_read_t);
 const obj_desc_t kbm_read_t_obj_desc = {"kbm_read_t_obj_desc", sizeof(kbm_read_t), 1, {1}, {offsetof(kbm_read_t, tag)}, {&OBJ_DESC_CHAR_ARRAY}, NULL, NULL};
 static inline size_t kbmreadv_deep_obj_desc_cnt(void *list, int idx){ if(idx == 0) return ((kbmreadv*)list)->size; else return 0; }
 static const obj_desc_t kbmreadv_deep_obj_desc = {.tag = "kbmreadv_deep_obj_desc", .size = sizeof(kbmreadv), .n_child = 1, .mem_type = {1}, .addr = {offsetof(kbmreadv, buffer)}, .desc = {&kbm_read_t_obj_desc}, .cnt = kbmreadv_deep_obj_desc_cnt, .post = NULL};
+#define kbm_read_seqoff(rd) ((rd)->seqoff << KBM_BIN_BITS)
+#define kbm_read_seqlen(rd) ((rd)->bincnt << KBM_BIN_BITS)
 
-#if 0
-#define KBM_MAX_BIN_DEGREE	0x7FFU
-#endif
 #define KBM_MAX_BIN_DEGREE	0x1FFU
 // each BIN takes KBM_BIN_SIZE bp in uncompressed reads
 typedef struct {
-#if 0
-	u4i ridx:28, off:24, closed:1, degree:11; // off * KBM_BIN_SIZE is the real position
-#endif
 	u4i ridx:30, off:24, closed:1, degree:9; // off * KBM_BIN_SIZE is the real position
 } kbm_bin_t;
 define_list(kbmbinv, kbm_bin_t);
@@ -166,12 +156,9 @@ define_list(kbmmapv, kbm_map_t);
 
 typedef struct {
 	int rd_len_order; // 0
-	//int hk; // 0
-	int use_kf; // 0
 	int min_bin_degree; // 2
 	u4i ksize, psize; // 0, 21
-	u4i kbsize; // 256, MUST <= 256
-	u4i kmax, kmin, kmer_mod, ksampling; // 1000, 1, 4.0 * KBM_N_HASH, KBM_BIN_SIZE
+	u4i kmax, kmin, kmer_mod, ksampling; // 1000, 1, 4.0 * KBM_N_HASH, KBM_BSIZE
 	float ktop; // 0.05
 	// runtime
 	u4i strand_mask; // 3. 1: forward; 2: reverse; 3: both
@@ -195,11 +182,12 @@ typedef struct {
 	u8i      flags; // 64 bits, 0: mem_load all, 1: mem_load rdseqs+reads; 2: Single Hash Mode;3-63: unused
 	KBMPar   *par;
 	BaseBank *rdseqs;
+	u8i      avail_bases;
+	u4i      avail_reads;
 	kbmreadv *reads;
 	cuhash   *tag2idx;
 	kbmbinv  *bins;
 	BitVec   *binmarks;
-	//u8i      *kfs;
 	kbmbmerv *seeds;
 	kbmbauxv *sauxs;
 	kbmhash  *hashs[KBM_N_HASH];
@@ -282,15 +270,13 @@ static inline KBMPar* init_kbmpar(){
 	KBMPar *par;
 	par = malloc(sizeof(KBMPar));
 	par->rd_len_order = 0;
-	par->use_kf = 0;
 	par->min_bin_degree = 2;
 	par->ksize = 0;
 	par->psize = 21;
-	par->kbsize = 256;
 	par->kmax  = 1000;
 	par->kmin  = 1;
 	par->kmer_mod = 4 * KBM_N_HASH;
-	par->ksampling = par->kbsize;
+	par->ksampling = KBM_BSIZE;
 	par->ktop  = 0.05;
 	par->strand_mask = 3;
 	par->self_aln = 0;
@@ -302,7 +288,7 @@ static inline KBMPar* init_kbmpar(){
 	par->pgap = -7;
 	par->pvar = -21;
 	par->max_hit = 1000;
-	par->min_aln = 2048 / par->kbsize;
+	par->min_aln = 2048 / KBM_BIN_SIZE;
 	par->min_mat = 200;
 	par->min_sim = 0.05;
 	par->aln_var = 0.25;
@@ -319,6 +305,8 @@ static inline KBM* init_kbm(KBMPar *par){
 	kbm->flags = 0;
 	kbm->par = par;
 	kbm->rdseqs = init_basebank();
+	kbm->avail_bases = 0;
+	kbm->avail_reads = 0;
 	kbm->reads = init_kbmreadv(64);
 	kbm->tag2idx = init_cuhash(1023);
 	kbm->bins  = init_kbmbinv(64);
@@ -400,11 +388,7 @@ static inline void clear_kbm(KBM *kbm){
 	clear_kbmbauxv(kbm->sauxs);
 }
 
-static inline int cvt_kbm_read_length(u4i seqlen, u4i kbsize){
-	if(seqlen > KBM_MAX_RDLEN) seqlen = KBM_MAX_RDLEN;
-	seqlen = (seqlen / kbsize) * kbsize;
-	return seqlen;
-}
+#define kbm_cvt_length(seqlen) ((seqlen) & (MAX_U8 << KBM_BIN_BITS))
 
 static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, u4i seqlen){
 	kbm_read_t *rd;
@@ -416,18 +400,16 @@ static inline void push_kbm(KBM *kbm, char *tag, int taglen, char *seq, u4i seql
 	} else {
 		ptr = NULL;
 	}
-	seqlen = cvt_kbm_read_length(seqlen, kbm->par->kbsize);
+	if(seqlen > KBM_MAX_RDLEN) seqlen = KBM_MAX_RDLEN;
+	seqlen = kbm_cvt_length(seqlen);
 	rd = next_ref_kbmreadv(kbm->reads);
-	rd->rdoff = kbm->rdseqs->size;
-	rd->rdlen = seqlen;
+	rd->seqoff = (kbm->rdseqs->size >> KBM_BIN_BITS);
+	rd->flag   = 0;
 	rd->binoff = 0;
-	rd->bincnt = 0;
+	rd->bincnt = seqlen / KBM_BIN_SIZE;
+	rd->closed = 0;
 	rd->tag = ptr;
 	seq2basebank(kbm->rdseqs, seq, seqlen);
-	// make sure rdoff is even
-	if(kbm->rdseqs->size & 0x1){
-		bit2basebank(kbm->rdseqs, 0);
-	}
 }
 
 static inline void bitpush_kbm(KBM *kbm, char *tag, int taglen, u8i *seqs, u8i seqoff, u4i seqlen){
@@ -440,18 +422,16 @@ static inline void bitpush_kbm(KBM *kbm, char *tag, int taglen, u8i *seqs, u8i s
 	} else {
 		ptr = NULL;
 	}
-	seqlen = cvt_kbm_read_length(seqlen, kbm->par->kbsize);
+	if(seqlen > KBM_MAX_RDLEN) seqlen = KBM_MAX_RDLEN;
+	seqlen = kbm_cvt_length(seqlen);
 	rd = next_ref_kbmreadv(kbm->reads);
-	rd->rdoff = kbm->rdseqs->size;
-	rd->rdlen = seqlen;
+	rd->seqoff = (kbm->rdseqs->size >> KBM_BIN_BITS);
+	rd->flag   = 0;
 	rd->binoff = 0;
-	rd->bincnt = 0;
+	rd->bincnt = seqlen / KBM_BIN_SIZE;
+	rd->closed = 0;
 	rd->tag = ptr;
 	fast_fwdbits2basebank(kbm->rdseqs, seqs, seqoff, seqlen);
-	// make sure rdoff is even
-	if(kbm->rdseqs->size & 0x1){
-		bit2basebank(kbm->rdseqs, 0);
-	}
 }
 
 // Please call no more than once
@@ -461,21 +441,21 @@ static inline u8i filter_reads_kbm(KBM *kbm, u8i retain_size, int strategy){
 	if(retain_size == 0 || retain_size >= kbm->rdseqs->size) return kbm->rdseqs->size;
 	if((kbm->flags & 0x2) == 0){
 		if(kbm->par->rd_len_order){
-			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.rdlen, a.rdlen));
+			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.bincnt, a.bincnt));
 			if(strategy == 0){ // longest
 				len = 0;
 				for(e=0;e<kbm->reads->size;e++){
-					len += kbm->reads->buffer[e].rdlen;
+					len += kbm->reads->buffer[e].bincnt * KBM_BIN_SIZE;
 					if(len >= retain_size) break;
 				}
 				kbm->reads->size = e;
 			} else if(strategy == 1){ // median
 				m = kbm->reads->size / 2;
-				len = kbm->reads->buffer[m].rdlen;
+				len = kbm->reads->buffer[m].bincnt * KBM_BIN_SIZE;
 				e = m;
 				for(b=0;b<=m&&len<retain_size;b++){
-					len += kbm->reads->buffer[m - b].rdlen;
-					len += kbm->reads->buffer[m + b].rdlen;
+					len += kbm->reads->buffer[m - b].bincnt * KBM_BIN_SIZE;
+					len += kbm->reads->buffer[m + b].bincnt * KBM_BIN_SIZE;
 				}
 				e = b * 2;
 				b = m - b;
@@ -500,19 +480,19 @@ static inline void ready_kbm(KBM *kbm){
 	u4i i, j;
 	if((kbm->flags & 0x2) == 0){
 		if(kbm->par->rd_len_order){
-			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.rdlen, a.rdlen));
+			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.bincnt, a.bincnt));
 		}
-		encap_basebank(kbm->rdseqs, kbm->par->kbsize);
+		encap_basebank(kbm->rdseqs, KBM_BSIZE);
 	}
 	clear_kbmbinv(kbm->bins);
 	for(i=0;i<kbm->reads->size;i++){
 		rd = ref_kbmreadv(kbm->reads, i);
 		if(rd->tag) put_cuhash(kbm->tag2idx, (cuhash_t){rd->tag, i});
 		if((kbm->flags & 0x2) == 0) rd->binoff = kbm->bins->size;
-		for(j=0;j+kbm->par->kbsize<=rd->rdlen;j+=kbm->par->kbsize){
-			push_kbmbinv(kbm->bins, (kbm_bin_t){i, j / kbm->par->kbsize, 0, 0});
+		for(j=0;j<rd->bincnt;j++){
+			push_kbmbinv(kbm->bins, (kbm_bin_t){i, j, 0, 0});
 		}
-		if((kbm->flags & 0x2) == 0) rd->bincnt = j / kbm->par->kbsize;
+		if((kbm->flags & 0x2) == 0) rd->bincnt = j;
 	}
 	clear_bitvec(kbm->binmarks);
 	encap_bitvec(kbm->binmarks, kbm->bins->size);
@@ -654,7 +634,7 @@ static inline u8i seed2solid_idx_kbm(KBM *kbm, kbm_dpe_t *p){
 	u8i seqoff;
 	b = kbm->bins->buffer + p->bidx;
 	rd = kbm->reads->buffer + b->ridx;
-	seqoff = ((rd->rdoff + b->off * kbm->par->kbsize) >> 1) + p->koff;
+	seqoff = (((rd->seqoff + b->off) * KBM_BSIZE) >> 1) + p->koff;
 	return seqoff;
 }
 
@@ -662,7 +642,7 @@ static inline u8i rdoff2solid_idx_kbm(KBM *kbm, u4i ridx, u4i roff){
 	kbm_read_t *rd;
 	u8i seqoff;
 	rd = kbm->reads->buffer + ridx;
-	seqoff = (rd->rdoff + roff) >> 1;
+	seqoff = (rd->seqoff * KBM_BIN_SIZE + roff) >> 1;
 	return seqoff;
 }
 
@@ -683,7 +663,7 @@ define_list(tmpbmerv, kbm_tmp_bmer_t);
 
 thread_beg_def(midx);
 KBM *kbm;
-u4i beg, end; // (end - beg) * KBM_BIN_SIZE MUST <= KBM_KMEROFF_MAX
+u8i beg, end; // (end - beg) * KBM_BSIZE MUST <= KBM_KMEROFF_MAX
 u8i ktot, nrem, Nrem, none, nflt, offset;
 u8i srem, Srem;
 u8i *cnts, n_cnt;
@@ -702,8 +682,8 @@ kbm_kmer_t *u;
 kbm_kaux_t *x;
 kmeroffv *kmers[2];
 tmpbmerv *bms;
-u8i off;
-u4i bidx, i, j, k, len, ncpu, tidx, kidx;
+u8i bidx, off;
+u4i i, j, k, len, ncpu, tidx, kidx;
 int exists;
 kbm = midx->kbm;
 ncpu = midx->n_cpu;
@@ -718,12 +698,11 @@ if(midx->task == 1){
 	// counting kmers
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmmidxv(kidxs[i]);
 	for(bidx=midx->beg+tidx;bidx<midx->end;bidx+=ncpu){
-		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%u", bidx - midx->beg); fflush(KBM_LOGF); }
+		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%llu", bidx - midx->beg); fflush(KBM_LOGF); }
 		bin = ref_kbmbinv(kbm->bins, bidx);
 		if(bin->closed) continue;
-		if(((u4i)bin->off + 1) * kbm->par->kbsize > kbm->reads->buffer[bin->ridx].rdlen) continue;
-		off = kbm->reads->buffer[bin->ridx].rdoff + bin->off * kbm->par->kbsize;
-		len = kbm->par->kbsize;
+		off = (kbm->reads->buffer[bin->ridx].seqoff + bin->off) * KBM_BIN_SIZE;
+		len = KBM_BIN_SIZE;
 		split_FIXP_kmers_kbm(kbm->rdseqs, off, len, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
 		for(i=0;i<2;i++){
 			for(j=0;j<kmers[i]->size;j++){
@@ -826,15 +805,14 @@ if(midx->task == 1){
 	// fill seeds
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmmidxv(kidxs[i]);
 	u4v *chgs;
-	chgs = init_u4v(kbm->par->kbsize);
+	chgs = init_u4v(KBM_BSIZE);
 	for(bidx=midx->beg+tidx;bidx<midx->end;bidx+=ncpu){
-		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%u", bidx - midx->beg); fflush(KBM_LOGF); }
+		if(KBM_LOG == 0 && tidx == 0 && ((bidx - midx->beg) % 100000) == 0){ fprintf(KBM_LOGF, "\r%llu", bidx - midx->beg); fflush(KBM_LOGF); }
 		bin = ref_kbmbinv(kbm->bins, bidx);
 		if(bin->closed) continue;
 		bin->degree = 0;
-		if(((u4i)bin->off + 1) * kbm->par->kbsize > kbm->reads->buffer[bin->ridx].rdlen) continue;
-		off = kbm->reads->buffer[bin->ridx].rdoff + bin->off * kbm->par->kbsize;
-		len = kbm->par->kbsize;
+		off = (kbm->reads->buffer[bin->ridx].seqoff + bin->off) * KBM_BIN_SIZE;
+		len = KBM_BIN_SIZE;
 		split_FIXP_kmers_kbm(kbm->rdseqs, off, len, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
 		clear_u4v(chgs);
 		for(i=0;i<2;i++){
@@ -970,12 +948,6 @@ static inline void index_kbm(KBM *kbm, u8i beg, u8i end, u4i ncpu, FILE *kmstat)
 	for(i=0;i<KBM_N_HASH;i++) clear_kbmhash(kbm->hashs[i]);
 	kcnts = NULL;
 	MAX = KBM_MAX_KCNT;
-	//if(kbm->kfs){
-		//free(kbm->kfs);
-		//kbm->kfs = NULL;
-	//}
-	//if(kbm->par->kmin <= 1) kbm->par->use_kf = 0;
-	//kbm->kfs = kbm->par->use_kf? calloc(KBM_KF_SIZE / 4 / 8, 8) : NULL;
 	hash_locks = calloc(KBM_N_HASH, sizeof(pthread_mutex_t));
 	thread_beg_init(midx, ncpu);
 	midx->kbm = kbm;
@@ -1143,9 +1115,7 @@ static inline void index_kbm(KBM *kbm, u8i beg, u8i end, u4i ncpu, FILE *kmstat)
 	thread_beg_close(midx);
 	if(midx->cnts) free(midx->cnts);
 	thread_end_close(midx);
-	if(1){
-		free(hash_locks);
-	}
+	free(hash_locks);
 	print_proc_stat_info(0);
 }
 
@@ -1168,9 +1138,8 @@ static inline void simple_index_kbm(KBM *kbm, u8i beg, u8i end){
 		for(bidx=beg;bidx<end;bidx++){
 			bin = ref_kbmbinv(kbm->bins, bidx);
 			if(bin->closed) continue;
-			if(((u4i)bin->off + 1) * kbm->par->kbsize > kbm->reads->buffer[bin->ridx].rdlen) continue;
-			off = kbm->reads->buffer[bin->ridx].rdoff + bin->off * kbm->par->kbsize;
-			split_FIXP_kmers_kbm(kbm->rdseqs, off, kbm->par->kbsize, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
+			off = (kbm->reads->buffer[bin->ridx].seqoff + bin->off) * KBM_BIN_SIZE;
+			split_FIXP_kmers_kbm(kbm->rdseqs, off, KBM_BIN_SIZE, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
 			for(i=0;i<2;i++){
 				for(j=0;j<kmers[i]->size;j++){
 					f = ref_kmeroffv(kmers[i], j);
@@ -1229,9 +1198,8 @@ static inline void simple_index_kbm(KBM *kbm, u8i beg, u8i end){
 		for(bidx=beg;bidx<end;bidx++){
 			bin = ref_kbmbinv(kbm->bins, bidx);
 			if(bin->closed) continue;
-			if(((u4i)bin->off + 1) * kbm->par->kbsize > kbm->reads->buffer[bin->ridx].rdlen) continue;
-			off = kbm->reads->buffer[bin->ridx].rdoff + bin->off * kbm->par->kbsize;
-			split_FIXP_kmers_kbm(kbm->rdseqs, off, kbm->par->kbsize, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
+			off = (kbm->reads->buffer[bin->ridx].seqoff + bin->off) * KBM_BIN_SIZE;
+			split_FIXP_kmers_kbm(kbm->rdseqs, off, KBM_BIN_SIZE, kbm->par->ksize, kbm->par->psize, kbm->par->kmer_mod, kmers);
 			for(i=0;i<2;i++){
 				for(j=0;j<kmers[i]->size;j++){
 					f = ref_kmeroffv(kmers[i], j);
@@ -1429,9 +1397,9 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 	aux->qseqs = rdseqs;
 	aux->qsoff = seqoff;
 	aux->qlen = seqlen;
-	aux->slen = (seqlen / kbm->par->kbsize) * kbm->par->kbsize;
+	aux->slen = (seqlen / KBM_BIN_SIZE) * KBM_BIN_SIZE;
 	aux->qidx = qidx;
-	aux->qnbin = aux->slen / kbm->par->kbsize;
+	aux->qnbin = aux->slen / KBM_BIN_SIZE;
 	aux->qnbit = (aux->qnbin + 63) & 0xFFFFFFC0U;
 	clear_kbmdp(aux->dps[0], aux, 0);
 	clear_kbmdp(aux->dps[1], aux, 0);
@@ -1473,12 +1441,12 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 			ref->off = f->off;
 			ref->dir = i;
 			if(par->self_aln && aux->solids){
-				sidx = (kbm->reads->buffer[qidx].rdoff + ref->off) >> 1;
+				sidx = (kbm->reads->buffer[qidx].seqoff * KBM_BIN_SIZE + ref->off) >> 1;
 				ref->fine = get_bitvec(aux->solids, sidx);
 			} else {
 				ref->fine = 0;
 			}
-			ref->qbidx = ref->off / kbm->par->kbsize;
+			ref->qbidx = ref->off / KBM_BIN_SIZE;
 			ref->poffs[0] = ref->off;
 			ref->poffs[1] = aux->slen - (ref->off + (aux->par->ksize + aux->par->psize));
 			ref->boff = x->off;
@@ -1546,7 +1514,7 @@ static inline void query_index_kbm(KBMAux *aux, char *qtag, u4i qidx, BaseBank *
 				ref->closed = 1;
 			}
 		}
-	} else if(aux->par->ksampling < kbm->par->kbsize && aux->refs->size){
+	} else if(aux->par->ksampling < KBM_BIN_SIZE && aux->refs->size){
 		sort_array(aux->refs->buffer, aux->refs->size, kbm_ref_t, num_cmpgtx(a.qbidx, b.qbidx, b.bend - b.boff, a.bend - a.boff));
 		tot = 0;
 		for(i=j=0;i<aux->refs->size;i++){
@@ -1863,7 +1831,7 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 		push_bitsvec(aux->cigars, lst);
 	}
 	cglen = aux->cigars->size - cgoff;
-	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * aux->kbm->par->kbsize * aux->par->min_sim)
+	if(mat < (u4i)aux->par->min_mat || mat < UInt(hit->aln * KBM_BSIZE * aux->par->min_sim)
 		|| gap > (u4i)(hit->aln * aux->par->max_gap)
 		|| hit->aln < (int)aux->par->min_aln
 		|| num_diff(hit->qe - hit->qb, hit->te - hit->tb) > (int)num_max(aux->par->aln_var * hit->aln, 1.0)){
@@ -1900,8 +1868,6 @@ static inline int _backtrace_map_kbm(KBMAux *aux, int dir, kbm_path_t *p){
 	hit->gap = gap;
 	hit->cgoff = cgoff;
 	hit->cglen = cglen;
-	//if(hit->qe > (int)aux->qlen) hit->qe = aux->qlen;
-	//if(hit->te > (int)aux->kbm->reads->buffer[hit->tidx].rdlen) hit->te = aux->kbm->reads->buffer[hit->tidx].rdlen;
 	if(dir){
 		tmp = aux->qnbin - hit->qb;
 		hit->qb = aux->qnbin - hit->qe;
@@ -1937,9 +1903,9 @@ static inline void print_hit_kbm(KBM *kbm, char *qtag, u4i qlen, kbm_map_t *hit,
 	u8i coff;
 	u4i clen, len, bt, _bt;
 	if(hit->mat == 0) return;
-	fprintf(out, "%s\t%c\t%d\t%d\t%d", qtag, "+-"[hit->qdir], qlen, hit->qb * kbm->par->kbsize, hit->qe * kbm->par->kbsize);
-	fprintf(out, "\t%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], kbm->reads->buffer[hit->tidx].rdlen, hit->tb * kbm->par->kbsize, hit->te * kbm->par->kbsize);
-	fprintf(out, "\t%d\t%d\t%d\t%d\t", hit->mat, hit->aln * kbm->par->kbsize, hit->cnt, hit->gap);
+	fprintf(out, "%s\t%c\t%d\t%d\t%d", qtag, "+-"[hit->qdir], qlen, hit->qb * KBM_BIN_SIZE, hit->qe * KBM_BIN_SIZE);
+	fprintf(out, "\t%s\t%c\t%d\t%d\t%d", kbm->reads->buffer[hit->tidx].tag, "+-"[hit->tdir], kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE);
+	fprintf(out, "\t%d\t%d\t%d\t%d\t", hit->mat, hit->aln * KBM_BIN_SIZE, hit->cnt, hit->gap);
 	if(cigars){
 		str = _str? _str : init_string(64);
 		bt = len = 0;
@@ -2050,7 +2016,8 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 	KBMDP *dp;
 	kbm_cmer_t *c;
 	kbm_dpe_t *e, E;
-	u4i i, qb, bb, kmat, kcnt, blen;
+	u8i bb;
+	u4i i, qb, kmat, kcnt, blen;
 	kbm = aux->kbm;
 	dp = aux->dps[dir];
 	if(p == NULL){
@@ -2126,7 +2093,7 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 	E.poff = 0;
 	for(i=0;i<=dp->kms->size;i++){
 		e = (i < dp->kms->size)? ref_kbmdpev(dp->kms, i) : &E;
-		if(e->bidx == bb && e->poff / kbm->par->kbsize == qb / kbm->par->kbsize){
+		if(e->bidx == bb && e->poff / KBM_BIN_SIZE == qb / KBM_BIN_SIZE){
 			kcnt ++;
 			if(qb + aux->par->ksize + aux->par->psize >= e->poff){
 				kmat += e->poff - qb;
@@ -2134,7 +2101,7 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 				kmat += aux->par->ksize + aux->par->psize;
 			}
 		} else {
-			one_bitvec(dp->cmask, (bb - dp->boff) * aux->qnbit + qb / kbm->par->kbsize);
+			one_bitvec(dp->cmask, (bb - dp->boff) * aux->qnbit + qb / KBM_BIN_SIZE);
 			c = next_ref_kbmcmerv(dp->cms);
 			c->koff = i - kcnt;
 			c->kcnt = kcnt;
@@ -2142,7 +2109,7 @@ static inline void push_kmer_match_kbm(KBMAux *aux, int dir, kbm_dpe_t *p){
 			c->boff = bb - dp->boff;
 #if __DEBUG__
 			if(KBM_LOG >= KBM_LOG_ALL){
-				fprintf(KBM_LOGF, "KBMLOG%d [x=%d, y=%d(%s:%d), off=%d cnt=%d, mat=%d]\n", __LINE__, qb / kbm->par->kbsize, bb,
+				fprintf(KBM_LOGF, "KBMLOG%d [x=%d, y=%d(%s:%d), off=%d cnt=%d, mat=%d]\n", __LINE__, qb / KBM_BIN_SIZE, bb,
 					aux->kbm->reads->buffer[aux->kbm->bins->buffer[bb].ridx].tag, bb - aux->kbm->reads->buffer[aux->kbm->bins->buffer[bb].ridx].binoff, c->koff, c->kcnt, c->kmat);
 			}
 #endif
@@ -2249,7 +2216,7 @@ static inline void map_kbm(KBMAux *aux){
 					for(j=0;j<aux->caches[i]->size;j++){
 #if __DEBUG__
 						if(KBM_LOG >= KBM_LOG_ALL){
-							//fprintf(KBM_LOGF, "KBMLOG%d\t%d\t%d\t%c\t%d\t%llu[%d,%d]\t%llu[%d,%d]\n", __LINE__, aux->qidx, ref->poffs[ref->pdir], "+-"[ref->pdir], aux->hptr, ref->bidx, aux->kbm->bins->buffer[ref->bidx].ridx, aux->kbm->bins->buffer[ref->bidx].off * kbm->par->kbsize, (u8i)e->bidx, aux->kbm->bins->buffer[e->bidx].ridx, e->poff);
+							//fprintf(KBM_LOGF, "KBMLOG%d\t%d\t%d\t%c\t%d\t%llu[%d,%d]\t%llu[%d,%d]\n", __LINE__, aux->qidx, ref->poffs[ref->pdir], "+-"[ref->pdir], aux->hptr, ref->bidx, aux->kbm->bins->buffer[ref->bidx].ridx, aux->kbm->bins->buffer[ref->bidx].off * KBM_BIN_SIZE, (u8i)e->bidx, aux->kbm->bins->buffer[e->bidx].ridx, e->poff);
 						}
 #endif
 						push_kmer_match_kbm(aux, i, aux->caches[i]->buffer + j);

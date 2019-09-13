@@ -3926,14 +3926,14 @@ static inline int gen_seq_traces_graph(Graph *g, tracev *path, String *seq){
 							inc = (r2->beg - r1->end) * KBM_BIN_SIZE;
 							if(inc <= 0) break;
 							encap_string(seq, inc);
-							seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].rdoff + (r1->end * KBM_BIN_SIZE), inc, seq->string + seq->size);
+							seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].binoff * KBM_BIN_SIZE+ (r1->end * KBM_BIN_SIZE), inc, seq->string + seq->size);
 							seq->size += inc;
 						} else {
 							if(!(t1->dir ^ r1->dir)){ r1++; r2++; continue; }
 							inc = (r1->beg - r2->end) * KBM_BIN_SIZE;
 							if(inc <= 0) break;
 							encap_string(seq, inc);
-							revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].rdoff + (r2->end * KBM_BIN_SIZE), inc, seq->string + seq->size);
+							revseq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[r1->rid].seqoff + r2->end) * KBM_BIN_SIZE, inc, seq->string + seq->size);
 							seq->size += inc;
 						}
 						inc = 0;
@@ -3953,8 +3953,8 @@ static inline int gen_seq_traces_graph(Graph *g, tracev *path, String *seq){
 		reg = ref_regv(g->regs, ref_nodev(g->nodes, t1->node)->regs.idx);
 		inc = (reg->end - reg->beg) * KBM_BIN_SIZE;
 		encap_string(seq, inc);
-		if(t1->dir ^ reg->dir) revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + (reg->beg * KBM_BIN_SIZE), inc, seq->string + seq->size);
-		else                   seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + (reg->beg * KBM_BIN_SIZE), inc, seq->string + seq->size);
+		if(t1->dir ^ reg->dir) revseq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[reg->rid].seqoff + reg->beg) * KBM_BIN_SIZE, inc, seq->string + seq->size);
+		else                   seq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[reg->rid].seqoff + reg->beg) * KBM_BIN_SIZE, inc, seq->string + seq->size);
 		seq->size += inc;
 	}
 	return seq->size;
@@ -4441,9 +4441,9 @@ static inline u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *pr
 						reg = ref_layregv(regs, lay->roff + c);
 						fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE);
 						if(reg->dir){
-							print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
+							print_revseq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[reg->rid].seqoff + reg->beg) * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
 						} else {
-							print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
+							print_seq_basebank(g->kbm->rdseqs, (g->kbm->reads->buffer[reg->rid].seqoff + reg->beg) * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
 						}
 						fprintf(bw->out, "\n");
 					}
@@ -4503,26 +4503,16 @@ static inline u4i print_traces_graph(Graph *g, tracev *path, FILE *out){
 						fprintf(out, "S\t%s\t", g->kbm->reads->buffer[rid].tag);
 						fprintf(out, "+\t%d\t%d\t", (int)beg, (int)(end - beg));
 						encap_string(str, end - beg);
-						fwdseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[rid].rdoff + beg, end - beg, str->string);
+						fwdseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[rid].seqoff * KBM_BIN_SIZE + beg, end - beg, str->string);
 						fputs(str->string, out);
-						//beg += g->kbm->reads->buffer[rid].rdoff;
-						//end += g->kbm->reads->buffer[rid].rdoff;
-						//for(j=beg;j<end;j++){
-							//fputc(bit_base_table[bits2bit(g->kbm->rdseqs->bits, j)], out);
-						//}
 					} else {
 						if(!(t1->dir ^ r1->dir)){ r1 ++; r2 ++; continue; }
 						beg = r2->beg * KBM_BIN_SIZE; end = r1->end * KBM_BIN_SIZE;
 						fprintf(out, "S\t%s\t", g->kbm->reads->buffer[rid].tag);
 						fprintf(out, "-\t%d\t%d\t", (int)beg, (int)(end - beg));
 						encap_string(str, end - beg);
-						revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[rid].rdoff + beg, end - beg, str->string);
+						revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[rid].seqoff * KBM_BIN_SIZE + beg, end - beg, str->string);
 						fputs(str->string, out);
-						//beg += g->kbm->reads->buffer[rid].rdoff;
-						//end += g->kbm->reads->buffer[rid].rdoff;
-						//for(j=end;j>beg;j--){
-							//fputc(bit_base_table[bits2revbit(g->kbm->rdseqs->bits, (j-1))], out);
-						//}
 					}
 					fputc('\n', out);
 					if(fst){
@@ -4828,7 +4818,7 @@ static inline u8i print_reads_graph(Graph *g, FILE *out){
 	u4i i;
 	for(i=0;i<g->kbm->reads->size;i++){
 		rd = ref_readv(g->reads, i);
-		fprintf(out, "%s\t%d\t%u", g->kbm->reads->buffer[i].tag, g->kbm->reads->buffer[i].rdlen, rd->regs.cnt);
+		fprintf(out, "%s\t%d\t%u", g->kbm->reads->buffer[i].tag, g->kbm->reads->buffer[i].bincnt * KBM_BIN_SIZE, rd->regs.cnt);
 		idx = rd->regs.idx;
 		while(idx){
 			r = ref_regv(g->regs, idx);

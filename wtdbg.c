@@ -719,7 +719,7 @@ int main(int argc, char **argv){
 		}
 		nfix = 0;
 		tot_bp = 0;
-		for(i=0;i<kbm->reads->size;i++) tot_bp += kbm->reads->buffer[i].rdlen;
+		for(i=0;i<kbm->reads->size;i++) tot_bp += kbm->reads->buffer[i].bincnt * KBM_BIN_SIZE;
 		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp, parameter('-S %d')\n", date(), (u4i)kbm->reads->size, tot_bp, kbm->par->kmer_mod / KBM_N_HASH);
 		{
 			// check KBMPar
@@ -762,7 +762,7 @@ int main(int argc, char **argv){
 		kbm = clone_seqs_kbm(kbm, par);
 		nfix = 0;
 		tot_bp = 0;
-		for(i=0;i<kbm->reads->size;i++) tot_bp += kbm->reads->buffer[i].rdlen;
+		for(i=0;i<kbm->reads->size;i++) tot_bp += kbm->reads->buffer[i].bincnt * KBM_BIN_SIZE;
 		fprintf(KBM_LOGF, "[%s] Done. %u sequences, %llu bp\n", date(), (u4i)kbm->reads->size, tot_bp);
 	} else {
 		kbm = init_kbm(par);
