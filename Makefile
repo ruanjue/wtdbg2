@@ -46,4 +46,4 @@ clear:
 	rm -f *.o *.gcda *.gcno *.gcov gmon.out
 
 install: $(PROGS)
-	mkdir -p $(BIN) && cp -fvu $(PROGS) $(BIN)
+	mkdir -p $(BIN) && cp -fvu $(PROGS) wtdbg2.pl $(BIN)
