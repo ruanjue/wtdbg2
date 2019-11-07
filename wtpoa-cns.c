@@ -43,6 +43,7 @@ int usage(){
 	" -i <string> Input file(s) *.ctg.lay from wtdbg, +, [STDIN]\n"
 	"             Or sorted SAM files when having -d/-p\n"
 	" -o <string> Output files, [STDOUT]\n"
+	" -e <string> Output the coordinates of orignal edges in consensus sequences, [NULL]\n"
 	" -f          Force overwrite\n"
 	" -j <int>    Expected max length of node, or say the overlap length of two adjacent units in layout file, [1500] bp\n"
 	"             overlap will be default to 1500(or 150 for sam-sr) when having -d/-p, block size will be 2.5 * overlap\n"
@@ -82,8 +83,8 @@ int main(int argc, char **argv){
 	SeqBank *refs;
 	FileReader *fr, *db;
 	cplist *infs, *dbfs;
-	FILE *out;
-	char *outf;
+	FILE *out, *map;
+	char *outf, *mapf;
 	u4i i;
 	int reglen, shuffle, winlen, winmin, fail_skip;
 	int seqmax, wsize, print_lay, flags;
@@ -100,10 +101,12 @@ int main(int argc, char **argv){
 	infs = init_cplist(4);
 	dbfs = init_cplist(4);
 	outf = NULL;
+	mapf = NULL;
+	map = NULL;
 	overwrite = 0;
 	print_lay = 0;
 	flags = 0;
-	while((c = getopt(argc, argv, "hqvVt:d:rp:u:i:o:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
+	while((c = getopt(argc, argv, "hqvVt:d:rp:u:i:o:e:fj:S:B:W:w:Ab:M:X:I:D:E:H:R:c:C:F:N:x:")) != -1){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
@@ -113,6 +116,7 @@ int main(int argc, char **argv){
 			case 'r': par.refmode = 1; break;
 			case 'i': push_cplist(infs, optarg); break;
 			case 'o': outf = optarg; break;
+			case 'e': mapf = optarg; break;
 			case 'f': overwrite = 1; break;
 			case 'j': reglen = atoi(optarg); break;
 			case 'S': shuffle = atoi(optarg); break;
@@ -199,6 +203,10 @@ int main(int argc, char **argv){
 	if(outf){
 		out = open_file_for_write(outf, NULL, 1);
 	} else out = stdout;
+	if(mapf){
+		map = open_file_for_write(mapf, NULL, 1);
+		fprintf(map, "#ctg ctg_off edge edge_full_len edge_off edge_len\n");
+	}
 	if(shuffle == 2){
 		srand48(13);
 	}
@@ -220,6 +228,21 @@ int main(int argc, char **argv){
 					}
 				}
 				fflush(out);
+				if(mapf){
+					edge_cns_t *edge;
+					int coff = 0;
+					for(i=0;i<ctg->rs->size;i++){
+						edge = ref_edgecnsv(ctg->rs, i);
+						fprintf(map, "%s\t%d\tE%u\t%d\t%d\t%d\n", ctg->tag->string, coff, i, edge->slen, edge->beg, edge->end);
+						if(edge->end > edge->beg){
+							coff += edge->end - edge->beg;
+						} else if(coff + edge->end > edge->beg){
+							coff += edge->end - edge->beg;
+						} else {
+							coff = 0;
+						}
+					}
+				}
 				if(cc->cycs->size){ // keep only one for reuse
 					free_ctg(ctg);
 				} else {
@@ -260,6 +283,21 @@ int main(int argc, char **argv){
 					}
 				}
 				fflush(out);
+				if(mapf){
+					edge_cns_t *edge;
+					int coff = 0;
+					for(i=0;i<ctg->rs->size;i++){
+						edge = ref_edgecnsv(ctg->rs, i);
+						fprintf(map, "%s\t%d\tE%u\t%d\t%d\t%d\n", ctg->tag->string, coff, i, edge->slen, edge->beg, edge->end);
+						if(edge->end > edge->beg){
+							coff += edge->end - edge->beg;
+						} else if(coff + edge->end > edge->beg){
+							coff += edge->end - edge->beg;
+						} else {
+							coff = 0;
+						}
+					}
+				}
 				if(cc->cycs->size){ // keep only one for reuse
 					free_ctg(ctg);
 				} else {
@@ -273,6 +311,7 @@ int main(int argc, char **argv){
 	}
 	close_filereader(fr);
 	if(outf) fclose(out);
+	if(mapf) fclose(map);
 	free_cplist(infs);
 	free_cplist(dbfs);
 	END_STAT_PROC_INFO(stderr);
