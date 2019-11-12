@@ -296,7 +296,7 @@ static inline int file_exists(const char *filename){
 		//case S_IFDIR:
 		//case S_IFIFO:
 		//case S_IFSOCK:
-		//case S_IFLNK:
+		case S_IFLNK:
 		case S_IFREG: return 1;
 		default: return 0;
 	}
@@ -315,7 +315,7 @@ static inline int dir_exists(const char *filename){
 		//case S_IFREG:
 		//case S_IFIFO:
 		//case S_IFSOCK:
-		//case S_IFLNK:
+		case S_IFLNK:
 		case S_IFDIR: return 1;
 		default: return 0;
 	}
