@@ -20,9 +20,9 @@
 #ifndef __MEM_SHARE_RJ_H
 #define __MEM_SHARE_RJ_H
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
+//#ifndef _GNU_SOURCE
+//#define _GNU_SOURCE
+//#endif
 #if defined(__APPLE__) && defined(__MACH__)
 #include <machine/endian.h>
 #else
@@ -284,12 +284,13 @@ static inline int replace_char(char *str, char src, char dst, int max){
 }
 
 static inline int file_exists(const char *filename){
-	char *realpath;
+	char *rpath;
 	struct stat s;
-	realpath = canonicalize_file_name(filename);
-	if(realpath == NULL) return 0;
-	if(stat(realpath, &s) == -1){ free(realpath); return 0; }
-	free(realpath);
+	//realpath = canonicalize_file_name(filename);
+	rpath = realpath(filename, NULL);
+	if(rpath == NULL) return 0;
+	if(stat(rpath, &s) == -1){ free(rpath); return 0; }
+	free(rpath);
 	switch(s.st_mode & S_IFMT){
 		//case S_IFBLK:
 		//case S_IFCHR:
@@ -303,12 +304,13 @@ static inline int file_exists(const char *filename){
 }
 
 static inline int dir_exists(const char *filename){
-	char *realpath;
+	char *rpath;
 	struct stat s;
-	realpath = canonicalize_file_name(filename);
-	if(realpath == NULL) return 0;
-	if(stat(realpath, &s) == -1){ free(realpath); return 0; }
-	free(realpath);
+	//realpath = canonicalize_file_name(filename);
+	rpath = realpath(filename, NULL);
+	if(rpath == NULL) return 0;
+	if(stat(rpath, &s) == -1){ free(rpath); return 0; }
+	free(rpath);
 	switch(s.st_mode & S_IFMT){
 		//case S_IFBLK:
 		//case S_IFCHR:
