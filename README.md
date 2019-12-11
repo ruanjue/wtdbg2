@@ -113,6 +113,7 @@ ftp://ftp.dfci.harvard.edu/pub/hli/wtdbg/
 If you use wtdbg2, please cite:
 
 > Ruan, J. and Li, H. (2019) Fast and accurate long-read assembly with wtdbg2. *Nat Methods* doi:10.1038/s41592-019-0669-3
+
 > Ruan, J. and Li, H. (2019) Fast and accurate long-read assembly with wtdbg2. *bioRxiv*. doi:10.1101/530972
 
 
