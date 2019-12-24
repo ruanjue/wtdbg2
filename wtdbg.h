@@ -1,4 +1,5 @@
 /*
+ * 
  *
  * Copyright (c) 2011, Jue Ruan <ruanjue@gmail.com>
  *
@@ -1056,7 +1057,12 @@ static inline void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u
 	for(i=0;i<g->reads->size;i++){
 		g->reads->buffer[i].visit = 0; // in which round did the read be touched
 	}
-	encap_regv(g->regs, regs->size + 1); // make sure next_ref_regv in this function is thread-safe
+	if(0){
+		encap_regv(g->regs, roundup_times(regs->size + 1, 8)); // make sure nexe_ref_regv in this function is thread-safe
+	} else {
+		renew_regv(g->regs, roundup_times(regs->size + 1, 8));
+		ZEROS(next_ref_regv(g->regs));
+	}
 	thread_beg_init(mupd, ncpu);
 	mupd->g = g;
 	mupd->regs = regs;
