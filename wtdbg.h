@@ -1046,7 +1046,7 @@ thread_end_func(mupd);
 //TODO: reg_t to store regs, sort them by rank, and sort them by rid in another u4i/u8i array
 //TODO: fast generate nodes and read_link, then select important intervals
 static inline void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u4i ncpu, u8i upds[3]){
-	u8i idx, vt;
+	u8i idx, vt, inc;
 	u4i i, j, pass;
 	read_t *rd;
 	node_t *n;
@@ -1058,9 +1058,10 @@ static inline void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u
 		g->reads->buffer[i].visit = 0; // in which round did the read be touched
 	}
 	if(0){
-		encap_regv(g->regs, roundup_times(regs->size + 1, 8)); // make sure nexe_ref_regv in this function is thread-safe
-	} else {
-		renew_regv(g->regs, roundup_times(regs->size + 1, 8));
+		encap_regv(g->regs, roundup_times(regs->size + 1, 8)); // make sure next_ref_regv in this function is thread-safe
+	}
+	if(0){
+		renew_regv(g->regs, roundup_times(regs->size + 1, 8)); // cannot allocate memory when reg->size is very big, weird
 		ZEROS(next_ref_regv(g->regs));
 	}
 	thread_beg_init(mupd, ncpu);
@@ -1072,7 +1073,13 @@ static inline void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u
 	thread_end_init(mupd);
 	vt = 1;
 	upds[0] = upds[1] = upds[2] = 0;
+	inc = 0;
+	for(i=0;i<1024&&i<nds->size;i++) inc += nds->buffer[i].cnt;
 	for(idx=0;idx<nds->size+ncpu;idx++){
+		if(g->regs->size + inc > g->regs->cap){
+			thread_wait_all(mupd);
+			encap_regv(g->regs, inc);
+		}
 		thread_wait_next(mupd);
 		if(mupd->nd){
 			pass = 0;
