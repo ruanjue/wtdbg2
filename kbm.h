@@ -436,7 +436,7 @@ static inline void bitpush_kbm(KBM *kbm, char *tag, int taglen, u8i *seqs, u8i s
 
 // Please call no more than once
 static inline u8i filter_reads_kbm(KBM *kbm, u8i retain_size, int strategy){
-	u8i m, b, e, len;
+	u8i m, beg, end, len;
 	if(kbm->reads->size == 0) return 0;
 	if(retain_size == 0 || retain_size >= kbm->rdseqs->size) return kbm->rdseqs->size;
 	if((kbm->flags & 0x2) == 0){
@@ -444,25 +444,25 @@ static inline u8i filter_reads_kbm(KBM *kbm, u8i retain_size, int strategy){
 			sort_array(kbm->reads->buffer, kbm->reads->size, kbm_read_t, num_cmpgt(b.bincnt, a.bincnt));
 			if(strategy == 0){ // longest
 				len = 0;
-				for(e=0;e<kbm->reads->size;e++){
-					len += kbm->reads->buffer[e].bincnt * KBM_BIN_SIZE;
+				for(end=0;end<kbm->reads->size;end++){
+					len += kbm->reads->buffer[end].bincnt * KBM_BIN_SIZE;
 					if(len >= retain_size) break;
 				}
-				kbm->reads->size = e;
+				kbm->reads->size = end;
 			} else if(strategy == 1){ // median
 				m = kbm->reads->size / 2;
 				len = kbm->reads->buffer[m].bincnt * KBM_BIN_SIZE;
-				e = m;
-				for(b=0;b<=m&&len<retain_size;b++){
-					len += kbm->reads->buffer[m - b].bincnt * KBM_BIN_SIZE;
-					len += kbm->reads->buffer[m + b].bincnt * KBM_BIN_SIZE;
+				end = m;
+				for(beg=0;beg<=m&&len<retain_size;beg++){
+					len += kbm->reads->buffer[m - beg].bincnt * KBM_BIN_SIZE;
+					len += kbm->reads->buffer[m + beg].bincnt * KBM_BIN_SIZE;
 				}
-				e = b * 2;
-				b = m - b;
-				if(b){
-					remove_array_kbmreadv(kbm->reads, 0, b);
+				end = beg * 2;
+				beg = m - beg;
+				if(beg){
+					remove_array_kbmreadv(kbm->reads, 0, beg);
 				}
-				kbm->reads->size = e;
+				kbm->reads->size = end;
 			} else {
 				return kbm->rdseqs->size;
 			}
