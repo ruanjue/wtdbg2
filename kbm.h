@@ -448,6 +448,7 @@ static inline u8i filter_reads_kbm(KBM *kbm, u8i retain_size, int strategy){
 					len += kbm->reads->buffer[end].bincnt * KBM_BIN_SIZE;
 					if(len >= retain_size) break;
 				}
+				for(m=end;m<kbm->reads->size;m++) free(kbm->reads->buffer[m].tag);
 				kbm->reads->size = end;
 			} else if(strategy == 1){ // median
 				m = kbm->reads->size / 2;
@@ -462,6 +463,7 @@ static inline u8i filter_reads_kbm(KBM *kbm, u8i retain_size, int strategy){
 				if(beg){
 					remove_array_kbmreadv(kbm->reads, 0, beg);
 				}
+				for(m=end;m<kbm->reads->size;m++) free(kbm->reads->buffer[m].tag);
 				kbm->reads->size = end;
 			} else {
 				return kbm->rdseqs->size;

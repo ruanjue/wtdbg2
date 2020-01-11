@@ -4341,10 +4341,12 @@ for(i=mlay->pb;i<mlay->pe;i++){
 	}
 }
 thread_end_loop(mlay);
+fre_seqletv(lets);
 free_subnodev(heap);
 free_readregv(rds);
 free_subedgev(edges);
 free_subnodehash(nodes);
+free_bitvec(rdbits);
 thread_end_func(mlay);
 
 static inline u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *lay_suffix, u4i ncpu, FILE *log){
