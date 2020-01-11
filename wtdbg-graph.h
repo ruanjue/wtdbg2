@@ -4341,7 +4341,7 @@ for(i=mlay->pb;i<mlay->pe;i++){
 	}
 }
 thread_end_loop(mlay);
-fre_seqletv(lets);
+free_seqletv(lets);
 free_subnodev(heap);
 free_readregv(rds);
 free_subedgev(edges);
