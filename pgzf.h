@@ -55,7 +55,7 @@ u8i zxval, doff;
 u1v *dst, *src;
 u4i token;
 int level;
-int task;
+int task, zerosize;
 thread_end_def(pgz);
 
 typedef struct PGZF {
@@ -155,7 +155,8 @@ static inline u4i _pgzf_deflate(u1v *dst, u1v *src, int level){
 	u4i z_size;
 	uLong crc;
 	clear_u1v(dst);
-	if(src->size == 0 || src->size >= MAX_U4) return 0;
+	//if(src->size == 0) return 0;
+	if(src->size >= MAX_U4) return 0;
 	z_size = compressBound(src->size);
 	encap_u1v(dst, z_size + PGZF_HEAD_SIZE + PGZF_TAIL_SIZE);
 	z_size = _zlib_raw_deflate_all(dst->buffer + PGZF_HEAD_SIZE, z_size, src->buffer, src->size, level);
@@ -323,7 +324,7 @@ dst = pgz->dst;
 src = pgz->src;
 thread_beg_loop(pgz);
 if(pgz->task == PGZF_TASK_DEFLATE){
-	if(src->size == 0) continue;
+	if(src->size == 0 && !pgz->zerosize) continue;
 	clear_u1v(dst);
 	_pgzf_deflate(dst, src, pgz->level);
 	while(pz->ridx != pgz->token){
@@ -556,6 +557,7 @@ static inline PGZF* open_pgzf_writer(FILE *out, u4i buffer_size, int ncpu, int l
 	pgz->token = 0;
 	pgz->level = level;
 	pgz->task = PGZF_TASK_NULL;
+	pgz->zerosize = 0;
 	thread_end_init(pgz);
 	thread_export(pgz, pz);
 	return pz;
@@ -616,8 +618,16 @@ static inline void _end_pgzf_writer(PGZF *pz){
 			pgz->token = pz->widx;
 			thread_wake(pgz);
 			pz->widx ++;
+			thread_wait(pgz);
 		}
 		widx ++;
+	}
+	if(pz->widx == 0){
+		thread_beg_operate(pgz, 0);
+		pgz->zerosize = 1;
+		pgz->task = PGZF_TASK_DEFLATE;
+		thread_wake(pgz);
+		thread_wait(pgz);
 	}
 	thread_export(pgz, pz);
 }
