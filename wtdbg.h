@@ -1687,6 +1687,7 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			mclp->task = 2;
 			thread_end_init(mclp);
 			thread_wake_all(mclp);
+			thread_wait_all(mclp);
 			thread_beg_close(mclp);
 			thread_end_close(mclp);
 			fprintf(KBM_LOGF, "Done\n"); fflush(KBM_LOGF);
@@ -1701,6 +1702,7 @@ static inline void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *
 			mclp->task = 1;
 			thread_end_init(mclp);
 			thread_wake_all(mclp);
+			thread_wait_all(mclp);
 			thread_beg_close(mclp);
 			thread_end_close(mclp);
 			u8i tot, clp;
@@ -1937,7 +1939,8 @@ static inline int estimate_edge_length(edge_off_t *ps, uint32_t size, uint32_t i
 		else if(max < 100) break;
 		if(mi - b > e - mi) e = mi;
 		else b = mi;
-		for(i=b,tot=0;i<e;i++) tot += ps[i].off; avg = tot / (e - b);
+		for(i=b,tot=0;i<e;i++) tot += ps[i].off;
+		avg = tot / (e - b);
 		if(num_diff(avg, len) < num_max(avg * 0.2, 50)) break;
 		len = avg;
 	}
