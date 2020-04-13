@@ -1196,7 +1196,7 @@ static inline void print_tree_obj_file(FILE *out, const obj_desc_t *desc, char *
 	fread(aux_data, sizeof(size_t), 1, file);
 	psize = getpagesize();
 	mem = mmap(0, (((*size) + 4 * sizeof(size_t)) + psize - 1) / psize * psize, PROT_READ, MAP_PRIVATE, fileno(file), 0);
-	if(mem == NULL){
+	if(mem == MAP_FAILED){
 		perror("Cannot mmap");
 		return;
 	}
@@ -1260,7 +1260,7 @@ static inline void* mem_read_sub_obj_file(const obj_desc_t *desc, u4i *trace_chi
 	fread(aux_data, sizeof(size_t), 1, file);
 	psize = getpagesize();
 	mem = mmap(0, (((*size) + 4 * sizeof(size_t)) + psize - 1) / psize * psize, PROT_READ, MAP_PRIVATE, fileno(file), 0);
-	if(mem == NULL){
+	if(mem == MAP_FAILED){
 		perror("Cannot mmap");
 		return NULL;
 	}
