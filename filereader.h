@@ -159,18 +159,21 @@ static inline void* file_src_thread_func(void *obj){
 						_read = fc->_read = _read_data_file;
 						_close = fc->_close = NULL;
 					}
+					// fall through
 				case FILEREADER_ATTR_PROC:
 					if(_file == NULL){
 						_file = fc->_file = popen(fc->filename, "r");
 						_read = fc->_read = _read_data_file;
 						_close = fc->_close = _close_input_proc;
 					}
+					// fall through
 				case FILEREADER_ATTR_USER:
 					if(_file == NULL){
 						_file = fc->_file;
 						_read = fc->_read;
 						_close = fc->_close;
 					}
+					// fall through
 				default:
 					if(_file == NULL){
 						_file = fc->_file = open_file_for_read(fc->filename, NULL);

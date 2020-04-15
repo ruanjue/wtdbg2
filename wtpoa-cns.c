@@ -110,7 +110,7 @@ int main(int argc, char **argv){
 		switch(c){
 			case 'h': return usage();
 			case 't': ncpu = atoi(optarg); break;
-			case 'p': print_lay = 1;
+			case 'p': print_lay = 1; // fall through
 			case 'd': push_cplist(dbfs, optarg); break;
 			case 'u': flags = atoi(optarg); break;
 			case 'r': par.refmode = 1; break;

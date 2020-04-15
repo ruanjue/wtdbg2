@@ -793,10 +793,12 @@ static inline size_t mem_size_obj(void *obj, uint8_t mem_type, const obj_desc_t 
 	if(obj == NULL) return size;
 	switch(mem_type){
 		case 3: size += mem_size_round(sizeof(void*) * cnt);
+		// fall through
 		case 2:
 			for(m=0;m<cnt;m++) if(((void**)obj)[m]) size += mem_size_round(desc->size);
 			break;
 		case 1: size += mem_size_round(cnt * desc->size); // TODO: if desc == &OBJ_DESC_DATA, mem_size_round may waste many memory
+		// fall through
 		case 0: break;
 	}
 	if(desc->n_child == 0) return size;
@@ -915,17 +917,15 @@ static inline size_t mem_load_obj(void *obj, size_t aux_data, uint8_t mem_type, 
 		}
 	}
 	if(desc->n_child == 0 && desc->post == NULL){
-		switch(mem_type){
-			case 2:
-			case 3:
-				for(m=0;m<cnt;m++){
-					ptr = ((void**)obj) + m;
-					if(*ptr == NULL) continue;
-					*ptr = (void*)addr;
-					addr += mem_size_round(desc->size);
-				}
-			default: return addr;
+		if(mem_type == 2 || mem_type == 3){
+			for(m=0;m<cnt;m++){
+				ptr = ((void**)obj) + m;
+				if(*ptr == NULL) continue;
+				*ptr = (void*)addr;
+				addr += mem_size_round(desc->size);
+			}
 		}
+		return addr;
 	}
 	for(m=0;m<cnt;m++){
 		if(mem_type & 0x02){
