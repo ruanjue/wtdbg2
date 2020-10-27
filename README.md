@@ -94,3 +94,4 @@ also directly contact Jue Ruan at ruanjue@gmail.com.
 [ce]: https://github.com/PacificBiosciences/DevNet/wiki/C.-elegans-data-set
 [axosra]: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA378970
 [issue]: https://github.com/ruanjue/wtdbg2/issues
+# wtdbg-1.2.9
