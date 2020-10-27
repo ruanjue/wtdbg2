@@ -18,18 +18,21 @@
  */
 
 #include "kbm.h"
+#include <regex.h>
 
 int kbm_usage(){
 	fprintf(stdout, "Program: kbm is a simple instance which implemented kmer-binmap\n");
 	fprintf(stdout, "         it maps query sequence against reference by kmer matching\n");
 	fprintf(stdout, "         matched kmer-pairs are bined (256bp) and counted in a matrix\n");
 	fprintf(stdout, "         dynamic programming is used to search the best path\n");
-	fprintf(stdout, "Version: 1.2.8 r1 (20171129)\n");
+	fprintf(stdout, "Version: 2.huge (20181019)\n");
 	fprintf(stdout, "Author: Jue Ruan <ruanjue@gmail.com>\n");
 	fprintf(stdout, "Usage: kbm <options> [start|list|stop]\n");
 	fprintf(stdout, "Options:\n");
 	fprintf(stdout, " -i <string> File(s) of query sequences, +, [STDIN]\n");
 	fprintf(stdout, " -d <string> File(s) of reference sequences, +, [<-i>]\n");
+	fprintf(stdout, " -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n");
+	fprintf(stdout, "             Negative integer indicate keeping read names, e.g. -5000.\n");
 	fprintf(stdout, " -o <string> Output file, [STDOUT]\n");
 	fprintf(stdout, " -I          Interactive mode\n");
 	fprintf(stdout, "             e.g. `mkfifo pipe` then `while true; do cat pipe && sleep 1; done | kbm -t 8 -I -d ref.fa -i - -Hk 21 -S 4`\n");
@@ -61,6 +64,7 @@ int kbm_usage(){
 	fprintf(stdout, " -m <int>    Min matched length, [200]\n");
 	fprintf(stdout, " -s <float>  Max length variation of two aligned fragments, [0.2]\n");
 	fprintf(stdout, " -c          Insist to query contained reads against all\n");
+	fprintf(stdout, " -r          Don't sort reads by length\n");
 	fprintf(stdout, " -C          Chainning alignments\n");
 	fprintf(stdout, " -n <int>    Max hits per query, [1000]\n");
 #ifdef TEST_MODE
@@ -116,7 +120,7 @@ if(maln->chainning){
 	}
 }
 if(maln->aux->par->max_hit){
-	sort_array(maln->aux->hits->buffer, maln->aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
+	sort_array(maln->aux->hits->buffer, maln->aux->hits->size, kbm_map_t, num_cmpgtx(b.aln, a.aln, b.mat, a.mat));
 	if(maln->aux->hits->size > maln->aux->par->max_hit) maln->aux->hits->size = maln->aux->par->max_hit;
 }
 if(maln->interactive){
@@ -142,10 +146,11 @@ int kbm_main(int argc, char **argv){
 	KBMAux *aux;
 	BitVec *solids, *rdflags;
 	FileReader *fr;
-	BioSequence *seq;
-	u8i opt_flags, nhit;
+	BioSequence *seqs[2], *seq;
+	char regtag[14];
+	u8i tot_bp, max_bp, opt_flags, nhit;
 	u4i qidx, i;
-	int c, ncpu, buffered_read, overwrite, quiet, skip_ctn, chainning, interactive, server, tree_maxcnt;
+	int c, ncpu, buffered_read, overwrite, quiet, tidy_reads, tidy_rdtag, skip_ctn, chainning, interactive, server, tree_maxcnt;
 	int solid_kmer;
 	float fval;
 	thread_preprocess(maln);
@@ -161,6 +166,9 @@ int kbm_main(int argc, char **argv){
 	rdflags = NULL;
 	ncpu = 1;
 	quiet = 0;
+	tidy_reads = 0;
+	tidy_rdtag = -1;
+	max_bp = MAX_U8;
 	qrys = init_cplist(4);
 	refs = init_cplist(4);
 	outf = NULL;
@@ -170,11 +178,12 @@ int kbm_main(int argc, char **argv){
 	server = 0;
 	tree_maxcnt = 10;
 	opt_flags = 0;
-	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:cCT:W:R:qv")) != -1){
+	while((c = getopt(argc, argv, "hi:d:o:fIt:k:p:K:E:FO:S:B:G:D:X:Y:Z:x:y:l:m:n:s:crCT:W:R:qv")) != -1){
 		switch(c){
 			case 'h': return kbm_usage();
 			case 'i': push_cplist(qrys, optarg); break;
 			case 'd': push_cplist(refs, optarg); break;
+			case 'L': tidy_reads = atoi(optarg); break;
 			case 'o': outf = optarg; break;
 			case 'f': overwrite = 1; break;
 			case 'I': interactive = 1; break;
@@ -202,6 +211,7 @@ int kbm_main(int argc, char **argv){
 			case 'n': par->max_hit = atoi(optarg); break;
 			case 's': par->aln_var = atof(optarg); break;
 			case 'c': skip_ctn = 0; break;
+			case 'r': par->rd_len_order = 0; break;
 			case 'C': chainning = 1; break;
 #ifdef TEST_MODE
 			case 'T': par->test_mode = atoi(optarg); break;
@@ -218,6 +228,10 @@ int kbm_main(int argc, char **argv){
 		devnull = open("/dev/null", O_WRONLY);
 		dup2(devnull, KBM_LOGFNO);
 	}
+	if(tidy_rdtag == -1){
+		tidy_rdtag = (tidy_reads >= 0);
+	}
+	if(tidy_reads < 0) tidy_reads = - tidy_reads;
 	BEG_STAT_PROC_INFO(KBM_LOGF, argc, argv);
 	if(par->ksize + par->psize > KBM_MAX_KSIZE){
 		fprintf(stderr, " -- Invalid kmer size %d+%d=%d > %d in %s -- %s:%d --\n", par->ksize, par->psize, par->ksize + par->psize,  KBM_MAX_KSIZE, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
@@ -315,16 +329,93 @@ int kbm_main(int argc, char **argv){
 		}
 	} else {
 		kbm = init_kbm(par);
+		fprintf(KBM_LOGF, "[%s] loading sequences\n", date()); fflush(KBM_LOGF);
 		fr = open_all_filereader(refs->size, refs->buffer, buffered_read);
-		fprintf(KBM_LOGF, "[%s] loading sequences\n", date());
-		seq = init_biosequence();
-		while(readseq_filereader(fr, seq)){
-			push_kbm(kbm, seq->tag->string, seq->tag->size, seq->seq->string, seq->seq->size);
+		tot_bp = 0;
+		seqs[0] = init_biosequence();
+		seqs[1] = init_biosequence();
+		regex_t reg;
+		regmatch_t mats[3];
+		int z, tag_size, len;
+		z = regcomp(&reg, "^(.+?)/[0-9]+_[0-9]+$", REG_EXTENDED);
+		if(z){
+			regerror(z, &reg, regtag, 13);
+			fprintf(stderr, " -- REGCOMP: %s --\n", regtag); fflush(stderr);
+			return 1;
 		}
-		free_filereader(fr);
-		free_biosequence(seq);
+		{
+			int k = 0;
+			reset_biosequence(seqs[0]);
+			reset_biosequence(seqs[1]);
+			while(1){
+				int has = readseq_filereader(fr, seqs[k]);
+				if(tidy_reads){
+					if(has){
+						if((z = regexec(&reg, seqs[k]->tag->string, 3, mats, 0)) == 0){
+							trunc_string(seqs[k]->tag, mats[1].rm_eo);
+						} else if(z != REG_NOMATCH){
+							regerror(z, &reg, regtag, 13);
+							fprintf(stderr, " -- REGEXEC: %s --\n", regtag); fflush(stderr);
+						}
+						//fprintf(stderr, "1: %s len=%d\n", seqs[k]->tag->string, seqs[k]->seq->size); fflush(stderr);
+						//fprintf(stderr, "2: %s len=%d\n", seqs[!k]->tag->string, seqs[!k]->seq->size); fflush(stderr);
+						if(seqs[k]->tag->size == seqs[!k]->tag->size && strcmp(seqs[k]->tag->string, seqs[!k]->tag->string) == 0){
+							if(seqs[k]->seq->size > seqs[!k]->seq->size){
+								k = !k;
+							}
+							continue;
+						} else {
+							seq = seqs[!k];
+							k = !k;
+						}
+					} else {
+						seq = seqs[!k];
+					}
+					if(seq->seq->size < tidy_reads){
+						if(has) continue;
+						else break;
+					}
+					if(tidy_rdtag){
+						sprintf(regtag, "S%010llu", (u8i)kbm->reads->size);
+						clear_string(seq->tag);
+						append_string(seq->tag, regtag, 11);
+					}
+				} else {
+					if(has == 0) break;
+					seq = seqs[k];
+				}
+				tag_size = seq->tag->size;
+				for(i=0;(int)i<seq->seq->size;i+=KBM_MAX_RDLEN){
+					len = num_min(seq->seq->size - i, KBM_MAX_RDLEN);
+					if(i){
+						append_string(seq->tag, "_V", 2);
+						add_int_string(seq->tag, i / KBM_MAX_RDLEN);
+					}
+					if(!KBM_LOG && (kbm->reads->size % 10000) == 0){ fprintf(KBM_LOGF, "\r%u", (u4i)kbm->reads->size); fflush(KBM_LOGF); }
+					//fprintf(stderr, " -- %s len=%d in %s -- %s:%d --\n", seq->tag->string, seq->seq->size, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
+					if(kbm->reads->size >= KBM_MAX_RDCNT){
+						fprintf(stderr, " -- Read Number Out of Range: %u --\n", (u4i)kbm->reads->size); fflush(stderr);
+						break;
+					}
+					push_kbm(kbm, seq->tag->string, seq->tag->size, seq->seq->string + i, len);
+					if(i){ seq->tag->size = tag_size; seq->tag->string[tag_size] = '\0'; }
+				}
+				tot_bp += seq->seq->size;
+				if(max_bp && tot_bp >= max_bp){ break; }
+				if(has == 0) break;
+				if(kbm->reads->size >= KBM_MAX_RDCNT){
+					fprintf(stderr, " -- Read Number Out of Range: %u --\n", (u4i)kbm->reads->size); fflush(stderr);
+					break;
+				}
+			}
+		}
+		close_filereader(fr);
+		regfree(&reg);
+		free_biosequence(seqs[0]);
+		free_biosequence(seqs[1]);
+		if(!KBM_LOG){ fprintf(KBM_LOGF, "\r%u reads", (unsigned)kbm->reads->size); fflush(KBM_LOGF); }
 		ready_kbm(kbm);
-		fprintf(KBM_LOGF, "[%s] %u sequences, %llu bp, %u bins\n", date(), (u4i)kbm->reads->size, (u8i)kbm->rdseqs->size, (u4i)kbm->bins->size);
+		fprintf(KBM_LOGF, "\n[%s] Done, %u reads, %llu bp, %u bins\n", date(), (u4i)kbm->reads->size, tot_bp, (u4i)kbm->bins->size); fflush(KBM_LOGF);
 		fprintf(KBM_LOGF, "[%s] indexing, %d threads\n", date(), ncpu);
 		index_kbm(kbm, 0, kbm->bins->size, ncpu);
 		if(dumpf){

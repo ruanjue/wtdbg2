@@ -22,33 +22,36 @@
 #include <getopt.h>
 #include <regex.h>
 
-#define WT_MAX_RD			0x03FFFFFF
-#define WT_MAX_RDLEN		0x0003FFFF
+//#define WT_MAX_RD			0x03FFFFFF
+//#define WT_MAX_RDLEN		0x0003FFFF
+#define WT_MAX_RD			0x3FFFFFFF // 1 G
+#define WT_MAX_RDLEN		0x00FFFFFF // 16 Mb
+#define WT_MAX_RDBIN		0x0000FFFF // 64 K bins
 #define WT_MAX_NODE			0x000000FFFFFFFFFFLLU
 #define WT_MAX_EDGE			0x000000FFFFFFFFFFLLU
 #define WT_MAX_NODE_EDGES	0xFFFF
 #define WT_MAX_EDGE_COV		0x7FFF
 
 typedef struct {
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:30, dir:1, beg:16, end:16, closed:1;
 } rd_frg_t;
 define_list(rdfrgv, rd_frg_t);
 
 typedef struct {
 	u8i node;
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:30, dir:1, beg:16, end:16, closed:1;
 } rd_reg_t;
 define_list(rdregv, rd_reg_t);
 
 typedef struct {
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:30, dir:1, beg:16, end:16, closed:1;
 	u8i read_link;
 } rd_rep_t;
 define_list(rdrepv, rd_rep_t);
 
 typedef struct {
 	u8i node;
-	u8i rid:26, dir:1, beg:18, end:18, closed:1;
+	u8i rid:30, dir:1, beg:16, end:16, closed:1;
 	u8i read_link;
 } reg_t;
 define_list(regv, reg_t);
@@ -122,13 +125,14 @@ typedef struct {
 define_list(nodev, node_t);
 
 typedef struct {
-	u8i idx:63, flg:1;
+	//u8i idx:63, flg:1;
+	u8i idx:39, flg:1, cnt:24;
 } hit_lnk_t;
 define_list(hitlnkv, hit_lnk_t);
 
 typedef struct {
 	rd_frg_t  frgs[2];
-	hit_lnk_t lnks[2]; // link to next hit of the read
+	hit_lnk_t lnks[2]; // idx+flg: link, cnt[0]: mat, cnt[1]:cglen
 } rd_hit_t;
 define_list(rdhitv, rd_hit_t);
 
@@ -208,7 +212,7 @@ typedef struct {
 	readv    *reads;
 
 	rdhitv   *rdhits;
-	kbmmapv  *pwalns;
+	//kbmmapv  *pwalns;
 	BitsVec  *cigars;
 
 	nodev    *nodes;
@@ -221,9 +225,9 @@ typedef struct {
 	edgerefv *lrefs;
 	tracev   *traces;
 
-	int      node_order;
-	uint32_t n_fix, only_fix; // first n sequences are accurate contigs; only_fix means whether to include other pacbio sequenes
-	uint32_t reglen, regovl, bestn;
+	int      node_order, mem_stingy;
+	u4i      n_fix, only_fix; // first n sequences are accurate contigs; only_fix means whether to include other pacbio sequenes
+	u4i      reglen, regovl, bestn;
 	int      min_node_mats;
 	int      max_overhang, chainning_hits;
 	float    node_max_conflict; // 0.25
@@ -254,11 +258,11 @@ Graph* init_graph(KBM *kbm){
 	g->reads->size = kbm->reads->size;
 	for(rid=0;rid<g->reads->size;rid++){
 		g->reads->buffer[rid].clps[0] = 0;
-		g->reads->buffer[rid].clps[1] = g->kbm->reads->buffer[rid].rdlen;
+		g->reads->buffer[rid].clps[1] = g->kbm->reads->buffer[rid].rdlen / KBM_BIN_SIZE;
 	}
 	g->nodes = init_nodev(32);
 	g->rdhits = init_rdhitv(1024);
-	g->pwalns = init_kbmmapv(1024);
+	//g->pwalns = init_kbmmapv(1024);
 	g->cigars = init_bitsvec(1024, 3);
 	g->edges = init_edgev(32);
 	g->ehash = init_edgehash(1023);
@@ -307,7 +311,7 @@ void free_graph(Graph *g){
 	free_readv(g->reads);
 	free_nodev(g->nodes);
 	free_rdhitv(g->rdhits);
-	free_kbmmapv(g->pwalns);
+	//free_kbmmapv(g->pwalns);
 	free_bitsvec(g->cigars);
 	free_edgev(g->edges);
 	free_edgehash(g->ehash);
@@ -324,15 +328,77 @@ void free_graph(Graph *g){
 }
 
 int map2rdhits_graph(Graph *g, kbm_map_t *hit){
-	rd_hit_t *rh;
+	u4i k, f, d, p, n, add;
+	rd_hit_t *rh, *hp, *hn;
+	read_t *rd;
+	if(hit->mat == 0) return 0;
 	rh = next_ref_rdhitv(g->rdhits);
 	rh->frgs[0] = (rd_frg_t){hit->qidx, hit->qdir, hit->qb, hit->qe, 0};
 	rh->frgs[1] = (rd_frg_t){hit->tidx, hit->tdir, hit->tb, hit->te, 0};
-	rh->lnks[0] = g->reads->buffer[hit->qidx].hits;
-	g->reads->buffer[hit->qidx].hits = (hit_lnk_t){g->rdhits->size - 1, 0};
-	rh->lnks[1] = g->reads->buffer[hit->tidx].hits;
-	g->reads->buffer[hit->tidx].hits = (hit_lnk_t){g->rdhits->size - 1, 1};
-	return 1;
+	rh->lnks[0].cnt = hit->mat;
+	rh->lnks[1].cnt = hit->cglen;
+	add = 0;
+	for(k=0;k<2;k++){
+		rd = ref_readv(g->reads, rh->frgs[k].rid);
+		hn = ref_rdhitv(g->rdhits, rd->hits.idx);
+		f  = rd->hits.flg;
+		hp = NULL;
+		p = 0;
+		n = 1;
+		while(1){
+			if(hn->lnks[0].cnt <= rh->lnks[0].cnt){ // hit->mat
+				break;
+			}
+			p = f;
+			hp = hn;
+			if(hn->lnks[f].idx == 0) break;
+			f = hn->lnks[p].flg;
+			hn = ref_rdhitv(g->rdhits, hn->lnks[p].idx);
+			n ++;
+		}
+		if(g->bestn && n > g->bestn){
+			continue;
+		}
+		if(hp == NULL){
+			rh->lnks[k].idx = rd->hits.idx;
+			rh->lnks[k].flg = rd->hits.flg;
+			rd->hits.idx = offset_rdhitv(g->rdhits, rh);
+			rd->hits.flg = k;
+		} else {
+			rh->lnks[k].idx = hp->lnks[p].idx;
+			rh->lnks[k].flg = hp->lnks[p].flg;
+			hp->lnks[p].idx = offset_rdhitv(g->rdhits, rh);
+			hp->lnks[p].flg = k;
+		}
+		rd->hits.cnt ++;
+		if(g->bestn && rd->hits.cnt > g->bestn){
+			hn = rh;
+			p  = k;
+			while(n < g->bestn){
+				f  = hn->lnks[p].flg;
+				hn = ref_rdhitv(g->rdhits, hn->lnks[p].idx);
+				p = f;
+				n ++;
+			}
+			hp = hn;
+			f = p;
+			while(hn->lnks[f].idx){
+				d  = hn->lnks[f].flg;
+				hn = ref_rdhitv(g->rdhits, hn->lnks[f].idx);
+				hn->frgs[f].closed = 1;
+				f = d;
+			}
+			hp->lnks[p].idx = 0;
+			hp->lnks[p].flg = 0;
+			rd->hits.cnt = n;
+		}
+		add ++;
+	}
+	if(add == 0){
+		trunc_rdhitv(g->rdhits, 1);
+		g->cigars->size -= hit->cglen;
+	}
+	return add;
 }
 
 int is_dovetail_overlap(Graph *g, kbm_map_t *hit){
@@ -371,12 +437,12 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 			mask = 1;
 		}
 	}
-	qn = g->reglen / KBM_BIN_SIZE;
-	min_node_len = (qn - 1) * KBM_BIN_SIZE;
-	max_node_len = (qn + 1) * KBM_BIN_SIZE;
+	qn = g->reglen;
+	min_node_len = (qn - 1);
+	max_node_len = (qn + 1);
 	// translate into reverse sequence order
-	qlen = kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE;
-	tlen = kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE;
+	qlen = kbm->reads->buffer[hit->qidx].bincnt;
+	tlen = kbm->reads->buffer[hit->tidx].bincnt;
 	if(hit->qdir){
 		tmp = qlen - hit->qb;
 		hit->qb = qlen - hit->qe;
@@ -404,18 +470,18 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 		push_u4v(maps[0], x + 1);
 		push_u4v(maps[1], y + 1);
 		push_u4v(maps[2], 0);
-#if 0
-		if(x + 1 + (hit->qb / KBM_BIN_SIZE) != (hit->qe / KBM_BIN_SIZE) || y + 1 + (hit->tb / KBM_BIN_SIZE) != (hit->te / KBM_BIN_SIZE)){
+#if 1
+		if(x + 1 + hit->qb != hit->qe || y + 1 + hit->tb != hit->te){
 			fprintf(stderr, " -- something wrong in %s -- %s:%d --\n", __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			print_hit_kbm(g->kbm, hit, cigars, stderr);
 			abort();
 		}
 #endif
 	}
-	bpos[0][0] = hit->qb / KBM_BIN_SIZE;
-	bpos[0][1] = hit->qe / KBM_BIN_SIZE;
-	bpos[1][0] = hit->tb / KBM_BIN_SIZE;
-	bpos[1][1] = hit->te / KBM_BIN_SIZE;
+	bpos[0][0] = hit->qb;
+	bpos[0][1] = hit->qe;
+	bpos[1][0] = hit->tb;
+	bpos[1][1] = hit->te;
 #if 0
 	fprintf(stdout, "BPOS\t%d\t%d\t%d\t%d\n", bpos[0][0], bpos[0][1], bpos[1][0], bpos[1][1]);
 	for(j=0;j<maps[0]->size;j++){
@@ -459,8 +525,8 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 			// TODO: arbitrarily use outer boundary as matched region, need to test its effect
 			// TODO: whether to remove regs outside clps
 			if(mat >= g->min_node_mats){
-				beg = (npos[0][0] + bpos[1][0]) * KBM_BIN_SIZE;
-				end = (npos[1][1] + bpos[1][0] + 1) * KBM_BIN_SIZE;
+				beg = (npos[0][0] + bpos[1][0]);
+				end = (npos[1][1] + bpos[1][0] + 1);
 				if(end - beg >= min_node_len && end - beg <= max_node_len){
 					closed = 0;
 				} else {
@@ -509,11 +575,11 @@ int hit2rdregs_graph(Graph *g, rdregv *regs, kbm_map_t *hit, BitsVec *cigars, u4
 			// TODO: arbitrarily use outer boundary as matched region, need to test its effect
 			if(mat >= g->min_node_mats){
 				if(hit->qdir){
-					beg = qlen - (npos[1][1] + bpos[0][0] + 1) * KBM_BIN_SIZE;
-					end = qlen - (npos[0][0] + bpos[0][0]) * KBM_BIN_SIZE;
+					beg = qlen - (npos[1][1] + bpos[0][0] + 1);
+					end = qlen - (npos[0][0] + bpos[0][0]);
 				} else {
-					beg = (npos[0][0] + bpos[0][0]) * KBM_BIN_SIZE;
-					end = (npos[1][1] + bpos[0][0] + 1) * KBM_BIN_SIZE;
+					beg = (npos[0][0] + bpos[0][0]);
+					end = (npos[1][1] + bpos[0][0] + 1);
 				}
 				if(end - beg >= min_node_len && end - beg <= max_node_len){
 					closed = 0;
@@ -543,91 +609,29 @@ Graph *g;
 KBMAux *aux;
 reg_t reg;
 rdregv *regs;
-BitVec *rdflags;
-u4i beg, end;
-int raw;
-FILE *alno;
-int task;
 thread_end_def(mdbg);
 
 thread_beg_func(mdbg);
 Graph *g;
 KBM *kbm;
 KBMAux *aux;
-rdregv *regs;
-BitVec *rdflags;
 u4v *maps[3];
 kmeroffv *kmers[2];
-kbm_map_t *hit;
-u4i ridx, i, todo;
 volatile reg_t *reg;
 g = mdbg->g;
 kbm = g->kbm;
 reg = (reg_t*)&mdbg->reg;
 aux = mdbg->aux;
-regs = mdbg->regs;
-rdflags = mdbg->rdflags;
 maps[0] = init_u4v(32);
 maps[1] = init_u4v(32);
 maps[2] = init_u4v(32);
 kmers[0] = adv_init_kmeroffv(64, 0, 1);
 kmers[1] = adv_init_kmeroffv(64, 0, 1);
 thread_beg_loop(mdbg);
-if(mdbg->task == 1){
-	if(reg->closed) continue;
-	query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, kmers);
-	map_kbm(aux);
-	sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
-} else {
-	for(ridx=mdbg->beg+mdbg->t_idx;ridx<mdbg->end;ridx+=mdbg->n_cpu){
-		if(rdflags){
-			todo = 1;
-			thread_beg_syn(mdbg);
-			todo = !get_bitvec(rdflags, ridx);
-			thread_end_syn(mdbg);
-			if(!todo) continue;
-		}
-		query_index_kbm(aux, NULL, ridx, kbm->rdseqs, kbm->reads->buffer[ridx].rdoff, kbm->reads->buffer[ridx].rdlen, kmers);
-		map_kbm(aux);
-		sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgt(b.mat, a.mat));
-		{
-			thread_beg_syn(mdbg);
-			if(!KBM_LOG && ((ridx - mdbg->beg) % 1000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", ridx - mdbg->beg, (u8i)g->pwalns->size); fflush(KBM_LOGF); }
-			u8i cgoff = g->cigars->size;
-			if(mdbg->raw){
-			} else {
-				append_bitsvec(g->cigars, mdbg->aux->cigars, 0, mdbg->aux->cigars->size);
-			}
-			for(i=0;i<mdbg->aux->hits->size;i++){
-				hit = ref_kbmmapv(mdbg->aux->hits, i);
-				if(mdbg->alno){
-					fprint_hit_kbm(mdbg->aux, i, mdbg->alno);
-				}
-				if(rdflags
-					&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
-					&& (hit->tb <= KBM_BSIZE && hit->te + KBM_BSIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE))
-					&& (hit->qb > KBM_BSIZE || hit->qe + KBM_BSIZE < (int)(g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BSIZE))
-					){
-					one_bitvec(rdflags, hit->tidx);
-				}
-				if(mdbg->raw){
-					hit2rdregs_graph(g, regs, hit, mdbg->aux->cigars, maps);
-				} else {
-					push_kbmmapv(g->pwalns, *hit);
-					peer_kbmmapv(g->pwalns)->cgoff += cgoff;
-				}
-			}
-			if(KBM_LOG){
-				fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
-				for(i=0;i<mdbg->aux->hits->size;i++){
-					hit = ref_kbmmapv(mdbg->aux->hits, i);
-					fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te, hit->aln, hit->mat);
-				}
-			}
-			thread_end_syn(mdbg);
-		}
-	}
-}
+if(reg->closed) continue;
+query_index_kbm(aux, NULL, reg->rid, kbm->rdseqs, kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, kmers);
+map_kbm(aux);
+sort_array(aux->hits->buffer, aux->hits->size, kbm_map_t, num_cmpgtx(b.aln, a.aln, b.mat, a.mat));
 thread_end_loop(mdbg);
 free_u4v(maps[0]);
 free_u4v(maps[1]);
@@ -731,12 +735,12 @@ void clip_read_algo(int clps[2], rdclpv *brks, rdclpv *chis, int avg_dep, int mi
 			push_rdclpv(chis, (rd_clp_t){c->pos + KBM_BIN_SIZE, 1, 0, c->dep});
 		}
 	}
-	clps[0] = mx;
-	clps[1] = my;
+	clps[0] = mx / KBM_BIN_SIZE;
+	clps[1] = my / KBM_BIN_SIZE;
 	if((int)chis->size < avg_dep){
 		return;
 	}
-	sort_array(chis->buffer, chis->size, rd_clp_t, a.pos > b.pos);
+	sort_array(chis->buffer, chis->size, rd_clp_t, num_cmpgtx(a.pos, b.pos, b.dir, a.dir));
 	dep = 0; max = 0; mx = 0;
 	for(i=0;i<chis->size;i++){
 		c = ref_rdclpv(chis, i);
@@ -768,31 +772,31 @@ void clip_read_algo(int clps[2], rdclpv *brks, rdclpv *chis, int avg_dep, int mi
 	if(2 * c->dep > max + 1){
 		return;
 	}
-	if(c->pos <= clps[0] || c->pos >= clps[1]){
+	if(c->pos <= clps[0] * KBM_BIN_SIZE || c->pos >= clps[1] * KBM_BIN_SIZE){
 		return;
 	}
 	if(c->pos - clps[0] > clps[1] - c->pos){
-		clps[1] = c->pos;
+		clps[1] = (c->pos + 1) / KBM_BIN_SIZE;
 	} else {
-		clps[0] = c->pos;
+		clps[0] = (c->pos + 1) / KBM_BIN_SIZE;
 	}
 }
 
 void clip_read_core(Graph *g, u4i rid, hitlnkv *lnks, rdclpv *brks, rdclpv *chis){
 	read_t *rd;
-	hit_lnk_t *lnk, *l1, *l2, *l3;
-	rd_hit_t *hit, *hit1, *hit2, *hit3;
+	hit_lnk_t *lnk;
+	rd_hit_t *hit;
 	rd_frg_t *f1, *f2;
-	u4i i, j, h;
+	u4i i;
 	int rlen, dlen, margin, min_dep, dep, avg, x, y;
 	rd = ref_readv(g->reads, rid);
-	rlen = g->kbm->reads->buffer[rid].bincnt * KBM_BIN_SIZE;
+	rlen = g->kbm->reads->buffer[rid].bincnt;
 	if(rlen == 0){
 		return;
 	}
 	lnk = &rd->hits;
 	clear_rdclpv(brks);
-	margin = g->max_overhang > 0? g->max_overhang : KBM_BIN_SIZE * 4;
+	margin = g->max_overhang > 0? g->max_overhang : 4;
 	min_dep = 2;
 	dep = 0;
 	clear_hitlnkv(lnks);
@@ -801,39 +805,6 @@ void clip_read_core(Graph *g, u4i rid, hitlnkv *lnks, rdclpv *brks, rdclpv *chis
 		f1 = hit->frgs + lnk->flg;
 		if(f1->closed == 0) push_hitlnkv(lnks, *lnk);
 		lnk = hit->lnks + lnk->flg;
-	}
-	if(0 && g->chainning_hits){
-		sort_array(
-			lnks->buffer, lnks->size, hit_lnk_t,
-			num_cmpgtxx(
-				g->rdhits->buffer[a.idx].frgs[!a.flg].rid, g->rdhits->buffer[b.idx].frgs[!b.flg].rid,
-				g->rdhits->buffer[a.idx].frgs[0].dir, g->rdhits->buffer[b.idx].frgs[0].dir,
-				g->rdhits->buffer[a.idx].frgs[!a.flg].beg, g->rdhits->buffer[b.idx].frgs[!b.flg].beg
-			)
-		);
-		push_hitlnkv(lnks, (hit_lnk_t){0, 0});
-		l1 = ref_hitlnkv(lnks, 0);
-		hit1 = ref_rdhitv(g->rdhits, l1->idx);
-		for(i=1,j=0;i<lnks->size;i++){
-			l2 = ref_hitlnkv(lnks, i);
-			hit2 = ref_rdhitv(g->rdhits, l2->idx);
-			if(hit1->frgs[!l1->flg].rid != hit2->frgs[!l2->flg].rid || hit1->frgs[0].dir != hit2->frgs[0].dir){
-				for(h=j+1;h<i;h++){
-					l3 = ref_hitlnkv(lnks, h);
-					hit3 = ref_rdhitv(g->rdhits, l3->idx);
-					hit3->frgs[0].closed = 1;
-					hit3->frgs[1].closed = 1;
-					if(hit1->frgs[0].beg > hit3->frgs[l1->flg ^ l3->flg].beg) hit1->frgs[0].beg = hit3->frgs[l1->flg ^ l3->flg].beg;
-					if(hit1->frgs[0].end < hit3->frgs[l1->flg ^ l3->flg].end) hit1->frgs[0].end = hit3->frgs[l1->flg ^ l3->flg].end;
-					if(hit1->frgs[1].beg > hit3->frgs[(l1->flg == l3->flg)].beg) hit1->frgs[0].beg = hit3->frgs[(l1->flg == l3->flg)].beg;
-					if(hit1->frgs[1].end < hit3->frgs[(l1->flg == l3->flg)].end) hit1->frgs[0].end = hit3->frgs[(l1->flg == l3->flg)].end;
-				}
-				j = i;
-				l1 = l2;
-				hit1 = hit2;
-			}
-		}
-		lnks->size --;
 	}
 	for(i=0;i<lnks->size;i++){
 		lnk = ref_hitlnkv(lnks, i);
@@ -859,15 +830,15 @@ void clip_read_core(Graph *g, u4i rid, hitlnkv *lnks, rdclpv *brks, rdclpv *chis
 				//push_rdclpv(brks, (rd_clp_t){f1->beg, 0, 1, 0});
 				//push_rdclpv(brks, (rd_clp_t){f1->end, 1, 1, 0});
 			} else if(x){
-				push_rdclpv(brks, (rd_clp_t){f1->beg, 0, 1, 0});
-				push_rdclpv(brks, (rd_clp_t){f1->end, 1, 0, 0});
+				push_rdclpv(brks, (rd_clp_t){f1->beg * KBM_BIN_SIZE, 0, 1, 0});
+				push_rdclpv(brks, (rd_clp_t){f1->end * KBM_BIN_SIZE, 1, 0, 0});
 			} else if(y){
-				push_rdclpv(brks, (rd_clp_t){f1->beg, 0, 0, 0});
-				push_rdclpv(brks, (rd_clp_t){f1->end, 1, 1, 0});
+				push_rdclpv(brks, (rd_clp_t){f1->beg * KBM_BIN_SIZE, 0, 0, 0});
+				push_rdclpv(brks, (rd_clp_t){f1->end * KBM_BIN_SIZE, 1, 1, 0});
 			} else {
 				dep += f1->end - f1->beg;
-				push_rdclpv(brks, (rd_clp_t){f1->beg, 0, 0, 0});
-				push_rdclpv(brks, (rd_clp_t){f1->end, 1, 0, 0});
+				push_rdclpv(brks, (rd_clp_t){f1->beg * KBM_BIN_SIZE, 0, 0, 0});
+				push_rdclpv(brks, (rd_clp_t){f1->end * KBM_BIN_SIZE, 1, 0, 0});
 			}
 		}
 	}
@@ -1087,6 +1058,26 @@ void mul_update_regs_graph(Graph *g, rdregv *regs, rnkrefv *nds, u4i ncpu, u8i u
 	thread_end_close(mupd);
 }
 
+void chainning_hits_core(kbmmapv *hits, BitsVec *cigars, float aln_var){
+	kbm_map_t HIT;
+	u4i i, j;
+	sort_array(hits->buffer, hits->size, kbm_map_t, num_cmpgtxx(a.qidx, b.qidx, a.tidx, b.tidx, a.qdir, b.qdir));
+	for(i=1,j=0;i<=hits->size;i++){
+		if(i == hits->size || hits->buffer[j].qidx != hits->buffer[i].qidx ||
+			hits->buffer[j].tidx != hits->buffer[i].tidx || hits->buffer[j].qdir != hits->buffer[i].qdir){
+			if(i > j + 1){
+				if(simple_chain_all_maps_kbm(hits->buffer + j, i - j, cigars, &HIT, cigars, aln_var)){
+					hits->buffer[j ++] = HIT;
+					while(j < i){
+						hits->buffer[j++].mat = 0; // closed = 1
+					}
+				}
+			}
+			j = i;
+		}
+	}
+}
+
 void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdclip, char *prefix, char *dump_kbm){
 	kbm_map_t *hit, HIT;
 	BitVec *rks, *rdflags;
@@ -1094,8 +1085,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	BufferedWriter *bw;
 	FILE *alno, *clplog, *kmlog;
 	cuhash_t *cu;
-	u8i idx, rank, kcnts[256], upds[3], nbp, fix_node;
-	u4i nqry, rid, i, dep, ib, ie, mi, max_node_cov, round;
+	u8i idx, nhit, rank, kcnts[256], upds[3], nbp, fix_node;
+	u4i nqry, rid, i, ib, ie, mi, dep, max_node_cov, round;
 	int n_cpu, ncol, reset_kbm, raw;
 	kbm_read_t *pb;
 	rdregv *regs;
@@ -1107,26 +1098,28 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	else n_cpu = ncpu;
 	regs = init_rdregv(1024);
 	nds = init_rnkrefv(1024);
-	free_rdhitv(g->rdhits); g->rdhits = init_rdhitv(1024);
+	renew_rdhitv(g->rdhits, 1024);
 	maps[0] = init_u4v(4);
 	maps[1] = init_u4v(4);
 	maps[2] = init_u4v(4);
 	clear_regv(g->regs);
 	next_ref_regv(g->regs);
-	clear_rdhitv(g->rdhits);
 	ZEROS(next_ref_rdhitv(g->rdhits));
-	clear_kbmmapv(g->pwalns);
+	//clear_kbmmapv(g->pwalns);
 	clear_bitsvec(g->cigars);
-	raw = !(g->chainning_hits || (g->bestn > 0) || rdclip);
+	raw = !((g->bestn > 0) || rdclip);
 	fix_node = 0; // TODO: new code hasn't coped with contigs+longreads mode
 	if(pws){
+		kbmmapv *hits;
+		BitsVec *cigars;
 		u4v *cgs;
-		u8i nhit;
 		int qlen, val, flg, nwarn, mwarn;
 		char *cgstr, *qtag;
 		mwarn = 20;
 		nwarn = 0;
 		cgs = init_u4v(4);
+		hits = init_kbmmapv(32);
+		cigars = g->chainning_hits? init_bitsvec(1024, 3) : g->cigars;
 		memset(&HIT, 0, sizeof(kbm_map_t));
 		hit = &HIT;
 		nhit = 0;
@@ -1154,8 +1147,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 				}
 				//continue;
 			}
-			hit->qb = atoi(get_col_str(pws, 3));
-			hit->qe = atoi(get_col_str(pws, 4));
+			hit->qb = atoi(get_col_str(pws, 3)) / KBM_BIN_SIZE;
+			hit->qe = atoi(get_col_str(pws, 4)) / KBM_BIN_SIZE;
 			if((cu = get_cuhash(g->kbm->tag2idx, get_col_str(pws, 5))) == NULL){
 				if(nwarn < mwarn){
 					fprintf(stderr, " -- Cannot find read \"%s\" in LINE:%llu in %s -- %s:%d --\n", get_col_str(pws, 5), pws->n_line, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
@@ -1167,8 +1160,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			hit->tidx = rid;
 			hit->tdir = 0; // col 6 always eq '+'
 			// skil col 7
-			hit->tb = atoi(get_col_str(pws, 8));
-			hit->te = atoi(get_col_str(pws, 9));
+			hit->tb = atoi(get_col_str(pws, 8)) / KBM_BIN_SIZE;
+			hit->te = atoi(get_col_str(pws, 9)) / KBM_BIN_SIZE;
 			// skip col 10-13
 			hit->mat = atoi(get_col_str(pws, 10));
 			if(hit->mat < g->par->min_mat) continue;
@@ -1176,7 +1169,19 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			if(hit->aln < g->par->min_aln) continue;
 			hit->cnt = atoi(get_col_str(pws, 12));
 			hit->gap = atoi(get_col_str(pws, 13));
-			hit->cgoff = g->cigars->size;
+			if(g->chainning_hits){
+				if(hits->size && peer_kbmmapv(hits)->qidx != hit->qidx){
+					chainning_hits_core(hits, cigars, g->kbm->par->aln_var);
+					for(i=0;i<hits->size;i++){
+						if(hits->buffer[i].mat == 0) continue;
+						append_bitsvec(g->cigars, cigars, hits->buffer[i].cgoff, hits->buffer[i].cglen);
+						map2rdhits_graph(g, ref_kbmmapv(hits, i));
+					}
+					clear_kbmmapv(hits);
+					clear_bitsvec(cigars);
+				}
+			}
+			hit->cgoff = cigars->size;
 			clear_u4v(cgs);
 			cgstr = get_col_str(pws, 14);
 			if(cgstr[0] == '*'){ // no cigar
@@ -1208,21 +1213,34 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			for(i=cgs->size;i>0;i--){
 				val = cgs->buffer[i - 1] >> 8;
 				flg = cgs->buffer[i - 1] & 0xFF;
-				while(val > 0){
-					push_bitsvec(g->cigars, flg);
-					val --;
-				}
+				pushs_bitsvec(cigars, flg, val);
 			}
-			hit->cglen = g->cigars->size - hit->cgoff;
+			hit->cglen = cigars->size - hit->cgoff;
 			nhit ++;
 			if(raw){
-				hit2rdregs_graph(g, regs, hit, g->cigars, maps);
-				clear_bitsvec(g->cigars);
+				hit2rdregs_graph(g, regs, hit, cigars, maps);
+				clear_bitsvec(cigars);
+			} else if(g->chainning_hits){
+				push_kbmmapv(hits, *hit);
 			} else {
-				push_kbmmapv(g->pwalns, *hit);
+				map2rdhits_graph(g, hit);
 			}
 		}
+		if(g->chainning_hits){
+				if(hits->size){
+					chainning_hits_core(hits, cigars, g->kbm->par->aln_var);
+					for(i=0;i<hits->size;i++){
+						if(hits->buffer[i].mat == 0) continue;
+						append_bitsvec(g->cigars, cigars, hit->cgoff, hit->cglen);
+						map2rdhits_graph(g, ref_kbmmapv(hits, i));
+					}
+					clear_kbmmapv(hits);
+					clear_bitsvec(cigars);
+				}
+		}
 		fprintf(KBM_LOGF, "\r%llu lines, %llu hits\n", pws->n_line, nhit);
+		free_kbmmapv(hits);
+		if(g->chainning_hits) free_bitsvec(cigars);
 		free_u4v(cgs);
 	} else {
 		nqry = g->only_fix? g->n_fix : g->reads->size;
@@ -1243,14 +1261,9 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		mdbg->reg.closed = 1;
 		mdbg->aux = init_kbmaux(g->kbm);
 		mdbg->aux->par = g->par;
-		mdbg->regs = regs;
-		mdbg->rdflags = rdflags;
-		mdbg->beg = 0;
-		mdbg->end = 0;
-		mdbg->raw = raw;
-		mdbg->alno = alno;
 		thread_end_init(mdbg);
 		reset_kbm = 0;
+		nhit = 0;
 		while(ib < mi){
 			nbp = 0;
 			round ++;
@@ -1279,7 +1292,8 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			if(round == 1){
 				kbm_kmer_t *u;
 				size_t iter_ptr;
-				u4i *deps, hidx;
+				u8i hidx;
+				u4i *deps;
 				deps = calloc(KBM_MAX_KCNT + 1, 4);
 				kmlog = open_file_for_write(prefix, ".kmerdep", 1);
 				for(hidx=0;hidx<KBM_N_HASH;hidx++){
@@ -1289,7 +1303,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 					}
 				}
 				for(hidx=0;hidx<=KBM_MAX_KCNT;hidx++){
-					fprintf(kmlog, "%u\t%u\n", hidx, deps[hidx]);
+					fprintf(kmlog, "%llu\t%u\n", hidx, deps[hidx]);
 				}
 				fclose(kmlog);
 				free(deps);
@@ -1315,75 +1329,65 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 					fclose(kmlog);
 				}
 			}
-			if(0){
-				thread_beg_iter(mdbg);
-				mdbg->beg = 0;
-				mdbg->end = nqry;
-				mdbg->task = 2;
-				thread_wake(mdbg);
-				thread_end_iter(mdbg);
-			} else {
-				thread_beg_iter(mdbg);
-				mdbg->task = 1;
-				thread_end_iter(mdbg);
-				for(rid=0;rid<=nqry+ncpu;rid++){
-					if(rid < nqry){
-						if(!KBM_LOG && (rid % 2000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", rid, (u8i)g->pwalns->size); fflush(KBM_LOGF); }
-						thread_wait_one(mdbg);
-					} else {
-						thread_wait_next(mdbg);
-						pb = NULL;
+			for(rid=0;rid<=nqry+ncpu;rid++){
+				if(rid < nqry){
+					if(!KBM_LOG && (rid % 2000) == 0){ fprintf(KBM_LOGF, "\r%u|%llu", rid, nhit); fflush(KBM_LOGF); }
+					thread_wait_one(mdbg);
+				} else {
+					thread_wait_next(mdbg);
+					pb = NULL;
+				}
+				if(mdbg->reg.closed == 0){
+					KBMAux *aux = mdbg->aux;
+					if(alno){
+						beg_bufferedwriter(bw);
+						for(i=0;i<aux->hits->size;i++){
+							hit = ref_kbmmapv(aux->hits, i);
+							fprint_hit_kbm(aux, i, bw->out);
+						}
+						end_bufferedwriter(bw);
 					}
-					if(mdbg->reg.closed == 0){
-						u8i cgoff = g->cigars->size;
+					nhit += aux->hits->size;
+					for(i=0;i<aux->hits->size;i++){
+						hit = ref_kbmmapv(aux->hits, i);
+						if(rdflags
+							&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
+							&& (hit->tb <= KBM_BIN_SIZE && hit->te + KBM_BIN_SIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BIN_SIZE))
+							&& (hit->qb > KBM_BIN_SIZE || hit->qe + KBM_BIN_SIZE < (int)(g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BIN_SIZE))
+							){
+							one_bitvec(rdflags, hit->tidx);
+						}
+					}
+					if(g->chainning_hits){
+						chainning_hits_core(aux->hits, aux->cigars, g->kbm->par->aln_var);
+					}
+					for(i=0;i<aux->hits->size;i++){
+						hit = ref_kbmmapv(aux->hits, i);
+						hit->qb /= KBM_BIN_SIZE;
+						hit->qe /= KBM_BIN_SIZE;
+						hit->tb /= KBM_BIN_SIZE;
+						hit->te /= KBM_BIN_SIZE;
+						if(hit->mat == 0) continue;
+						append_bitsvec(g->cigars, aux->cigars, hit->cgoff, hit->cglen);
 						if(raw){
+							hit2rdregs_graph(g, regs, hit, aux->cigars, maps);
 						} else {
-							if(1){
-								append_bitsvec(g->cigars, mdbg->aux->cigars, 0, mdbg->aux->cigars->size);
-							} else {
-								for(i=0;i<mdbg->aux->cigars->size;i++){
-									push_bitsvec(g->cigars, get_bitsvec(mdbg->aux->cigars, i));
-								}
-							}
+							map2rdhits_graph(g, hit);
 						}
-						if(alno){
-							beg_bufferedwriter(bw);
-							for(i=0;i<mdbg->aux->hits->size;i++){
-								hit = ref_kbmmapv(mdbg->aux->hits, i);
-								fprint_hit_kbm(mdbg->aux, i, bw->out);
-							}
-							end_bufferedwriter(bw);
-						}
-						for(i=0;i<mdbg->aux->hits->size;i++){
-							hit = ref_kbmmapv(mdbg->aux->hits, i);
-							if(rdflags
-								&& g->kbm->reads->buffer[hit->tidx].bincnt < g->kbm->reads->buffer[hit->qidx].bincnt
-								&& (hit->tb <= KBM_BSIZE && hit->te + KBM_BSIZE >= (int)(g->kbm->reads->buffer[hit->tidx].bincnt * KBM_BSIZE))
-								&& (hit->qb > KBM_BSIZE || hit->qe + KBM_BSIZE < (int)(g->kbm->reads->buffer[hit->qidx].bincnt * KBM_BSIZE))
-								){
-								one_bitvec(rdflags, hit->tidx);
-							}
-							if(raw){
-								hit2rdregs_graph(g, regs, hit, mdbg->aux->cigars, maps);
-							} else {
-								push_kbmmapv(g->pwalns, *hit);
-								peer_kbmmapv(g->pwalns)->cgoff += cgoff;
-							}
-						}
-						if(KBM_LOG){
-							fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg, mdbg->reg.end);
-							for(i=0;i<mdbg->aux->hits->size;i++){
-								hit = ref_kbmmapv(mdbg->aux->hits, i);
-								fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb, hit->te, hit->aln, hit->mat);
-							}
-						}
-						mdbg->reg.closed = 1;
 					}
-					if(rid < nqry && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
-						pb = ref_kbmreadv(g->kbm->reads, rid);
-						mdbg->reg = (reg_t){0, rid, 0, 0, pb->rdlen, 0, 0};
-						thread_wake(mdbg);
+					if(KBM_LOG){
+						fprintf(KBM_LOGF, "QUERY: %s\t+\t%d\t%d\n", g->kbm->reads->buffer[mdbg->reg.rid].tag, mdbg->reg.beg * KBM_BIN_SIZE, mdbg->reg.end * KBM_BIN_SIZE);
+						for(i=0;i<aux->hits->size;i++){
+							hit = ref_kbmmapv(aux->hits, i);
+							fprintf(KBM_LOGF, "\t%s\t%c\t%d\t%d\t%d\t%d\t%d\n", g->kbm->reads->buffer[hit->tidx].tag, "+-"[hit->qdir], g->kbm->reads->buffer[hit->tidx].rdlen, hit->tb * KBM_BIN_SIZE, hit->te * KBM_BIN_SIZE, hit->aln, hit->mat);
+						}
 					}
+					mdbg->reg.closed = 1;
+				}
+				if(rid < nqry && (rdflags == NULL || get_bitvec(rdflags, rid) == 0)){
+					pb = ref_kbmreadv(g->kbm->reads, rid);
+					mdbg->reg = (reg_t){0, rid, 0, 0, pb->rdlen, 0, 0};
+					thread_wake(mdbg);
 				}
 			}
 			if(ib < mi && !KBM_LOG) fprintf(KBM_LOGF, "\r");
@@ -1391,7 +1395,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 		thread_beg_close(mdbg);
 		free_kbmaux(mdbg->aux);
 		thread_end_close(mdbg);
-		if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", nqry, (u8i)g->pwalns->size);
+		if(!KBM_LOG) fprintf(KBM_LOGF, "\r%u reads|total hits %llu\n", nqry, nhit);
 		if(bw) close_bufferedwriter(bw);
 		if(alno) fclose(alno);
 		if(rdflags) free_bitvec(rdflags);
@@ -1402,71 +1406,9 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	print_proc_stat_info(0);
 	if(raw){
 	} else {
-		if(g->chainning_hits){
-			u8i lst, nch, nmg;
-			fprintf(KBM_LOGF, "[%s] chainning ... ", date()); fflush(KBM_LOGF);
-			psort_array(g->pwalns->buffer, g->pwalns->size, kbm_map_t, ncpu, num_cmpgtxx(a.qidx, b.qidx, a.tidx, b.tidx, a.qdir, b.qdir));
-			nch = nmg = 0;
-			for(idx=lst=0;idx<=g->pwalns->size;idx++){
-				if(idx == g->pwalns->size || g->pwalns->buffer[lst].qidx != g->pwalns->buffer[idx].qidx ||
-					g->pwalns->buffer[lst].tidx != g->pwalns->buffer[idx].tidx || g->pwalns->buffer[lst].qdir != g->pwalns->buffer[idx].qdir){
-					if(idx > lst + 1){
-						if(0){ // TODO: remove this block after debug
-							u8i i;
-							fprintf(KBM_LOGF, "++\n");
-							for(i=lst;i<idx;i++){
-								print_hit_kbm(g->kbm, g->pwalns->buffer + i, g->cigars, KBM_LOGF);
-							}
-							fprintf(KBM_LOGF, "--\n");
-						}
-						if(simple_chain_all_maps_kbm(g->pwalns->buffer + lst, idx - lst, g->cigars, &HIT, g->cigars, g->kbm->par->aln_var)){
-							nch += idx - lst;
-							nmg ++;
-							g->pwalns->buffer[lst++] = HIT;
-							if(0){
-								fprintf(KBM_LOGF, "MERGED\t");
-								print_hit_kbm(g->kbm, &HIT, g->cigars, KBM_LOGF);
-							}
-							while(lst < idx){
-								g->pwalns->buffer[lst++].mat = 0; // closed = 1
-							}
-						}
-					}
-					lst = idx;
-				}
-			}
-			fprintf(KBM_LOGF, " %llu hits into %llu\n", nch, nmg); fflush(KBM_LOGF);
-		}
-		if(g->bestn > 0){
-			fprintf(KBM_LOGF, "[%s] picking best %d hits for each read ... ", date(), g->bestn); fflush(KBM_LOGF);
-			psort_array(g->pwalns->buffer, g->pwalns->size, kbm_map_t, ncpu, num_cmpgtx(b.aln, a.aln, b.mat, a.mat));
-			u4i *cnts;
-			u8i size;
-			cnts = calloc(g->reads->size, sizeof(u4i)); // all zeros
-			size = 0;
-			for(idx=0;idx<g->pwalns->size;idx++){
-				hit = ref_kbmmapv(g->pwalns, idx);
-				if(hit->mat == 0) continue;
-				//if(cnts[hit->qidx] < g->bestn || cnts[hit->tidx] < g->bestn){
-				if(cnts[hit->qidx] < g->bestn && cnts[hit->tidx] < g->bestn){
-					size ++;
-					cnts[hit->qidx] ++;
-					cnts[hit->tidx] ++;
-				} else {
-					hit->mat = 0;
-				}
-			}
-			free(cnts);
-			fprintf(KBM_LOGF, "%llu hits\n", size);
-		}
 		// clip reads
 		if(rdclip){
 			fprintf(KBM_LOGF, "[%s] clipping ... ", date()); fflush(KBM_LOGF);
-			for(idx=0;idx<g->pwalns->size;idx++){
-				hit = ref_kbmmapv(g->pwalns, idx);
-				if(hit->mat == 0) continue;
-				map2rdhits_graph(g, hit);
-			}
 			clplog = open_file_for_write(prefix, ".clps", 1);
 			thread_beg_init(mclp, ncpu);
 			mclp->g = g;
@@ -1478,43 +1420,38 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 			tot = clp = 0;
 			for(rid=0;rid<g->reads->size;rid++){
 				tot += g->kbm->reads->buffer[rid].rdlen;
-				clp += g->reads->buffer[rid].clps[1] - g->reads->buffer[rid].clps[0];
-				fprintf(clplog, "%s\t%d\t%d\t%d\n", g->kbm->reads->buffer[rid].tag, g->kbm->reads->buffer[rid].rdlen, g->reads->buffer[rid].clps[0], g->reads->buffer[rid].clps[1]);
+				clp += (g->reads->buffer[rid].clps[1] - g->reads->buffer[rid].clps[0]) * KBM_BIN_SIZE;
+				fprintf(clplog, "%s\t%d\t%d\t%d\n", g->kbm->reads->buffer[rid].tag, g->kbm->reads->buffer[rid].rdlen, g->reads->buffer[rid].clps[0] * KBM_BIN_SIZE, g->reads->buffer[rid].clps[1] * KBM_BIN_SIZE);
 			}
 			fclose(clplog);
 			fprintf(KBM_LOGF, "%.2f%% bases\n", ((tot - clp) * 100.0) / tot); fflush(KBM_LOGF);
 		}
-		if(0){
-			for(idx=0;idx<g->pwalns->size;idx++){
-				hit = ref_kbmmapv(g->pwalns, idx);
-				if(hit->mat == 0) continue;
-				hit2rdregs_graph(g, regs, hit, g->cigars, maps);
+		rd_hit_t *rh;
+		u8i cgoff;
+		cgoff = 0;
+		hit = &HIT;
+		hit->cnt = 0;
+		hit->gap = 0;
+		for(idx=0;idx<g->rdhits->size;idx++){
+			rh = ref_rdhitv(g->rdhits, idx);
+			hit->cgoff = cgoff;
+			hit->cglen = rh->lnks[1].cnt;
+			cgoff += hit->cglen;
+			if(rh->frgs[0].closed && rh->frgs[1].closed){
+				continue;
 			}
-		} else {
-			thread_fast_run(mhit, ncpu, EXPR(
-				u8i i;
-				rdregv *rs;
-				u4v *ms[3];
-				rs = init_rdregv(1024);
-				ms[0] = init_u4v(1024);
-				ms[1] = init_u4v(1024);
-				ms[2] = init_u4v(1024);
-				for(i=TIDX;i<g->pwalns->size;i+=NCPU){
-					clear_rdregv(rs);
-					hit2rdregs_graph(g, rs, ref_kbmmapv(g->pwalns, i), g->cigars, ms);
-					if(rs->size){
-						thread_beg_syn(mhit);
-						append_rdregv(regs, rs);
-						thread_end_syn(mhit);
-					}
-				}
-				free_rdregv(rs);
-				free_u4v(ms[0]);
-				free_u4v(ms[1]);
-				free_u4v(ms[2]);
-			));
+			hit->qidx = rh->frgs[0].rid;
+			hit->tidx = rh->frgs[1].rid;
+			hit->qdir = rh->frgs[0].dir;
+			hit->tdir = rh->frgs[0].dir;
+			hit->qb = rh->frgs[0].beg;
+			hit->qe = rh->frgs[0].end;
+			hit->tb = rh->frgs[1].beg;
+			hit->te = rh->frgs[1].end;
+			hit->mat = rh->lnks[0].cnt;
+			hit->aln = num_min(hit->qe - hit->qb, hit->te - hit->tb);
+			hit2rdregs_graph(g, regs, hit, g->cigars, maps);
 		}
-		free_kbmmapv(g->pwalns); g->pwalns = init_kbmmapv(1024);
 		free_bitsvec(g->cigars); g->cigars = init_bitsvec(1024, 3);
 	}
 	free_u4v(maps[0]);
@@ -1536,7 +1473,7 @@ void build_nodes_graph(Graph *g, u8i maxbp, int ncpu, FileReader *pws, int rdcli
 	free_bitvec(rks);
 	// generating nodes
 	fprintf(KBM_LOGF, "[%s] sorting regs ... ", date()); fflush(KBM_LOGF);
-	psort_array(regs->buffer, regs->size, rd_reg_t, ncpu, num_cmpgtxx((a.node << 26) | a.rid, (b.node << 26) | b.rid, a.beg, b.beg, b.end, a.end));
+	psort_array(regs->buffer, regs->size, rd_reg_t, ncpu, num_cmpgtxx((a.node << 30) | a.rid, (b.node << 30) | b.rid, a.beg, b.beg, b.end, a.end));
 	fprintf(KBM_LOGF, " Done\n"); fflush(KBM_LOGF);
 	rank = 0xFFFFFFFFFFFFFFFFLLU;
 	nd = NULL;
@@ -2762,10 +2699,10 @@ int cal_offset_traces_graph(Graph *g, tracev *path, u8i beg, u8i end, int offset
 		n = ref_nodev(g->nodes, t->node);
 		r = ref_regv(g->regs, n->regs.idx);
 		if(t->edges[t->dir].idx == EDGE_REF_NULL.idx){
-			off += r->end - r->beg;
+			off += (r->end - r->beg);
 		} else {
 			e = ref_edgev(g->edges, t->edges[t->dir].idx);
-			off += r->end - r->beg + e->off;
+			off += (r->end - r->beg + e->off);
 		}
 	}
 	return off;
@@ -4918,7 +4855,7 @@ uint64_t gen_unitigs_graph(Graph *g){
 		reverse_tracev(path);
 		for(i=0;i<path->size;i++) path->buffer[i].dir = !path->buffer[i].dir;
 		true_linear_unique_trace_graph(g, path, 0xFFFFFFFFFFFFFFFFLLU, nutg, NULL);
-		push_u4v(lens, cal_offset_traces_graph(g, path, 0, path->size, 0));
+		push_u4v(lens, cal_offset_traces_graph(g, path, 0, path->size, 0) * KBM_BIN_SIZE);
 		for(i=0;i<path->size;i++){
 			ref_nodev(g->nodes, path->buffer[i].node)->rep_idx = g->utgs->size;
 		}
@@ -5053,14 +4990,14 @@ uint64_t gen_contigs_graph(Graph *g, FILE *out){
 			continue;
 		}
 		q = ref_seqletv(qs, qs->size - 1);
-		if((int)q->off + (int)q->len < (int)g->min_ctg_len){
+		if(((int)q->off + (int)q->len) * KBM_BIN_SIZE < (int)g->min_ctg_len){
 			free_seqletv(qs);
 			continue;
 		}
 		if(out){
 			for(i=0;i<path->size;i++){
 				t = ref_pathv(path, i);
-				fprintf(out, "ctg%d\tF%d\t%c\t%d\n", (int)g->ctgs->size, t->frg, "+-*@"[t->dir], t->off);
+				fprintf(out, "ctg%d\tF%d\t%c\t%d\n", (int)g->ctgs->size, t->frg, "+-*@"[t->dir], t->off * KBM_BIN_SIZE);
 			}
 		}
 		push_vplist(g->ctgs, qs);
@@ -5146,7 +5083,7 @@ void n50_stat_contigs_graph(Graph *g){
 	for(i=0;i<g->major_nctg;i++){
 		qs = (seqletv*)get_vplist(g->ctgs, i);
 		q = ref_seqletv(qs, qs->size - 1);
-		len = (int)q->off + (int)q->len;
+		len = ((int)q->off + (int)q->len) * KBM_BIN_SIZE;
 		if(len <= 0){
 			fprintf(stderr, " -- seqlet[ctg%llu off=%d, len=%d, sum=%d]  in %s -- %s:%d --\n", i, (int)q->off, (int)q->len, len, __FUNCTION__, __FILE__, __LINE__); fflush(stderr);
 			continue;
@@ -5671,17 +5608,17 @@ int gen_seq_traces_graph(Graph *g, tracev *path, String *seq){
 					} else {
 						if(r1->beg < r2->beg){
 							if(t1->dir ^ r1->dir){ r1++; r2++; continue; }
-							inc = r2->beg - r1->end;
+							inc = (r2->beg - r1->end) * KBM_BIN_SIZE;
 							if(inc <= 0) break;
 							encap_string(seq, inc);
-							seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].rdoff + r1->end, inc, seq->string + seq->size);
+							seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].rdoff + (r1->end * KBM_BIN_SIZE), inc, seq->string + seq->size);
 							seq->size += inc;
 						} else {
 							if(!(t1->dir ^ r1->dir)){ r1++; r2++; continue; }
-							inc = r1->beg - r2->end;
+							inc = (r1->beg - r2->end) * KBM_BIN_SIZE;
 							if(inc <= 0) break;
 							encap_string(seq, inc);
-							revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].rdoff + r2->end, inc, seq->string + seq->size);
+							revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[r1->rid].rdoff + (r2->end * KBM_BIN_SIZE), inc, seq->string + seq->size);
 							seq->size += inc;
 						}
 						inc = 0;
@@ -5690,7 +5627,7 @@ int gen_seq_traces_graph(Graph *g, tracev *path, String *seq){
 				}
 				if(found == 0){ inc = e->off; break; }
 			} while(0);
-			if(inc > 0){ inc = 0; while(inc++ < e->off) add_char_string(seq, 'N'); }
+			if(inc > 0){ inc = 0; while(inc++ < e->off * KBM_BIN_SIZE) add_char_string(seq, 'N'); }
 			else if(inc < 0){
 				if(seq->size + inc < 0) seq->size = 0;
 				else seq->size += inc;
@@ -5699,10 +5636,10 @@ int gen_seq_traces_graph(Graph *g, tracev *path, String *seq){
 		}
 		t1 = t2;
 		reg = ref_regv(g->regs, ref_nodev(g->nodes, t1->node)->regs.idx);
-		inc = reg->end - reg->beg;
+		inc = (reg->end - reg->beg) * KBM_BIN_SIZE;
 		encap_string(seq, inc);
-		if(t1->dir ^ reg->dir) revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, inc, seq->string + seq->size);
-		else                   seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, inc, seq->string + seq->size);
+		if(t1->dir ^ reg->dir) revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + (reg->beg * KBM_BIN_SIZE), inc, seq->string + seq->size);
+		else                   seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + (reg->beg * KBM_BIN_SIZE), inc, seq->string + seq->size);
 		seq->size += inc;
 	}
 	return seq->size;
@@ -5813,6 +5750,7 @@ u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *la
 		uid ++;
 		ret ++;
 		len = path->buffer[path->size - 1].off + path->buffer[path->size - 1].len;
+		len = len * KBM_BIN_SIZE;
 		{
 			beg_bufferedwriter(bw);
 			fprintf(bw->out, ">ctg%llu nodes=%llu len=%u\n", uid, (u8i)path->size + 1, len);
@@ -5826,14 +5764,14 @@ u8i print_ctgs_graph(Graph *g, u8i uid, u8i beg, u8i end, char *prefix, char *la
 				if(lay->rcnt == 0) continue;
 				t = ref_seqletv(path, j);
 				fprintf(bw->out, "E\t%d\tN%llu\t%c\tN%llu\t%c\n", (int)t->off, (u8i)t->node1, "+-"[t->dir1], (u8i)t->node2, "+-"[t->dir2]);
-				regs = thread_access(mlay, (j % mlay->n_cpu))->regs;
+				regs = thread_access(mlay, (j % ncpu))->regs;
 				for(c=0;c<lay->rcnt;c++){
 					reg = ref_layregv(regs, lay->roff + c);
-					fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg, reg->end - reg->beg);
+					fprintf(bw->out, "%c\t%s\t%c\t%d\t%d\t", "Ss"[reg->view], g->kbm->reads->buffer[reg->rid].tag, "+-"[reg->dir], reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE);
 					if(reg->dir){
-						print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, bw->out);
+						print_revseq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
 					} else {
-						print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg, reg->end - reg->beg, bw->out);
+						print_seq_basebank(g->kbm->rdseqs, g->kbm->reads->buffer[reg->rid].rdoff + reg->beg * KBM_BIN_SIZE, (reg->end - reg->beg) * KBM_BIN_SIZE, bw->out);
 					}
 					fprintf(bw->out, "\n");
 				}
@@ -5885,7 +5823,7 @@ uint32_t print_traces_graph(Graph *g, tracev *path, FILE *out){
 					rid = r1->rid;
 					if(r1->beg < r2->beg){
 						if(t1->dir ^ r1->dir){ r1 ++; r2 ++; continue; }
-						beg = r1->beg; end = r2->end;
+						beg = r1->beg * KBM_BIN_SIZE; end = r2->end * KBM_BIN_SIZE;
 						fprintf(out, "S\t%s\t", g->kbm->reads->buffer[rid].tag);
 						fprintf(out, "+\t%d\t%d\t", (int)beg, (int)(end - beg));
 						encap_string(str, end - beg);
@@ -5898,7 +5836,7 @@ uint32_t print_traces_graph(Graph *g, tracev *path, FILE *out){
 						//}
 					} else {
 						if(!(t1->dir ^ r1->dir)){ r1 ++; r2 ++; continue; }
-						beg = r2->beg; end = r1->end;
+						beg = r2->beg * KBM_BIN_SIZE; end = r1->end * KBM_BIN_SIZE;
 						fprintf(out, "S\t%s\t", g->kbm->reads->buffer[rid].tag);
 						fprintf(out, "-\t%d\t%d\t", (int)beg, (int)(end - beg));
 						encap_string(str, end - beg);
@@ -6380,6 +6318,7 @@ static struct option prog_opts[] = {
 	{"node-matched-bins",                1, 0, 1031},
 	{"rescue-low-cov-edges",             0, 0, 1032},
 	{"drop-low-cov-edges",               0, 0, 1033},
+	{"mem-stingy",                       0, 0, 1034},
 	{0, 0, 0, 0}
 };
 
@@ -6399,6 +6338,7 @@ int usage(int level){
 	" -t <int>    Number of threads, 0 for all cores, [4]\n"
 	" -f          Force to overwrite output files\n"
 	" -L <int>    Choose the longest subread and drop reads shorter than <int> (5000 recommended for PacBio) [0]\n"
+	"             Negative integer indicate keeping read names, e.g. -5000.\n"
 	" -k <int>    Kmer fsize, 0 <= k <= 25, [0]\n"
 	" -p <int>    Kmer psize, 0 <= p <= 25, [21]\n"
 	"             k + p <= 25, seed is <k-mer>+<p-homopolymer-compressed>\n"
@@ -6579,13 +6519,14 @@ int main(int argc, char **argv){
 	int c, opt_idx, ncpu, only_fix, node_cov, max_node_cov, exp_node_cov, min_bins, edge_cov, store_low_cov_edge, reglen, regovl, bub_step, tip_step, rep_step;
 	int frgtip_len, ttr_n_cov;
 	int quiet, tidy_reads, tidy_rdtag, less_out, tip_like, cut_tip, rep_filter, out_alns, cnn_filter, log_rep, rep_detach, del_iso, rdclip, chainning, bestn, rescue_low_edges;
-	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode;
+	int min_ctg_len, min_ctg_nds, max_trace_end, max_overhang, overwrite, node_order, fast_mode, mem_stingy;
 	float node_drop, node_mrg, ttr_e_cov, fval;
 	pbs = init_cplist(4);
 	ngs = init_cplist(4);
 	pws = init_cplist(4);
 	asyn_read = 1;
 	ncpu = 4;
+	mem_stingy = 0;
 	tidy_reads = 0;
 	tidy_rdtag = -1;
 	fast_mode = 0;
@@ -6709,6 +6650,7 @@ int main(int argc, char **argv){
 			case 1031: min_bins = atoi(optarg); break;
 			case 1032: rescue_low_edges = 1; break;
 			case 1033: rescue_low_edges = 0; break;
+			case 1034: mem_stingy = 1; break;
 			default: return usage(0);
 		}
 	}
@@ -6741,8 +6683,9 @@ int main(int argc, char **argv){
 		dup2(devnull, STDERR_FILENO);
 	}
 	if(tidy_rdtag == -1){
-		tidy_rdtag = tidy_reads;
+		tidy_rdtag = (tidy_reads >= 0);
 	}
+	if(tidy_reads < 0) tidy_reads = - tidy_reads;
 	max_bp *= 1000000;
 	BEG_STAT_PROC_INFO(stderr, argc, argv);
 	if(ncpu <= 0 && _sig_proc_deamon) ncpu = _sig_proc_deamon->ncpu;
@@ -6896,9 +6839,10 @@ int main(int argc, char **argv){
 	print_proc_stat_info(0);
 	g = init_graph(kbm);
 	g->node_order = node_order;
-	g->reglen = reglen;
-	g->regovl = regovl;
-	g->max_overhang = max_overhang;
+	g->mem_stingy = mem_stingy;
+	g->reglen = reglen / KBM_BIN_SIZE;
+	g->regovl = regovl / KBM_BIN_SIZE;
+	g->max_overhang = max_overhang / KBM_BIN_SIZE;
 	g->node_max_conflict = node_drop;
 	g->node_merge_cutoff = node_mrg;
 	g->min_node_cov = node_cov;
@@ -6999,7 +6943,7 @@ int main(int argc, char **argv){
 		fprintf(KBM_LOGF, "[%s] deleted %llu isolated nodes\n", date(), (unsigned long long)cnt);
 	}
 	//cnt = reduce_transitive_edges_graph(g);
-	cnt = myers_transitive_reduction_graph(g, 100.2f);
+	cnt = myers_transitive_reduction_graph(g, 1.2f);
 	set_init_ends_graph(g);
 	fprintf(KBM_LOGF, "[%s] cut %llu transitive edges\n", date(), (unsigned long long)cnt);
 	if(del_iso){
@@ -7075,14 +7019,14 @@ int main(int argc, char **argv){
 	cnt = cut_binary_lnks_graph(g, evtlog);
 	fprintf(KBM_LOGF, "[%s] deleted %llu binary links\n", date(), (unsigned long long)cnt);
 	//cnt = reduce_transitive_lnks_graph(g);
-	cnt = myers_transitive_reduction_frg_graph(g, 10000.1f);
+	cnt = myers_transitive_reduction_frg_graph(g, 10000.1f / KBM_BIN_SIZE);
 	fprintf(KBM_LOGF, "[%s] cut %llu transitive links\n", date(), (unsigned long long)cnt);
-	cnt = remove_boomerangs_frg_graph(g, 30 * 1000);
+	cnt = remove_boomerangs_frg_graph(g, 30 * 1000 / KBM_BIN_SIZE);
 	fprintf(KBM_LOGF, "[%s] remove %llu boomerangs\n", date(), (unsigned long long)cnt);
 	cnt = 0;
 	while(1){
 		u8i c;
-		if((c = detach_repetitive_frg_graph(g, 100 * 1000)) == 0){
+		if((c = detach_repetitive_frg_graph(g, 100 * 1000 / KBM_BIN_SIZE)) == 0){
 			break;
 		}
 		cnt += c;

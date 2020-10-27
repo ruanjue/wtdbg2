@@ -630,7 +630,7 @@ thread_end_func(_proc_deamon);
 
 #if defined(__linux__) || defined(__unix__) || defined(__CYGWIN__)
 #define BEG_STAT_PROC_INFO(log, argc, argv)	\
-thread_preprocess(_proc_deamon);	\
+thread_prepare(_proc_deamon);	\
 thread_beg_init(_proc_deamon, 1);	\
 thread_end_init(_proc_deamon);	\
 if(log){	\
