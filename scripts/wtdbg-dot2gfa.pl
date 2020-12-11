@@ -12,6 +12,8 @@ TAG:
 	sq: sequence can be substr from <rd_name>_<FR>_<off>_<len>, F fwd, R rev, off is based on the fwd strand
 =cut
 
+my $usz = 256;
+
 while(<>){
 	chomp;
 	next unless(/^([NF]\d+)\s(->\s([NF]\d+)\s)?\[([^\]]+)\]$/);
@@ -23,16 +25,16 @@ while(<>){
 			if($4 >= 0){
 				print "L\t$n1\t$1\t$n2\t$2\t0S\tgl:i:$4\trc:i:$3\n";
 			} else {
-				print "L\t$n1\t$1\t$n2\t$2\t". (0 - $4) . "M\trc:i:$3\n";
+				print "L\t$n1\t$1\t$n2\t$2\t". ((0 - $4) * $usz) . "M\trc:i:$3\n";
 			}
 		} else {
 			die("Bad format: $_");
 		}
 	} else {
 		if($label=~/\{N\d+\s(\d+)\s\|\s(\S+)\s\|\s([FR])_(\d+)_(\d+)\}/){
-			print "S\t$n1\t*\tLN:i:$5\tsq:Z:$2_$3_$4_$5\n"
+			print "S\t$n1\t*\tLN:i:" . ($5 * $usz) . "\tsq:Z:$2_$3_" . ($4 * $usz) . "_" . ($5 * $usz) . "\n"
 		} elsif($label=~/\{F\d+\s(\d+)\s(\d+)\/(\d+)\s\|/){
-			print "S\t$n1\t*\tLN:i:$2\n";
+			print "S\t$n1\t*\tLN:i:" . ($2 * $usz) . "\n";
 		} else {
 			die("Bad format: $_");
 		}
