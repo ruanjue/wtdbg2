@@ -23,7 +23,7 @@ while(<>){
 	if(defined $n2){
 		if($label=~/label=\"(\S)(\S):(\d+):(\-?\d+)\"/){
 			if($4 >= 0){
-				print "L\t$n1\t$1\t$n2\t$2\t0S\tgl:i:$4\trc:i:$3\n";
+				print "L\t$n1\t$1\t$n2\t$2\t0M\tgl:i:$4\trc:i:$3\n";
 			} else {
 				print "L\t$n1\t$1\t$n2\t$2\t". ((0 - $4) * $usz) . "M\trc:i:$3\n";
 			}
