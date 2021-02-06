@@ -1,4 +1,10 @@
 ## <a name="start"></a>Getting Started
+
+This fork will clean the SAM file created by minimap2 polishing step
+of the ```wtdbg2.pl``` script to keep only reads with "rl" tag in the last column.
+
+The ```-m``` option is now active.
+
 ```sh
 git clone https://github.com/ruanjue/wtdbg2
 cd wtdbg2 && make
