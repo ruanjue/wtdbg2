@@ -11,7 +11,7 @@ endif
 ARCH := $(shell uname -m)
 ifeq ($(ARCH), x86_64)
 ARCH_CFLAGS=-mpopcnt -msse4.2
-else ($(ARCH), aarch64)
+else ifeq ($(ARCH), aarch64)
 ARCH_CFLAGS=
 endif
 

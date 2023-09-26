@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    branches:
+    - master
+
+jobs:
+  build:
+    name: Build on Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y file
+
+    - name: Build
+      run: |
+        make -j all
+        file wtdbg2 | grep x86-64
+
+  build-aarch64:
+    name: Build on Linux aarch64
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build
+      uses: uraimo/run-on-arch-action@v2
+      with:
+        arch: aarch64
+        distro: ubuntu20.04
+        githubToken: ${{ github.token }}
+        dockerRunArgs: |
+          --volume "${PWD}:/wtdbg2"
+        install: |
+          apt-get update -q -y
+          apt-get install -q -y make gcc file zlib1g-dev
+        run: |
+          cd /wtdbg2
+          make -j all
+          file wtdbg2 | grep aarch64
