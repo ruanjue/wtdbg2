@@ -25,8 +25,13 @@
 #include "chararray.h"
 #include "list.h"
 #include "hashset.h"
+
+#ifdef __x86_64__
 #include <emmintrin.h>
 #include <tmmintrin.h>
+#elif __aarch64__
+#include "sse2neon.h"
+#endif
 
 #if __BYTE_ORDER == 1234
 //#pragma message(" ** " __FILE__ " has been tested in LITTLE_ENDIAN **\n")

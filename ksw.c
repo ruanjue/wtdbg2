@@ -25,8 +25,13 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <emmintrin.h>
 #include "ksw.h"
+
+#ifdef __x86_64__
+#include <emmintrin.h>
+#elif __aarch64__
+#include "sse2neon.h"
+#endif
 
 #ifdef USE_MALLOC_WRAPPERS
 #  include "malloc_wrap.h"
