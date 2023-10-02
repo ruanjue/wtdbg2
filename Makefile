@@ -8,10 +8,17 @@ ifeq (0, ${MAKELEVEL})
 TIMESTAMP=$(shell date)
 endif
 
+ARCH := $(shell uname -m)
+ifeq ($(ARCH), x86_64)
+ARCH_CFLAGS=-mpopcnt -msse4.2
+else ifeq ($(ARCH), aarch64)
+ARCH_CFLAGS=
+endif
+
 ifeq (1, ${DEBUG})
-CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O0 -DDEBUG=1 -DVERSION="$(VERSION)" -DRELEASE="$(RELEASE)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -mpopcnt -msse4.2
+CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O0 -DDEBUG=1 -DVERSION="$(VERSION)" -DRELEASE="$(RELEASE)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE $(ARCH_CFLAGS)
 else
-CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DVERSION="$(VERSION)" -DRELEASE="$(RELEASE)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -mpopcnt -msse4.2
+CFLAGS=-g3 -W -Wall -Wno-unused-but-set-variable -O4 -DVERSION="$(VERSION)" -DRELEASE="$(RELEASE)" -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE $(ARCH_CFLAGS)
 endif
 
 GLIBS=-lm -lrt -lpthread -lz
